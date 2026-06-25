@@ -1,0 +1,61 @@
+[project]
+name = "aicmo-api"
+version = "0.0.0"
+description = "AI-CMO backend API"
+requires-python = ">=3.12"
+dependencies = [
+  # web
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "python-multipart>=0.0.12",
+  # config
+  "pydantic[email]>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  # db
+  "sqlalchemy[asyncio]>=2.0.36",
+  "psycopg[binary,pool]>=3.2.3",
+  "alembic>=1.14.0",
+  # auth (Clerk JWT verification)
+  "httpx>=0.27.0",
+  "python-jose[cryptography]>=3.3.0",
+  # job queue
+  "arq>=0.26.3",
+  # payments (Phase 1 — billing). Imported lazily; only the live billing
+  # path uses it, so the app + tests run without it installed locally.
+  "stripe>=11.0.0",
+  # LLM providers
+  "anthropic>=0.40.0",
+  "openai>=1.55.0",
+  "google-genai>=0.3.0",
+  # observability
+  "structlog>=24.4.0",
+  "sentry-sdk[fastapi]>=2.18.0",
+  # trend intelligence
+  "pytrends>=4.9.2",
+  "pillow>=12.2.0",
+  "imageio-ffmpeg>=0.6.0",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.8.0",
+  "pyright>=1.1.389",
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "httpx>=0.27.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+ignore = ["E501"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"

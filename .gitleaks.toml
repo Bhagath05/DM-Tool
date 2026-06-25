@@ -1,0 +1,96 @@
+# Gitleaks config — extends the default rule set with DM Tool patterns.
+# Used by both .pre-commit-config.yaml and .github/workflows/security.yml.
+#
+# Test locally: gitleaks detect --source . --config .gitleaks.toml --verbose
+# Test a single file: gitleaks protect --staged --config .gitleaks.toml
+
+# Inherit gitleaks' built-in rule set (AWS, GitHub, Stripe, Slack, etc.).
+[extend]
+useDefault = true
+
+# ----- DM Tool–specific rules -----
+
+[[rules]]
+id = "clerk-secret-key"
+description = "Clerk secret API key (sk_live_ or sk_test_)"
+regex = '''sk_(live|test)_[a-zA-Z0-9]{40,}'''
+tags = ["clerk", "secret"]
+
+[[rules]]
+id = "clerk-publishable-key-live"
+description = "Clerk LIVE publishable key (pk_live_ — should never be in a non-prod commit)"
+regex = '''pk_live_[a-zA-Z0-9]{40,}'''
+tags = ["clerk", "secret"]
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic Claude API key"
+regex = '''sk-ant-[a-zA-Z0-9_\-]{80,}'''
+tags = ["anthropic", "llm", "secret"]
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API key (project or user)"
+regex = '''sk-(proj-)?[A-Za-z0-9_\-]{40,}'''
+tags = ["openai", "llm", "secret"]
+
+[[rules]]
+id = "google-ai-key"
+description = "Google AI Studio (Gemini) API key"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+tags = ["google", "llm", "secret"]
+
+[[rules]]
+id = "clerk-webhook-svix-secret"
+description = "Clerk Svix webhook signing secret"
+regex = '''whsec_[A-Za-z0-9+/=]{32,}'''
+tags = ["clerk", "webhook", "secret"]
+
+[[rules]]
+id = "fernet-key"
+description = "Fernet symmetric key (44-char URL-safe base64)"
+regex = '''(?i)(integration_token_key|fernet_key)\s*[:=]\s*["']?[A-Za-z0-9_\-=]{44}["']?'''
+tags = ["fernet", "secret"]
+
+[[rules]]
+id = "elevenlabs-api-key"
+description = "ElevenLabs TTS API key"
+regex = '''(?i)(elevenlabs[_-]?api[_-]?key)\s*[:=]\s*["']?[a-z0-9]{32,}["']?'''
+tags = ["elevenlabs", "tts", "secret"]
+
+[[rules]]
+id = "gcp-service-account-key"
+description = "GCP service-account private key (Vertex AI / Veo)"
+regex = '''"private_key":\s*"-----BEGIN PRIVATE KEY-----'''
+tags = ["gcp", "vertex", "secret"]
+
+[[rules]]
+id = "sentry-dsn"
+description = "Sentry DSN containing a public key"
+regex = '''https://[a-f0-9]{32}@[a-z0-9.\-]+\.ingest\.sentry\.io/[0-9]+'''
+tags = ["sentry"]
+
+[[rules]]
+id = "postgres-url-with-password"
+description = "Postgres connection string with embedded credentials"
+regex = '''postgres(ql)?(\+psycopg)?://[^:\s]+:[^@\s]+@[^/\s]+/\S+'''
+tags = ["database", "secret"]
+
+# ----- Allowlist -----
+# .env.example placeholders are explicitly allowed.
+
+[allowlist]
+description = "Allow .env.example placeholders and lockfile + test fixtures."
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)docs/security/.*\.md$''',
+  '''pnpm-lock\.yaml$''',
+  '''package-lock\.json$''',
+  '''(^|/)tests?/.*\.(py|ts|tsx|js)$''',
+]
+regexes = [
+  '''(replace_me|REPLACE_ME|your-instance|sk-ant-replace_me|sk-replace_me|pk_test_replace_me|sk_test_replace_me|changeme)''',
+  # Doc strings that mention the format without containing a real key.
+  '''Format:\s*'?whsec_<base64>'?''',
+]
+commits = []

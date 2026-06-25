@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Docker
+infra/data/
+
+# Alembic local state
+apps/api/alembic/versions/__pycache__/
+
+# Databases & dumps (never commit data)
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+
+# Verification node_modules (the evidence dir ships PNGs/JSON, not deps)
+verification-evidence/node_modules/

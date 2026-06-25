@@ -1,0 +1,139 @@
+"""Image provider abstractions (CS5.1) — background removal, stock search,
+and AI image generation.
+
+Same no-vendor-lock pattern as the video/TTS/storage providers: an interface
++ a stub, selected via config. The stubs let the whole image-editing flow
+(replace / remove-bg / AI replace / asset search) run end-to-end with NO
+external dependency; real providers (e.g. remove.bg, Unsplash, OpenAI Images)
+drop in later by implementing the same protocol. Every provider OUTPUT becomes
+a NEW tenant-owned brand_asset — originals are never mutated.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+import structlog
+from pydantic import BaseModel
+
+from aicmo.config import get_settings
+
+log = structlog.get_logger()
+
+# A minimal valid 1x1 transparent PNG — the stub "generated"/"processed" image.
+# Real providers return real bytes; this keeps the pipeline runnable offline.
+_TRANSPARENT_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000d49444154789c6360000002000100ffff03000006000557bfabd400"
+    "00000049454e44ae426082"
+)
+
+
+# ---------------------------------------------------------------------
+#  Background removal
+# ---------------------------------------------------------------------
+class BgRemovalProvider(Protocol):
+    name: str
+
+    def remove(self, data: bytes, content_type: str) -> tuple[bytes, str]:
+        """Return (processed_png_bytes, mime). Real impl strips the background
+        to transparency; the result is stored as a new asset."""
+        ...
+
+
+class StubBgRemovalProvider:
+    name = "stub"
+
+    def remove(self, data: bytes, content_type: str) -> tuple[bytes, str]:
+        # Offline stub: emit a transparent PNG placeholder. A real provider
+        # returns the actual cut-out. The contract (new transparent asset) holds.
+        return _TRANSPARENT_PNG, "image/png"
+
+
+# ---------------------------------------------------------------------
+#  Stock search
+# ---------------------------------------------------------------------
+class StockResult(BaseModel):
+    provider: str
+    external_id: str
+    label: str
+    thumb_url: str
+    full_url: str
+
+
+class StockProvider(Protocol):
+    name: str
+
+    async def search(self, query: str, *, limit: int = 12) -> list[StockResult]:
+        ...
+
+
+class StubStockProvider:
+    name = "stub"
+
+    async def search(self, query: str, *, limit: int = 12) -> list[StockResult]:
+        # No external catalog yet — returns empty so the UI shows "no stock
+        # results". A real provider (Unsplash/Pexels) implements this method.
+        return []
+
+
+# ---------------------------------------------------------------------
+#  AI image generation (text → image)
+# ---------------------------------------------------------------------
+_ASPECT = {"1:1": "1:1", "4:5": "4:5", "9:16": "9:16", "16:9": "16:9"}
+
+
+class ImageGenProvider(Protocol):
+    name: str
+
+    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
+        """Return (image_bytes, mime) for a prompt. Stored as a new asset."""
+        ...
+
+
+class StubImageGenProvider:
+    name = "stub"
+
+    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
+        # Offline placeholder (used only when no OpenAI key is configured).
+        return _TRANSPARENT_PNG, "image/png"
+
+
+class OpenAIImageGenProvider:
+    """Real text→image via the existing OpenAI image provider (Phase 4-A)."""
+
+    name = "openai"
+
+    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
+        from aicmo.providers.images.base import ImageRenderRequest
+        from aicmo.providers.images.registry import get_image_provider
+
+        provider = get_image_provider(get_settings().image_default_provider)
+        result = await provider.render(
+            ImageRenderRequest(
+                prompt=prompt,
+                aspect_ratio=_ASPECT.get(aspect, "1:1"),  # type: ignore[arg-type]
+                quality="standard",
+                negative_prompt="text, words, letters, captions, watermark, logo, ui, low quality, blurry",
+            )
+        )
+        return result.image_bytes, result.mime_type
+
+
+# ---------------------------------------------------------------------
+#  Selection (config-driven later; stubs today — no external spend)
+# ---------------------------------------------------------------------
+def get_bg_removal_provider() -> BgRemovalProvider:
+    return StubBgRemovalProvider()
+
+
+def get_stock_provider() -> StockProvider:
+    return StubStockProvider()
+
+
+def get_image_gen_provider() -> ImageGenProvider:
+    # Real OpenAI image generation when a key is configured; offline stub
+    # otherwise (so dev/tests never need a key).
+    if get_settings().openai_api_key:
+        return OpenAIImageGenProvider()
+    return StubImageGenProvider()

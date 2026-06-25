@@ -1,0 +1,159 @@
+name: Security
+
+# Activates the moment this repo is pushed to GitHub. Until then it sits
+# inert.
+#
+# Coverage:
+#   - secret scanning (gitleaks)
+#   - Python dependency vulnerabilities (pip-audit)
+#   - Node dependency vulnerabilities (pnpm audit)
+#   - Python static security analysis (bandit)
+#   - Multi-language static analysis (semgrep with OWASP rule set)
+#   - Tenant-isolation invariant tests (the 10 pinned pytest cases)
+#
+# Fail policy: any critical finding fails the build. High-severity
+# findings warn but don't block — escalate to critical when they recur.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Daily 03:00 UTC sweep — catches newly disclosed CVEs against
+    # unchanged dependency manifests.
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+  security-events: write   # for SARIF uploads
+  pull-requests: read
+
+jobs:
+  # ---------------------------------------------------------------
+  # gitleaks — catches committed secrets before they ever land in
+  # the default branch. Runs on every event.
+  # ---------------------------------------------------------------
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history so gitleaks can scan all commits
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # GITLEAKS_LICENSE only required for orgs > 25 users.
+
+  # ---------------------------------------------------------------
+  # Python dependency audit (pip-audit) + static security (bandit).
+  # ---------------------------------------------------------------
+  python-security:
+    name: Python security (pip-audit + bandit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: pip-audit (CVE scan on installed packages)
+        run: uv run pip-audit --strict --skip-editable
+        continue-on-error: false
+      - name: bandit (static security analysis)
+        run: |
+          uv pip install bandit
+          uv run bandit -r aicmo/ -ll --skip B101,B311
+        continue-on-error: false
+
+  # ---------------------------------------------------------------
+  # Node dependency audit (pnpm) — frontend + shared workspaces.
+  # ---------------------------------------------------------------
+  node-security:
+    name: Node security (pnpm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm audit (fail on high+)
+        run: pnpm audit --audit-level high
+
+  # ---------------------------------------------------------------
+  # Semgrep — OWASP top-10 + framework-specific rules across Python
+  # and TypeScript.
+  # ---------------------------------------------------------------
+  semgrep:
+    name: Semgrep (OWASP + framework)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep scan
+        run: |
+          semgrep ci \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --config p/python \
+            --config p/typescript \
+            --config p/react \
+            --config p/nextjs \
+            --severity ERROR
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        continue-on-error: false
+
+  # ---------------------------------------------------------------
+  # Tenant-isolation invariants — the 10 pinned tests that guard
+  # against cross-tenant data leaks, header tampering, and role
+  # escalation. These MUST pass for every commit.
+  # ---------------------------------------------------------------
+  tenant-invariants:
+    name: Tenant isolation invariants
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aicmo
+          POSTGRES_PASSWORD: aicmo
+          POSTGRES_DB: aicmo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aicmo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Run tenancy invariants
+        run: uv run pytest tests/tenancy/ -v
+        env:
+          DATABASE_URL: postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo
+          AUTH_MODE: demo
+          API_ENV: development

@@ -1,0 +1,294 @@
+{
+  "run_id": "2db23097e0",
+  "timestamp": "2026-06-20T20:25:50.301522+00:00",
+  "systems": [
+    {
+      "system": "Database Migrations",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "Alembic at head revision",
+          "status": "GREEN",
+          "expected": "DB version in ['0043_publishing_pipeline']",
+          "actual": "0043_publishing_pipeline",
+          "evidence": [
+            "heads=['0043_publishing_pipeline']"
+          ],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Business Brain",
+      "status": "YELLOW",
+      "checks": [
+        {
+          "name": "Brain loaded and complete",
+          "status": "YELLOW",
+          "expected": "Minimum brain fields + \u226570% completeness",
+          "actual": "score=7, missing=[], industry='Study Abroad Consultancy'",
+          "evidence": [
+            "business_name=GlobalPath Study Abroad",
+            "goals='Book 40 qualified UK/Canada counselling sessions per month from Instagram and local Google searches.'"
+          ],
+          "logs": []
+        },
+        {
+          "name": "Profile \u2194 brain alignment",
+          "status": "GREEN",
+          "expected": "Onboarding profile matches brain business_name",
+          "actual": "profile='GlobalPath Study Abroad' brain='GlobalPath Study Abroad'",
+          "evidence": [],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Intelligence Engine",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "All signal layers loaded",
+          "status": "GREEN",
+          "expected": "Business Brain, outcomes, Instagram, GBP, leads",
+          "actual": "all layers OK",
+          "evidence": [
+            "outcomes=2",
+            "ig_metrics=5",
+            "gbp_metrics=6"
+          ],
+          "logs": []
+        },
+        {
+          "name": "Report ready with recommendations",
+          "status": "GREEN",
+          "expected": "ready=True, hero present",
+          "actual": "ready=True, hero=yes, cap=95",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Recommendation 6-field contract",
+          "status": "GREEN",
+          "expected": "observation, root_cause, action, impact, confidence, sources",
+          "actual": "0 error(s)",
+          "evidence": [
+            "checked 3 recommendations"
+          ],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Outcome Learning",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "Historical outcomes in DB",
+          "status": "GREEN",
+          "expected": "\u22651 evaluated outcome for learning context",
+          "actual": "{'evaluated': 2}",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Effectiveness scores readable",
+          "status": "GREEN",
+          "expected": "effectiveness endpoint data loads",
+          "actual": "0 score row(s)",
+          "evidence": [],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "AI History",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "History list returns recommendations",
+          "status": "GREEN",
+          "expected": "\u22652 history items (completed + skipped seeded)",
+          "actual": "5 items",
+          "evidence": [
+            "Optimize Content for Lead Conversion [not_started]",
+            "Leverage Reels for Higher Engagement [not_started]",
+            "Today's top action [not_started]",
+            "Generic motivational quote post [skipped]"
+          ],
+          "logs": []
+        },
+        {
+          "name": "Outcome learning surfaced in history",
+          "status": "GREEN",
+          "expected": "completed items include learning summary",
+          "actual": "completed=True, with_learning=2",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Skipped items visible",
+          "status": "GREEN",
+          "expected": "skipped recommendations appear in history",
+          "actual": "skipped=True",
+          "evidence": [],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Instagram Integration",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "Instagram assets imported",
+          "status": "GREEN",
+          "expected": "manual import persisted social assets",
+          "actual": "5 asset(s)",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Instagram connector metrics",
+          "status": "GREEN",
+          "expected": "metrics upserted to connector_metrics",
+          "actual": "5 metric(s)",
+          "evidence": [
+            "reach_28d=30400.0000",
+            "impressions_28d=38920.0000",
+            "engagement_rate=0.0856",
+            "accounts_engaged=2601.0000"
+          ],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Google Business Integration",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "GBP connection ACTIVE",
+          "status": "GREEN",
+          "expected": "IntegrationConnection state=ACTIVE",
+          "actual": "conn=yes, state=ACTIVE",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "GBP metrics synced",
+          "status": "GREEN",
+          "expected": "profile_views, call_clicks, etc. in connector_metrics",
+          "actual": "6 metric(s)",
+          "evidence": [
+            "profile_views",
+            "call_clicks",
+            "website_clicks",
+            "direction_requests",
+            "reviews_count",
+            "reviews_average_rating"
+          ],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Lead Capture",
+      "status": "YELLOW",
+      "checks": [
+        {
+          "name": "Leads imported to inbox",
+          "status": "GREEN",
+          "expected": "CSV import persisted leads",
+          "actual": "total=8, hot=3",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Lead intelligence composes",
+          "status": "GREEN",
+          "expected": "hero recommendation with confidence",
+          "actual": "confidence=85, hot=3",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Public capture path (schema only)",
+          "status": "YELLOW",
+          "expected": "POST /public/leads/capture/{slug} with captcha",
+          "actual": "Not exercised in audit \u2014 requires published landing page + Turnstile token",
+          "evidence": [],
+          "logs": [
+            "Manual test: publish landing page, submit form with captcha"
+          ]
+        }
+      ]
+    },
+    {
+      "system": "Recommendation Memory",
+      "status": "GREEN",
+      "checks": [
+        {
+          "name": "Brand memory loads prior recommendations",
+          "status": "GREEN",
+          "expected": "completed + skipped recommendations in memory",
+          "actual": "5 row(s)",
+          "evidence": [
+            "[not_started] Today's top action",
+            "[not_started] Leverage Reels for Higher Engagement",
+            "[not_started] Optimize Content for Lead Conversion",
+            "[completed] UK intake deadline carousel"
+          ],
+          "logs": []
+        },
+        {
+          "name": "Dedupe suppresses recent completed actions",
+          "status": "GREEN",
+          "expected": "should_suppress=True for recent completed fingerprint",
+          "actual": "suppress=False, fingerprint=988e6c52e9cd8961861afd0e1d1d032720a680e7",
+          "evidence": [],
+          "logs": []
+        },
+        {
+          "name": "Second compose stability",
+          "status": "GREEN",
+          "expected": "Compose runs twice without error; may repeat if signals unchanged",
+          "actual": "same_hero=False",
+          "evidence": [
+            "compose1_conf=95",
+            "compose2_conf=95"
+          ],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Asset Generation",
+      "status": "YELLOW",
+      "checks": [
+        {
+          "name": "Production asset generation",
+          "status": "YELLOW",
+          "expected": "5 asset types generated via LLM",
+          "actual": "Skipped (--skip-assets)",
+          "evidence": [],
+          "logs": []
+        }
+      ]
+    },
+    {
+      "system": "Publishing Pipeline",
+      "status": "YELLOW",
+      "checks": [
+        {
+          "name": "Execute recommendation \u2192 asset",
+          "status": "YELLOW",
+          "expected": "Recommendation with generator_hint executed",
+          "actual": "No executable recommendation found after compose",
+          "evidence": [],
+          "logs": []
+        }
+      ]
+    }
+  ]
+}

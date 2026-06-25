@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/bhagath/DM_Tool/ai-cmo/apps/web && pnpm dev"],
+      "port": 3000
+    }
+  ]
+}

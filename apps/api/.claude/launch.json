@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "pnpm", "runtimeArgs": ["--filter","@ai-cmo/web","dev"], "port": 3000 },
+    { "name": "api", "runtimeExecutable": "/Users/bhagath/DM_Tool/ai-cmo/apps/api/.venv/bin/python", "runtimeArgs": ["-m","uvicorn","aicmo.main:app","--host","127.0.0.1","--port","8000","--reload","--app-dir","/Users/bhagath/DM_Tool/ai-cmo/apps/api"], "port": 8000 }
+  ]
+}

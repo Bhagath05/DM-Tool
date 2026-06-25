@@ -1,0 +1,75 @@
+{
+  "platform": "instagram",
+  "handle": "@globalpath_studyabroad",
+  "assets": [
+    {
+      "platform_post_id": "gp_uk_intake_jan2025",
+      "asset_type": "carousel",
+      "caption": "UK September 2025 intake is closing. 3 documents most Hyderabad students miss before CAS — swipe for the checklist.",
+      "hashtags": ["studyabroad", "ukuniversities", "hyderabad", "globalpath"],
+      "posted_at": "2025-01-08T11:30:00Z",
+      "impressions": 8420,
+      "reach": 6100,
+      "likes": 412,
+      "comments_count": 89,
+      "saves": 156,
+      "shares": 34
+    },
+    {
+      "platform_post_id": "gp_canada_pnp_reel",
+      "asset_type": "reel",
+      "caption": "Canada PNP vs Express Entry — which path fits a 6.5 IELTS profile? Real counsellor breakdown in 45 seconds.",
+      "hashtags": ["canadastudy", "pnp", "expressentry", "studyincanada"],
+      "posted_at": "2025-01-15T18:00:00Z",
+      "impressions": 12400,
+      "reach": 9800,
+      "likes": 620,
+      "comments_count": 142,
+      "saves": 88,
+      "shares": 51,
+      "views": 11200,
+      "watch_time_seconds": 28.5
+    },
+    {
+      "platform_post_id": "gp_parent_faq_post",
+      "asset_type": "image",
+      "caption": "Parents ask us every week: total cost for UK masters including living expenses. Here is our transparent breakdown for Tier-2 cities.",
+      "hashtags": ["studyabroadparents", "ukmasters", "educationconsultant"],
+      "posted_at": "2025-01-22T09:15:00Z",
+      "impressions": 5200,
+      "reach": 4100,
+      "likes": 98,
+      "comments_count": 31,
+      "saves": 42,
+      "shares": 12
+    },
+    {
+      "platform_post_id": "gp_webinar_promo",
+      "asset_type": "image",
+      "caption": "Free webinar Saturday: Australia post-study work rights for IT graduates. Register via link in bio — seats limited to 40.",
+      "hashtags": ["australiastudy", "poststudywork", "itgraduates"],
+      "posted_at": "2025-02-01T12:00:00Z",
+      "impressions": 3100,
+      "reach": 2800,
+      "likes": 54,
+      "comments_count": 18,
+      "saves": 21,
+      "shares": 8
+    },
+    {
+      "platform_post_id": "gp_testimonial_reel",
+      "asset_type": "reel",
+      "caption": "Ananya got her UK visa in 21 days after we fixed her SOP structure. Her counsellor shares exactly what changed.",
+      "hashtags": ["visasuccess", "ukvisa", "studenttestimonial"],
+      "posted_at": "2025-02-10T17:45:00Z",
+      "impressions": 9800,
+      "reach": 7600,
+      "likes": 510,
+      "comments_count": 76,
+      "saves": 95,
+      "shares": 44,
+      "views": 8900,
+      "watch_time_seconds": 32.1
+    }
+  ]
+}

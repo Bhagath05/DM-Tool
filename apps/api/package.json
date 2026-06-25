@@ -1,0 +1,15 @@
+{
+  "name": "@ai-cmo/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "lsof -ti tcp:8000 -sTCP:LISTEN | xargs -r kill -9 2>/dev/null; true",
+    "dev": "./.venv/bin/python -m uvicorn aicmo.main:app --host 127.0.0.1 --port 8000",
+    "dev:reload": "uv run python -m uvicorn aicmo.main:app --reload --host 127.0.0.1 --port 8000",
+    "worker": "uv run arq aicmo.queue.worker.WorkerSettings",
+    "lint": "uv run ruff check .",
+    "typecheck": "uv run pyright",
+    "migrate": "uv run alembic upgrade head",
+    "makemigration": "uv run alembic revision --autogenerate -m"
+  }
+}
