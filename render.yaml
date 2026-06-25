@@ -37,9 +37,9 @@ services:
     rootDir: apps/api
     plan: starter
     buildCommand: pip install uv && uv sync --frozen --no-dev
-    # Migrations run before the new version receives traffic. Idempotent.
-    preDeployCommand: uv run alembic upgrade head
-    startCommand: uv run uvicorn aicmo.main:app --host 0.0.0.0 --port $PORT
+    # Render Free has no Pre-Deploy hook, so migrations run inside start.sh
+    # (alembic upgrade head → uvicorn) before the port is bound.
+    startCommand: bash start.sh
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
