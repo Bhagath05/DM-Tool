@@ -1,0 +1,117 @@
+# Render Blueprint — DM Tool backend.
+#
+# The Next.js frontend (apps/web) is deployed separately on Vercel.
+# This blueprint provisions the full backend stack:
+#   - dm-tool-api     FastAPI web service (runs Alembic migrations pre-deploy)
+#   - dm-tool-worker  Arq background worker (publish scheduler + monitor cron)
+#   - dm-tool-db      Managed PostgreSQL
+#   - dm-tool-redis   Managed Redis (Arq broker)
+#
+# DATABASE_URL is injected by Render as `postgresql://…` (driver-less). The
+# config layer (aicmo/config.py::_force_async_psycopg3_driver) rewrites it to
+# `postgresql+psycopg://…` automatically — no manual URL editing required.
+
+databases:
+  - name: dm-tool-db
+    databaseName: dmtool
+    user: dmtool
+    plan: basic-256mb        # smallest paid; use `free` for a trial
+
+services:
+  # -------------------------------------------------------------------
+  # Redis — Arq broker. Web app degrades gracefully if it's down, but the
+  # worker requires it.
+  # -------------------------------------------------------------------
+  - type: redis
+    name: dm-tool-redis
+    plan: free
+    maxmemoryPolicy: noeviction   # never drop queued jobs
+    ipAllowList: []               # internal-only (other Render services)
+
+  # -------------------------------------------------------------------
+  # FastAPI web service
+  # -------------------------------------------------------------------
+  - type: web
+    name: dm-tool-api
+    runtime: python
+    rootDir: apps/api
+    plan: starter
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    # Migrations run before the new version receives traffic. Idempotent.
+    preDeployCommand: uv run alembic upgrade head
+    startCommand: uv run uvicorn aicmo.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dm-tool-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: dm-tool-redis
+          property: connectionString
+      # CORS — the Vercel frontend origin(s), comma-separated.
+      - key: API_CORS_ORIGINS
+        value: https://dm-tool-web.vercel.app
+      # Demo posture (boots without Clerk/secret bundle). For real auth set
+      # API_ENV=production + AUTH_MODE=clerk + the secret bundle below.
+      - key: API_ENV
+        value: staging
+      - key: AUTH_MODE
+        value: demo
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # ---- Secrets (set in the Render dashboard; never commit) ----
+      # Needed for AI generation to actually run (LLM_DEFAULT_PROVIDER=anthropic):
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      # Required ONLY when going to real production (API_ENV=production):
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWT_ISSUER
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: CLERK_JWT_AUDIENCE
+        sync: false
+      - key: IP_HASH_PEPPER
+        sync: false
+      - key: MEDIA_SIGNING_SECRET
+        sync: false
+      - key: INTEGRATION_TOKEN_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+  # -------------------------------------------------------------------
+  # Arq background worker — publish scheduler, system monitor, all jobs.
+  # Shares the DB + Redis with the web service.
+  # -------------------------------------------------------------------
+  - type: worker
+    name: dm-tool-worker
+    runtime: python
+    rootDir: apps/api
+    plan: starter
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run arq aicmo.queue.worker.WorkerSettings
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dm-tool-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: dm-tool-redis
+          property: connectionString
+      - key: JOBS_ENABLED
+        value: "true"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ANTHROPIC_API_KEY
+        sync: false

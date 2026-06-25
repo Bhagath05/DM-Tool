@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,32 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=20)
     db_pool_recycle: int = Field(default=1800)
     redis_url: str = "redis://localhost:6379/0"
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _force_async_psycopg3_driver(cls, v: str) -> str:
+        """Normalise DATABASE_URL so SQLAlchemy always uses psycopg **v3**.
+
+        Managed hosts (Render, Heroku, Railway) hand out a *driver-less* URL:
+            postgres://...      or      postgresql://...
+        SQLAlchemy maps the bare ``postgresql`` scheme to **psycopg2** — a sync
+        driver that (a) isn't installed here (→ ``ModuleNotFoundError: psycopg2``
+        at engine creation, before the app can even start) and (b) can't be used
+        with ``create_async_engine`` anyway. We rewrite the scheme to
+        ``postgresql+psycopg`` (psycopg v3, async-capable) so no manual URL
+        editing is ever required in the dashboard.
+
+        Already-qualified URLs are respected: ``postgresql+psycopg`` /
+        ``postgresql+asyncpg`` pass through untouched; an explicit (and wrong)
+        ``postgresql+psycopg2`` is upgraded to ``postgresql+psycopg``.
+        """
+        if v.startswith("postgres://"):  # legacy Heroku/Render scheme
+            v = "postgresql://" + v.removeprefix("postgres://")
+        if v.startswith("postgresql+psycopg2://"):
+            return "postgresql+psycopg://" + v.removeprefix("postgresql+psycopg2://")
+        if v.startswith("postgresql://"):
+            return "postgresql+psycopg://" + v.removeprefix("postgresql://")
+        return v
 
     # -----------------------------------------------------------------
     # Row-Level Security (RLS) — defense-in-depth tenant isolation at the
