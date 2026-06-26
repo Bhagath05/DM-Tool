@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 
 import httpx
+import structlog
 from fastapi import Depends, Header, HTTPException, status
 from jose import jwt
 from jose.exceptions import JWTError
@@ -19,6 +20,7 @@ from aicmo.auth.clerk_profile import profile_from_claims
 from aicmo.config import get_settings
 
 settings = get_settings()
+log = structlog.get_logger()
 
 _JWKS_CACHE: dict[str, object] = {"keys": None, "fetched_at": 0.0}
 _JWKS_TTL_SECONDS = 60 * 60
@@ -229,6 +231,17 @@ async def require_user(
         try:
             claims = _verify_token(token, jwks)
         except JWTError as e:
+            # Surface WHY the token was rejected so a misconfigured Clerk deploy
+            # is debuggable from the logs (the reason is "Invalid audience",
+            # "Invalid issuer", "Signature verification failed", "expired", …).
+            # The token itself is never logged.
+            log.warning(
+                "auth.token_rejected",
+                reason=str(e),
+                issuer_configured=bool(settings.clerk_jwt_issuer),
+                audience_configured=bool(settings.clerk_jwt_audience),
+                jwks_url_configured=bool(settings.clerk_jwks_url),
+            )
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
 
     return _auth_context_from_claims(
