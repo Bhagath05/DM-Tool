@@ -28,6 +28,12 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Invite acceptance must be reachable while logged out — the invitee
+  // may not have an account yet and needs to preview the invite before
+  // signing in. The token is the credential; the accept action itself
+  // still requires a signed-in user (UI `<SignedIn>` gate + backend
+  // `POST /invites/accept` → require_user + RBAC).
+  "/invites(.*)",
 ]);
 
 // In clerk mode: protect non-public routes (forces sign-in).
