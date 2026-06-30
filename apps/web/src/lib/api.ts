@@ -1486,6 +1486,81 @@ export interface TopAssetRow {
   created_at: string;
 }
 
+// ---- Team (Settings → Team) ----
+// Mirrors apps/api/aicmo/modules/team/schemas.py. Dates arrive as ISO
+// strings over JSON. Owner is never invitable; admin/analyst/viewer are.
+export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+export type InvitableRole = "admin" | "analyst" | "viewer";
+export type CanonicalRole = "owner" | "admin" | "analyst" | "viewer";
+
+export interface RoleDescriptor {
+  slug: CanonicalRole;
+  display_name: string;
+  description: string;
+  capabilities: string[];
+  can_be_invited_as: boolean;
+  can_be_granted_by_admin: boolean;
+  is_terminal_for_org: boolean;
+}
+
+export interface MemberSummary {
+  member_id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  role_slugs: string[];
+  is_owner: boolean;
+  joined_at: string;
+  last_active_at: string | null;
+}
+
+export interface InviteRead {
+  id: string;
+  organization_id: string;
+  email: string;
+  role_slug: InvitableRole;
+  status: InviteStatus;
+  invited_by_user_id: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  is_expired: boolean;
+}
+
+export interface InviteCreateResponse {
+  invite: InviteRead;
+  /** Full acceptance URL with the raw token — returned ONCE, never persisted. */
+  accept_url: string;
+}
+
+export interface TeamOverview {
+  members: MemberSummary[];
+  pending_invites: InviteRead[];
+  roles: RoleDescriptor[];
+  member_count: number;
+  pending_invite_count: number;
+  can_invite: boolean;
+  can_revoke_owner: boolean;
+}
+
+export interface InvitePreview {
+  organization_name: string;
+  organization_slug: string;
+  role_slug: InvitableRole;
+  role_display_name: string;
+  invited_email: string;
+  expires_at: string;
+  is_expired: boolean;
+}
+
+export interface InviteAcceptResponse {
+  organization_id: string;
+  brand_id: string | null;
+  role_slugs: string[];
+  next_route: string;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -1613,6 +1688,30 @@ export const api = {
       const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
       return `${base}/api/v1/leads/export.csv${suffix}`;
     },
+  },
+  team: {
+    /** GET /team — members + pending invites + role catalog + affordance flags. */
+    overview: () => request<TeamOverview>("/api/v1/team"),
+    /** POST /team/invites — returns the one-time accept URL. Requires `team.manage`. */
+    createInvite: (payload: { email: string; role_slug: InvitableRole }) =>
+      request<InviteCreateResponse>("/api/v1/team/invites", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    /** POST /team/invites/{id}/revoke — cancel a pending invite. */
+    revokeInvite: (inviteId: string) =>
+      request<InviteRead>(`/api/v1/team/invites/${inviteId}/revoke`, {
+        method: "POST",
+      }),
+    /** GET /invites/{token} — public preview of an invite (acceptance page). */
+    previewInvite: (token: string) =>
+      request<InvitePreview>(`/api/v1/invites/${encodeURIComponent(token)}`),
+    /** POST /invites/accept — consume an invite. Requires a signed-in user. */
+    acceptInvite: (token: string) =>
+      request<InviteAcceptResponse>("/api/v1/invites/accept", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
   },
   campaigns: {
     generate: (payload: GenerateCampaignPayload) =>
