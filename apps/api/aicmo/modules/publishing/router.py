@@ -8,17 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
+from aicmo.modules.publishing import assets as asset_registry
 from aicmo.modules.publishing import service
+from aicmo.modules.publishing.models import ContentAsset
 from aicmo.modules.publishing.schemas import (
     AssetPerformanceResponse,
     ContentAssetResponse,
-    ScheduleFromRecommendationRequest,
-    SchedulePostRequest,
+    PublishEventList,
     ScheduledPostList,
     ScheduledPostResponse,
+    ScheduleFromRecommendationRequest,
+    SchedulePostRequest,
 )
-from aicmo.modules.publishing.models import ContentAsset
-from aicmo.modules.publishing import assets as asset_registry
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
 
@@ -112,4 +113,28 @@ async def publish_now(
 ) -> ScheduledPostResponse:
     return await service.publish_scheduled_post(
         session, scheduled_post_id=scheduled_post_id, tenant=tenant
+    )
+
+
+@router.post("/posts/{scheduled_post_id}/retry", response_model=ScheduledPostResponse)
+async def retry_post(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.create")),
+) -> ScheduledPostResponse:
+    """Operator retry of a failed post — resets the attempt budget + re-publishes."""
+    return await service.retry_post(
+        session, scheduled_post_id=scheduled_post_id, tenant=tenant
+    )
+
+
+@router.get("/posts/{scheduled_post_id}/events", response_model=PublishEventList)
+async def list_post_events(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> PublishEventList:
+    """Audit trail (scheduled / attempts / published / failed) for one post."""
+    return await service.list_events(
+        session, brand_id=tenant.brand_id, scheduled_post_id=scheduled_post_id
     )

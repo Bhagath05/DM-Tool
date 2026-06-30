@@ -73,6 +73,22 @@ class ScheduledPostList(BaseModel):
     items: list[ScheduledPostResponse]
 
 
+class PublishEventResponse(BaseModel):
+    """One entry in a scheduled post's audit trail (scheduled / publish_attempt
+    / published / failed), with structured detail."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    event_type: str
+    detail: dict
+    created_at: datetime
+
+
+class PublishEventList(BaseModel):
+    items: list[PublishEventResponse]
+
+
 class PublishPerformanceMetrics(BaseModel):
     recommendation_id: uuid.UUID | None
     platform: str

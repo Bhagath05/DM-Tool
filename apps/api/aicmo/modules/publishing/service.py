@@ -29,12 +29,12 @@ from aicmo.modules.publishing.publishers import (
 )
 from aicmo.modules.publishing.schemas import (
     AssetPerformanceResponse,
-    ContentAssetResponse,
-    PublishPlatform,
-    ScheduleFromRecommendationRequest,
-    SchedulePostRequest,
+    PublishEventList,
+    PublishEventResponse,
     ScheduledPostList,
     ScheduledPostResponse,
+    ScheduleFromRecommendationRequest,
+    SchedulePostRequest,
 )
 from aicmo.modules.social.models import SocialAsset
 from aicmo.tenancy.context import TenantContext
@@ -169,6 +169,67 @@ async def list_scheduled(
     )
 
 
+async def _require_owned_post(
+    session: AsyncSession, *, brand_id: uuid.UUID, scheduled_post_id: uuid.UUID
+) -> ScheduledPost:
+    """Load a scheduled post, enforcing tenant isolation. 404 if it doesn't
+    exist OR belongs to another brand (never leak existence across tenants)."""
+    row = await session.get(ScheduledPost, scheduled_post_id)
+    if row is None or row.brand_id != brand_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scheduled post not found"
+        )
+    return row
+
+
+async def list_events(
+    session: AsyncSession, *, brand_id: uuid.UUID, scheduled_post_id: uuid.UUID
+) -> PublishEventList:
+    """Audit trail for a scheduled post, chronological. Tenant-scoped via the
+    owning post (PublishEvent has no brand_id of its own)."""
+    await _require_owned_post(
+        session, brand_id=brand_id, scheduled_post_id=scheduled_post_id
+    )
+    rows = (
+        await session.execute(
+            select(PublishEvent)
+            .where(PublishEvent.scheduled_post_id == scheduled_post_id)
+            .order_by(PublishEvent.created_at)
+        )
+    ).scalars().all()
+    return PublishEventList(
+        items=[PublishEventResponse.model_validate(r) for r in rows]
+    )
+
+
+async def retry_post(
+    session: AsyncSession,
+    *,
+    scheduled_post_id: uuid.UUID,
+    tenant: TenantContext,
+) -> ScheduledPostResponse:
+    """Operator-initiated retry of a failed/scheduled post. Resets the attempt
+    budget (an explicit human decision) and re-runs the publish immediately."""
+    row = await _require_owned_post(
+        session, brand_id=tenant.brand_id, scheduled_post_id=scheduled_post_id
+    )
+    if row.publish_status == "published":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This post is already published.",
+        )
+    row.attempt_count = 0
+    row.error_message = None
+    row.publish_status = "scheduled"
+    await _log_event(
+        session, scheduled_post_id=row.id, event_type="retry_requested", detail={}
+    )
+    await session.flush()
+    return await publish_scheduled_post(
+        session, scheduled_post_id=row.id, tenant=tenant
+    )
+
+
 async def publish_scheduled_post(
     session: AsyncSession,
     *,
@@ -249,7 +310,7 @@ async def publish_scheduled_post(
             )
         else:
             raise RuntimeError(f"Unsupported platform: {row.platform}")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         row.publish_status = "failed" if row.attempt_count >= MAX_PUBLISH_ATTEMPTS else "scheduled"
         row.error_message = str(exc)[:500]
         await _log_event(
@@ -363,7 +424,7 @@ async def publish_all_due_posts(session: AsyncSession, *, limit: int = 100) -> i
             res = await publish_scheduled_post(session, scheduled_post_id=row.id)
             if res.publish_status == "published":
                 published += 1
-        except Exception as exc:  # noqa: BLE001 — one bad row must not stop the batch
+        except Exception as exc:
             await session.rollback()
             log.warning(
                 "publish.cron.row_failed",

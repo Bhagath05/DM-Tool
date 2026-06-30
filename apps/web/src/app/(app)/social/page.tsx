@@ -1,10 +1,11 @@
+import { ScheduledPosts } from "./_components/scheduled-posts";
 import { SocialIntelligence } from "./_components/social-intelligence";
 
 export const dynamic = "force-dynamic";
 
 export default function SocialPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           What actually works on social
@@ -16,6 +17,7 @@ export default function SocialPage() {
         </p>
       </div>
       <SocialIntelligence />
+      <ScheduledPosts />
     </div>
   );
 }

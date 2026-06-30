@@ -1226,6 +1226,14 @@ export interface ScheduledPost {
   updated_at: string;
 }
 
+/** One entry in a scheduled post's audit trail. */
+export interface PublishEvent {
+  id: string;
+  event_type: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface PerformanceSignal {
   impressions: number;
   reach: number;
@@ -2156,6 +2164,23 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+    /** Publish a scheduled post immediately. */
+    publishNow: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/publish/${id}`, {
+        method: "POST",
+      }),
+    /** Operator retry of a failed post — resets the attempt budget + re-publishes. */
+    retry: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/retry`, {
+        method: "POST",
+      }),
+    /** Audit trail for a scheduled post (scheduled / attempts / published / failed). */
+    events: async (id: string): Promise<PublishEvent[]> => {
+      const r = await request<{ items: PublishEvent[] }>(
+        `/api/v1/publishing/posts/${id}/events`,
+      );
+      return r.items;
+    },
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {
