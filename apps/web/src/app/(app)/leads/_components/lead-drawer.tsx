@@ -9,13 +9,16 @@ import {
   Inbox,
   Megaphone,
   MousePointerClick,
+  Plus,
   Sparkles,
+  Tag,
   Trash2,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -56,6 +59,8 @@ export function LeadDrawer({
 }) {
   const [notes, setNotes] = useState(lead.notes ?? "");
   const [status, setStatus] = useState<LeadStatus>(lead.status);
+  const [tags, setTags] = useState<string[]>(lead.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,8 +68,10 @@ export function LeadDrawer({
   useEffect(() => {
     setNotes(lead.notes ?? "");
     setStatus(lead.status);
+    setTags(lead.tags ?? []);
+    setTagInput("");
     setError(null);
-  }, [lead.id, lead.notes, lead.status]);
+  }, [lead.id, lead.notes, lead.status, lead.tags]);
 
   const saveNotes = async () => {
     setSaving(true);
@@ -89,6 +96,38 @@ export function LeadDrawer({
       setStatus(prev);
       setError(e instanceof Error ? e.message : "Could not update status");
     }
+  };
+
+  const persistTags = async (next: string[]) => {
+    const prev = tags;
+    setTags(next); // optimistic
+    setError(null);
+    try {
+      const updated = await api.leads.update(lead.id, { tags: next });
+      onUpdated(updated);
+    } catch (e) {
+      setTags(prev);
+      setError(e instanceof Error ? e.message : "Could not update tags");
+    }
+  };
+
+  const addTag = () => {
+    const t = tagInput.trim().toLowerCase();
+    if (!t) return;
+    if (tags.includes(t)) {
+      setTagInput("");
+      return;
+    }
+    if (tags.length >= 20) {
+      setError("Up to 20 tags per lead.");
+      return;
+    }
+    setTagInput("");
+    void persistTags([...tags, t]);
+  };
+
+  const removeTag = (t: string) => {
+    void persistTags(tags.filter((x) => x !== t));
   };
 
   const remove = async () => {
@@ -210,6 +249,66 @@ export function LeadDrawer({
             <Button size="sm" onClick={saveNotes} disabled={saving}>
               Save notes
             </Button>
+          </section>
+
+          {/* Tags — segment leads for filtering + follow-up */}
+          <section className="space-y-2">
+            <Label htmlFor="lead-tag-input">Tags</Label>
+            <p className="text-xs text-muted-foreground">
+              Group leads so you can filter and follow up by segment.
+            </p>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5" data-testid="lead-tags">
+                {tags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs"
+                  >
+                    <Tag className="h-3 w-3 text-muted-foreground" />
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => removeTag(t)}
+                      aria-label={`Remove tag ${t}`}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p
+                className="text-xs text-muted-foreground/70"
+                data-testid="lead-tags-empty"
+              >
+                No tags yet.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Input
+                id="lead-tag-input"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addTag();
+                  }
+                }}
+                placeholder="Add a tag (e.g. vip, follow-up)…"
+                className="h-8 text-xs"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={addTag}
+                disabled={!tagInput.trim()}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add
+              </Button>
+            </div>
           </section>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
