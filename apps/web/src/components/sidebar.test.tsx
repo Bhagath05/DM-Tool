@@ -70,6 +70,7 @@ const PRIMARY_HREFS = [
   "/grow/market-intelligence",
   "/studio",
   "/create/social-posts",
+  "/create/linkedin",
   "/create/ads",
   "/create/creatives",
   "/results",
