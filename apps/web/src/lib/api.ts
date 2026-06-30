@@ -1561,6 +1561,27 @@ export interface InviteAcceptResponse {
   next_route: string;
 }
 
+// ---- Competitor intelligence (Market Intelligence → Competitor Watch) ----
+// Mirrors apps/api/aicmo/modules/competitors/schemas.py.
+export interface CompetitorInsight {
+  name: string;
+  positioning: string;
+  strengths: string[];
+  gaps: string[];
+  content_angles: string[];
+  your_move: string;
+  confidence: number;
+}
+
+export interface CompetitorAnalysisResponse {
+  market_summary: string;
+  competitors: CompetitorInsight[];
+  recommendation: string;
+  reason: string;
+  confidence: number;
+  expected_result: string;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -1897,6 +1918,21 @@ export const api = {
       ),
     analyticsSummary: () =>
       request<AnalyticsSummary>("/api/v1/coach/analytics-summary"),
+  },
+  competitors: {
+    /**
+     * AI analysis of the competitors in the brand's business profile.
+     * One LLM call server-side; cached 30 min client-side (competitor
+     * positioning doesn't shift minute-to-minute). Returns 409 when the
+     * profile is missing or lists no competitors.
+     */
+    analysis: () =>
+      dedupeRequest(
+        `competitors:analysis:${getActiveTenantHeaders().organization_id}:${getActiveTenantHeaders().brand_id}`,
+        () =>
+          request<CompetitorAnalysisResponse>("/api/v1/competitors/analysis"),
+        1_800_000,
+      ),
   },
   opportunities: {
     /**

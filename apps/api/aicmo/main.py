@@ -43,6 +43,7 @@ from aicmo.modules.team.router import (
 )
 from aicmo.modules.opportunities.router import router as opportunities_router
 from aicmo.modules.advisor.router import router as advisor_router
+from aicmo.modules.competitors.router import router as competitors_router
 from aicmo.modules.orgs.router import router as orgs_router
 from aicmo.modules.performance.router import router as performance_router
 from aicmo.modules.poster.router import router as poster_router
@@ -180,6 +181,7 @@ app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(coach_router, prefix="/api/v1")
 app.include_router(opportunities_router, prefix="/api/v1")
 app.include_router(advisor_router, prefix="/api/v1")
+app.include_router(competitors_router, prefix="/api/v1")
 app.include_router(context_router, prefix="/api/v1")
 app.include_router(bundles_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
