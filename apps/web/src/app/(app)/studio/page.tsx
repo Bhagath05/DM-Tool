@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DesignViewer } from "@/components/studio/design-viewer";
 import { EditorShell } from "@/components/studio/editor/editor-shell";
 import { NlEditPanel } from "@/components/studio/nl-edit-panel";
+import { ObjectStorageNotice } from "@/components/studio/object-storage-notice";
 import { RevisionHistory } from "@/components/studio/revision-history";
 import { VideoPanel } from "@/components/studio/video-panel";
 import { Surface } from "@/components/ui/surface";
@@ -123,6 +124,8 @@ export default function StudioPage() {
           State an outcome. Get a strategy and a set of editable creatives.
         </p>
       </header>
+
+      <ObjectStorageNotice />
 
       {/* Campaign intake — the priority flow */}
       <Surface className="mb-6 p-4">

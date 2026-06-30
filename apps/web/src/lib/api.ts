@@ -1561,6 +1561,17 @@ export interface InviteAcceptResponse {
   next_route: string;
 }
 
+// ---- System / storage capability ----
+// Mirrors GET /api/v1/system/storage. Drives the admin-only object-storage
+// notice + disabling of file-producing (image/export) controls.
+export interface StorageStatus {
+  media_backend: "local" | "s3" | "r2";
+  environment: "development" | "staging" | "production";
+  media_persistence_available: boolean;
+  image_generation_enabled: boolean;
+  asset_exports_enabled: boolean;
+}
+
 // ---- Competitor intelligence (Market Intelligence → Competitor Watch) ----
 // Mirrors apps/api/aicmo/modules/competitors/schemas.py.
 export interface CompetitorInsight {
@@ -1918,6 +1929,10 @@ export const api = {
       ),
     analyticsSummary: () =>
       request<AnalyticsSummary>("/api/v1/coach/analytics-summary"),
+  },
+  system: {
+    /** Storage capability — whether durable object storage is configured. */
+    storage: () => request<StorageStatus>("/api/v1/system/storage"),
   },
   competitors: {
     /**
