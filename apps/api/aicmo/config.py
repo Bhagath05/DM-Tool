@@ -128,7 +128,11 @@ class Settings(BaseSettings):
     video_enabled: bool = Field(default=False)
     video_default_provider: Literal["stub", "veo3", "slideshow"] = "stub"
     tts_default_provider: Literal["stub", "elevenlabs", "openai"] = "stub"
-    media_backend: Literal["local", "s3"] = "local"
+    # Storage provider, env-selected. "local" = disk (dev/staging only — see
+    # media_persistence_available). "s3"/"r2" both use the S3-compatible
+    # backend; "r2" is Cloudflare R2 via s3_endpoint_url. No provider is
+    # hardcoded — selection is entirely by this env var.
+    media_backend: Literal["local", "s3", "r2"] = "local"
 
     # -----------------------------------------------------------------
     # LinkedIn Poster Studio. Topic → branded announcement poster
@@ -310,6 +314,25 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
 
+    @property
+    def media_persistence_available(self) -> bool:
+        """Whether generated assets can be stored durably.
+
+        False ONLY when running in production on the `local` disk backend:
+        Render's filesystem is ephemeral AND not shared between web/worker,
+        so any file written there is lost on restart and unservable across
+        services. In that state the production-safety gate keeps image
+        generation + file exports DISABLED (text/strategy/edit/revision
+        workflows are unaffected — they live in Postgres). Any durable
+        backend (`s3`/`r2`), and any non-production env, returns True.
+
+        Selection is purely env-driven: set MEDIA_BACKEND=r2 (+ R2 creds)
+        and this flips to True with no code change.
+        """
+        if self.media_backend == "local" and self.api_env == "production":
+            return False
+        return True
+
 
 # Placeholder substrings that .env.example uses. If validate_production_secrets()
 # finds any of these in a production secret, it refuses to boot — the deploy
@@ -409,8 +432,12 @@ def validate_production_secrets(settings: "Settings") -> None:
             settings.elevenlabs_api_key
         ):
             errors.append("ELEVENLABS_API_KEY is missing, but TTS_DEFAULT_PROVIDER=elevenlabs.")
-        if settings.media_backend == "s3" and _looks_like_placeholder(settings.s3_bucket):
-            errors.append("S3_BUCKET is missing, but MEDIA_BACKEND=s3.")
+        if settings.media_backend in ("s3", "r2") and _looks_like_placeholder(
+            settings.s3_bucket
+        ):
+            errors.append(
+                f"S3_BUCKET is missing, but MEDIA_BACKEND={settings.media_backend}."
+            )
 
     if errors:
         bullets = "\n  - ".join(errors)

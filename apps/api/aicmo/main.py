@@ -2,55 +2,66 @@ import logging
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Force provider self-registration into IntegrationRegistry at import.
+import aicmo.modules.integrations.providers  # noqa: F401
+from aicmo.auth.clerk import require_user
 from aicmo.config import get_settings
 from aicmo.db.session import dispose_engine
 from aicmo.modules.ads.router import router as ads_router
+from aicmo.modules.advisor.router import router as advisor_router
 from aicmo.modules.analytics.router import router as analytics_router
-from aicmo.modules.brands.router import brand_router, org_router as brands_org_router
+from aicmo.modules.billing.router import (
+    public_router as billing_public_router,
+)
+from aicmo.modules.billing.router import (
+    router as billing_router,
+)
+from aicmo.modules.brands.router import brand_router
+from aicmo.modules.brands.router import org_router as brands_org_router
 from aicmo.modules.bundles.router import router as bundles_router
 from aicmo.modules.campaigns.router import router as campaigns_router
 from aicmo.modules.coach.router import router as coach_router
+from aicmo.modules.competitors.router import router as competitors_router
 from aicmo.modules.content.router import router as content_router
 from aicmo.modules.context.router import router as context_router
+from aicmo.modules.creative.storage.base import MediaPersistenceUnavailable
+from aicmo.modules.integrations.router import (
+    public_router as integrations_public_router,
+)
+from aicmo.modules.integrations.router import (
+    router as integrations_router,
+)
 from aicmo.modules.landing_pages.router import public_router as landing_pages_public_router
 from aicmo.modules.landing_pages.router import router as landing_pages_router
 from aicmo.modules.leads.router import public_router as leads_public_router
 from aicmo.modules.leads.router import router as leads_router
-from aicmo.modules.integrations.router import (
-    public_router as integrations_public_router,
-    router as integrations_router,
-)
-# Force provider self-registration into IntegrationRegistry at import.
-import aicmo.modules.integrations.providers  # noqa: F401
 from aicmo.modules.learning.router import router as learning_router
 from aicmo.modules.notifications.router import router as notifications_router
 from aicmo.modules.onboarding.router import router as onboarding_router
-from aicmo.modules.security.router import (
-    public_router as security_public_router,
-    router as security_router,
-)
-from aicmo.modules.billing.router import (
-    public_router as billing_public_router,
-    router as billing_router,
-)
-from aicmo.modules.team.router import (
-    public_router as team_public_router,
-    router as team_router,
-)
 from aicmo.modules.opportunities.router import router as opportunities_router
-from aicmo.modules.advisor.router import router as advisor_router
-from aicmo.modules.competitors.router import router as competitors_router
 from aicmo.modules.orgs.router import router as orgs_router
 from aicmo.modules.performance.router import router as performance_router
 from aicmo.modules.poster.router import router as poster_router
 from aicmo.modules.publishing.router import router as publishing_router
 from aicmo.modules.rbac.router import catalog_router as rbac_catalog_router
 from aicmo.modules.rbac.router import org_router as rbac_org_router
+from aicmo.modules.security.router import (
+    public_router as security_public_router,
+)
+from aicmo.modules.security.router import (
+    router as security_router,
+)
 from aicmo.modules.social.router import router as social_router
+from aicmo.modules.team.router import (
+    public_router as team_public_router,
+)
+from aicmo.modules.team.router import (
+    router as team_router,
+)
 from aicmo.modules.trends.router import router as trends_router
 from aicmo.modules.users.router import router as users_router
 from aicmo.modules.visuals.media_router import public_router as media_public_router
@@ -115,14 +126,14 @@ async def lifespan(app: FastAPI):
 
             app.state.arq_pool = await create_pool(WorkerSettings.redis_settings)
             log.info("jobs.pool.ready")
-        except Exception as e:  # noqa: BLE001 — job infra is non-critical at boot
+        except Exception as e:
             log.warning("jobs.pool.unavailable", error=str(e))
     yield
     pool = getattr(app.state, "arq_pool", None)
     if pool is not None:
         try:
             await pool.close()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     await dispose_engine()
     log.info("api.shutdown")
@@ -149,10 +160,48 @@ from aicmo.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
 app.add_middleware(RateLimitMiddleware)
 
 
+@app.exception_handler(MediaPersistenceUnavailable)
+async def _media_persistence_handler(
+    _request: Request, exc: MediaPersistenceUnavailable
+) -> JSONResponse:
+    """Map a refused write (local disk in production) to a clear 409 instead
+    of a 500. Any file-producing workflow (image generation, asset export)
+    hits this when object storage isn't configured; non-file workflows are
+    never affected because they never call the storage backend."""
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "detail": (
+                "Object storage isn't configured, so this feature is disabled. "
+                "An admin must set MEDIA_BACKEND to a durable store (e.g. R2) "
+                "before image generation and asset exports can be used."
+            ),
+            "code": "object_storage_required",
+        },
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Liveness — process is up. Cheap, never touches dependencies."""
     return {"status": "ok", "env": settings.api_env}
+
+
+@app.get("/api/v1/system/storage")
+async def system_storage(_auth=Depends(require_user)) -> dict[str, object]:
+    """Storage capability for the frontend. Drives the admin-only notice +
+    disabling of image-generation / export controls when durable object
+    storage isn't configured. Auth-required, config-derived only (no tenant
+    data); the admin-gating of the message itself happens client-side."""
+    s = get_settings()
+    return {
+        "media_backend": s.media_backend,
+        "environment": s.api_env,
+        "media_persistence_available": s.media_persistence_available,
+        # Features that write files stay off until persistence is available.
+        "image_generation_enabled": s.media_persistence_available,
+        "asset_exports_enabled": s.media_persistence_available,
+    }
 
 
 @app.get("/readyz")
@@ -218,6 +267,8 @@ app.include_router(billing_public_router, prefix="/api/v1")
 # signed creative files.
 from aicmo.modules.creative.router import (  # noqa: E402
     public_router as creative_public_router,
+)
+from aicmo.modules.creative.router import (
     router as creative_router,
 )
 
@@ -226,8 +277,8 @@ app.include_router(creative_public_router, prefix="/api/v1")
 
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.
-from aicmo.modules.growth.router import router as growth_router  # noqa: E402
 from aicmo.modules.creative.design.router import router as design_router  # noqa: E402
+from aicmo.modules.growth.router import router as growth_router  # noqa: E402
 
 app.include_router(growth_router, prefix="/api/v1")
 app.include_router(design_router, prefix="/api/v1")

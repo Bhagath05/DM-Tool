@@ -20,6 +20,14 @@ from typing import Protocol, runtime_checkable
 from aicmo.config import get_settings
 
 
+class MediaPersistenceUnavailable(RuntimeError):
+    """Raised when a write is attempted but no durable storage is configured
+    (local backend in production). The production-safety gate fails LOUDLY
+    here rather than silently writing to ephemeral disk and losing the asset
+    on the next restart. A global handler maps it to a clear 409. Lifts
+    automatically once MEDIA_BACKEND is a durable store (s3/r2)."""
+
+
 @dataclass(frozen=True, slots=True)
 class StorageRef:
     """What Postgres stores — never bytes."""
@@ -31,7 +39,7 @@ class StorageRef:
         return {"backend": self.backend, "key": self.key}
 
     @classmethod
-    def from_parts(cls, backend: str | None, key: str | None) -> "StorageRef | None":
+    def from_parts(cls, backend: str | None, key: str | None) -> StorageRef | None:
         if not backend or not key:
             return None
         return cls(backend=backend, key=key)

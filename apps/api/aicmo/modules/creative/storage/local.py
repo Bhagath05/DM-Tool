@@ -11,7 +11,11 @@ import time
 from pathlib import Path
 
 from aicmo.config import get_settings
-from aicmo.modules.creative.storage.base import StorageBackend, StorageRef, sign_key
+from aicmo.modules.creative.storage.base import (
+    MediaPersistenceUnavailable,
+    StorageRef,
+    sign_key,
+)
 
 
 class LocalDiskBackend:
@@ -33,6 +37,15 @@ class LocalDiskBackend:
         return p
 
     def put(self, *, key: str, data: bytes, content_type: str) -> StorageRef:
+        # Production-safety backstop: never persist to ephemeral local disk in
+        # production. Render's filesystem is non-durable and not shared across
+        # web/worker, so a write here would be silently lost. Fail loudly so
+        # the asset is never quietly orphaned. Lifts when MEDIA_BACKEND=s3/r2.
+        if not get_settings().media_persistence_available:
+            raise MediaPersistenceUnavailable(
+                "Object storage is not configured (MEDIA_BACKEND=local in "
+                "production). Refusing to write an asset that would be lost."
+            )
         self._path(key).write_bytes(data)
         return StorageRef(backend=self.name, key=key)
 
