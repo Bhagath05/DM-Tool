@@ -53,3 +53,6 @@ apps/api/alembic/versions/__pycache__/
 
 # Verification node_modules (the evidence dir ships PNGs/JSON, not deps)
 verification-evidence/node_modules/
+
+# Generated media artifacts (local storage backend; never commit)
+apps/api/media/
