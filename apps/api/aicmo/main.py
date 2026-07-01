@@ -45,6 +45,7 @@ from aicmo.modules.onboarding.router import router as onboarding_router
 from aicmo.modules.opportunities.router import router as opportunities_router
 from aicmo.modules.orgs.router import router as orgs_router
 from aicmo.modules.performance.router import router as performance_router
+from aicmo.modules.planner.router import router as planner_router
 from aicmo.modules.poster.router import router as poster_router
 from aicmo.modules.publishing.router import router as publishing_router
 from aicmo.modules.rbac.router import catalog_router as rbac_catalog_router
@@ -251,6 +252,7 @@ app.include_router(opportunities_router, prefix="/api/v1")
 app.include_router(advisor_router, prefix="/api/v1")
 app.include_router(competitors_router, prefix="/api/v1")
 app.include_router(strategist_router, prefix="/api/v1")
+app.include_router(planner_router, prefix="/api/v1")
 app.include_router(context_router, prefix="/api/v1")
 app.include_router(bundles_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
