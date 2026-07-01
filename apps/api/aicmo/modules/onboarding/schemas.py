@@ -110,6 +110,9 @@ class BusinessAnalysis(BaseModel):
 
 # ---------- API request/response ----------
 
+# Where the business is in its lifecycle — calibrates every AI recommendation.
+GrowthStage = Literal["idea", "launching", "growing", "established", "scaling"]
+
 
 class BusinessProfileBase(BaseModel):
     business_name: str = Field(min_length=2, max_length=255)
@@ -128,6 +131,14 @@ class BusinessProfileBase(BaseModel):
     current_monthly_leads_band: str | None = Field(default=None, max_length=32)
     monthly_budget_band: str | None = Field(default=None, max_length=32)
     primary_goal_text: str | None = Field(default=None, max_length=500)
+
+    # Phase 3.1 — AI business understanding. Optional so legacy payloads
+    # validate unchanged; the autonomous strategist reasons over them.
+    products: list[str] = Field(default_factory=list, max_length=50)
+    services: list[str] = Field(default_factory=list, max_length=50)
+    unique_selling_points: list[str] = Field(default_factory=list, max_length=20)
+    pricing: str | None = Field(default=None, max_length=1000)
+    growth_stage: GrowthStage | None = None
 
 
 class BusinessProfileCreate(BusinessProfileBase):
@@ -200,6 +211,11 @@ class BusinessProfileUpdate(BaseModel):
     current_monthly_leads_band: str | None = Field(default=None, max_length=32)
     monthly_budget_band: str | None = Field(default=None, max_length=32)
     primary_goal_text: str | None = Field(default=None, max_length=500)
+    products: list[str] | None = Field(default=None, max_length=50)
+    services: list[str] | None = Field(default=None, max_length=50)
+    unique_selling_points: list[str] | None = Field(default=None, max_length=20)
+    pricing: str | None = Field(default=None, max_length=1000)
+    growth_stage: GrowthStage | None = None
 
     # Same trust gates on partial updates — but only when the user sent
     # the field. Pydantic skips validators when the value is None and the

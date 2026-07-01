@@ -53,6 +53,23 @@ class BusinessProfile(Base, TimestampMixin, TenantMixin):
         String(500), nullable=True
     )
 
+    # ---- Phase 3.1 AI business-understanding fields ----
+    # Structured business context the autonomous system reasons over. All
+    # optional + backward-compatible (existing rows default to empty/NULL).
+    # Populated by the profile form or inferred by the AI analysis.
+    products: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    services: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    unique_selling_points: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    pricing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # idea | launching | growing | established | scaling
+    growth_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     # ---- Persona segmentation ----
     # NOT an authorization role (those live in member_roles). A free hint
     # about WHO the user is so downstream copy + tutorials can adapt:

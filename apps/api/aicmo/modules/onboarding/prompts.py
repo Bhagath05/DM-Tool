@@ -52,11 +52,24 @@ def build_analysis_user_prompt(profile: BusinessProfileBase) -> str:
     budget_band = profile.monthly_budget_band or "(not specified)"
     primary_goal = profile.primary_goal_text or "(use the goals list above)"
 
+    # Phase 3.1 — business-understanding context. Absent fields tell the model
+    # to infer plausibly (never fabricate specifics like fake product names).
+    products = ", ".join(profile.products) or "(not specified — infer from industry + name)"
+    services = ", ".join(profile.services) or "(not specified — infer from industry + name)"
+    usps = "; ".join(profile.unique_selling_points) or "(not specified — propose likely differentiators)"
+    pricing = profile.pricing or "(not specified)"
+    growth_stage = profile.growth_stage or "(infer from the traction band below)"
+
     return f"""Produce a strategist analysis for this business.
 
 # Business
 Name: {profile.business_name}
 Industry: {profile.industry}
+Business type: {profile.business_type or "(not specified)"}
+Products: {products}
+Services: {services}
+Unique selling points: {usps}
+Pricing / positioning: {pricing}
 Website: {profile.website or "(none)"}
 Location: {location}
 
@@ -64,6 +77,7 @@ Location: {location}
 {profile.target_audience}
 
 # Stage + Resources (use to CALIBRATE every recommendation)
+Growth stage: {growth_stage}
 Current monthly leads/customers: {leads_band}
 Monthly marketing budget: {budget_band}
 Brand tone: {profile.brand_tone}
