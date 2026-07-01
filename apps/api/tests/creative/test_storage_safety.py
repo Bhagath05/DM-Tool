@@ -92,3 +92,33 @@ def test_local_put_writes_when_persistence_available(monkeypatch, tmp_path):
     )
     assert ref.backend == "local"
     assert list(tmp_path.rglob("*.png"))
+
+
+# ---- visuals render path (ads + creatives) honours the same gate ---------
+
+
+@pytest.mark.asyncio
+async def test_visuals_render_refuses_when_persistence_unavailable(monkeypatch):
+    """The visuals store writes to media_dir directly (separate from the
+    creative-storage backend). It must apply the same gate — and fail BEFORE
+    the paid image-provider call, not after silently losing the file."""
+    from aicmo.modules.visuals import render as render_mod
+
+    monkeypatch.setattr(
+        render_mod,
+        "get_settings",
+        lambda: SimpleNamespace(media_persistence_available=False),
+    )
+    # Dummy args are never touched: the guard raises right after get_settings().
+    with pytest.raises(MediaPersistenceUnavailable):
+        await render_mod._render_single_png(
+            None,
+            tenant=None,
+            visual_id=None,
+            visual=None,
+            profile=None,
+            brief={},
+            quality="standard",
+            recent_concept_families=(),
+            slide_index=None,
+        )

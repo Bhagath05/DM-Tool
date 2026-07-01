@@ -18,6 +18,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.config import get_settings
+from aicmo.modules.creative.storage.base import MediaPersistenceUnavailable
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.visuals.media_url import make_signed_url
@@ -339,6 +340,15 @@ async def _render_single_png(
     slide_index: int | None,
 ) -> RenderedVisual:
     settings = get_settings()
+    # Production-safety: the visuals store writes PNGs to local disk (media_dir),
+    # a separate path from the creative-storage backend. Apply the same gate so
+    # ad/creative image rendering can't silently write to ephemeral prod disk.
+    # Fail fast BEFORE the paid image-provider call. Lifts when MEDIA_BACKEND=s3/r2.
+    if not settings.media_persistence_available:
+        raise MediaPersistenceUnavailable(
+            "Object storage is not configured (MEDIA_BACKEND=local in production). "
+            "Refusing to render an image that would be lost."
+        )
     prompt = build_image_prompt(
         brief=brief,
         profile=profile,
