@@ -58,6 +58,41 @@ router = APIRouter(prefix="/creative", tags=["creative-studio"])
 _RequireRead = require_permission("content.read")
 _RequireCreate = require_permission("content.create")
 
+# Brand-asset upload safety. Bound the read (memory) and allow only safe
+# declared content-types — raster images + web fonts. SVG is excluded on
+# purpose: it can carry <script> and would execute on direct navigation to
+# its (same-origin) signed URL, which nosniff does not prevent.
+MAX_BRAND_ASSET_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_BRAND_ASSET_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/webp",
+        "image/gif",
+        "font/woff",
+        "font/woff2",
+        "font/ttf",
+        "font/otf",
+        "application/font-woff",
+        "application/font-woff2",
+    }
+)
+
+
+def validate_brand_asset_type(content_type: str | None) -> str:
+    """Normalize + allowlist an uploaded file's declared content-type.
+
+    Returns the normalized type (lowercased, params stripped) or raises 415.
+    """
+    ct = (content_type or "").lower().split(";")[0].strip()
+    if ct not in _ALLOWED_BRAND_ASSET_TYPES:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported file type. Upload a PNG, JPEG, WebP, GIF, or web font.",
+        )
+    return ct
+
 
 def _require_enabled() -> None:
     if not get_settings().studio_enabled:
@@ -320,13 +355,22 @@ async def upload_brand_asset(
     _require_enabled()
     if kind not in ("logo", "font", "image", "color", "icon"):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid asset kind.")
-    data = await file.read()
+    # File-upload safety: reject dangerous/unknown declared types (SVG/HTML can
+    # carry script and would XSS on direct navigation even with nosniff) and
+    # bound the read so a huge upload can't exhaust memory.
+    content_type = validate_brand_asset_type(file.content_type)
+    data = await file.read(MAX_BRAND_ASSET_BYTES + 1)
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Empty file.")
+    if len(data) > MAX_BRAND_ASSET_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large — maximum 10 MB.",
+        )
     try:
         asset = await design_service.upload_brand_asset(
             session, tenant=tenant, kind=kind, data=data,
-            content_type=file.content_type or "application/octet-stream",
+            content_type=content_type,
             label=label or file.filename,
         )
     except design_service.MissingBrand:
