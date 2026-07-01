@@ -66,6 +66,11 @@ _AUTH_ONLY_EXACT: frozenset[str] = frozenset(
         "/api/v1/users/me",
         "/api/v1/orgs",            # POST create + GET list (pre-tenant)
         "/api/v1/orgs/workspace",  # onboarding: single transactional create
+        # Global storage capability — config-derived booleans only (media
+        # backend + whether durable object storage is configured). No tenant
+        # data; identical for every tenant, so tenant-scoping it would be
+        # wrong. Auth-required; the admin-gating of the UI notice is client-side.
+        "/api/v1/system/storage",
     }
 )
 _AUTH_ONLY_PREFIXES: tuple[str, ...] = (
