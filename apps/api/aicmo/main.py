@@ -56,6 +56,7 @@ from aicmo.modules.security.router import (
     router as security_router,
 )
 from aicmo.modules.social.router import router as social_router
+from aicmo.modules.strategist.router import router as strategist_router
 from aicmo.modules.team.router import (
     public_router as team_public_router,
 )
@@ -249,6 +250,7 @@ app.include_router(coach_router, prefix="/api/v1")
 app.include_router(opportunities_router, prefix="/api/v1")
 app.include_router(advisor_router, prefix="/api/v1")
 app.include_router(competitors_router, prefix="/api/v1")
+app.include_router(strategist_router, prefix="/api/v1")
 app.include_router(context_router, prefix="/api/v1")
 app.include_router(bundles_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
