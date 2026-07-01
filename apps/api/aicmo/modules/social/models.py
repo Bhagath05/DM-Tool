@@ -44,8 +44,9 @@ class SocialConnection(Base, TimestampMixin, TenantMixin):
         String(32), index=True
     )  # instagram | facebook | linkedin | youtube | tiktok
 
-    # OAuth bits. `access_token` is encrypted-at-rest in prod TODO; for MVP
-    # it sits in JSONB so we can rotate the storage shape without a migration.
+    # OAuth secrets — stored ENCRYPTED at rest as Fernet ciphertext. Written
+    # via `social.token_crypto.seal()` and read via `unseal()`; the DB never
+    # holds a plaintext token. Roundtrip pinned by tests/social/test_token_crypto.py.
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(
