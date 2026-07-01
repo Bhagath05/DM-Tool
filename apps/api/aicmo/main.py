@@ -99,6 +99,10 @@ init_sentry()
 logging.basicConfig(level=settings.api_log_level)
 structlog.configure(
     processors=[
+        # Surface contextvars (request_id from the middleware; user/org/brand/
+        # role bound by the tenant resolver) into every log line. Without this
+        # those bound fields never reach the output.
+        structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
@@ -165,6 +169,13 @@ app.add_middleware(RateLimitMiddleware)
 from aicmo.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Request-id correlation. Mounted LAST so it is the OUTERMOST layer — the id
+# is bound into structlog contextvars before any other middleware or route
+# dependency runs, and echoed as X-Request-Id on the way out.
+from aicmo.middleware.request_id import RequestIDMiddleware  # noqa: E402
+
+app.add_middleware(RequestIDMiddleware)
 
 
 @app.exception_handler(MediaPersistenceUnavailable)
