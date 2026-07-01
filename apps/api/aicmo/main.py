@@ -159,6 +159,13 @@ from aicmo.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
 
 app.add_middleware(RateLimitMiddleware)
 
+# Security response headers (nosniff / frame-options / referrer / HSTS) on
+# every API + media response. Safe subset — see the module docstring for
+# what is deliberately omitted so cross-origin media loading keeps working.
+from aicmo.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 @app.exception_handler(MediaPersistenceUnavailable)
 async def _media_persistence_handler(
