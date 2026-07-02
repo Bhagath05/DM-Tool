@@ -163,6 +163,22 @@ async def _build_evidence_blocks(
     except Exception as e:
         log.warning("learning.synth.memory_failed", error=str(e)[:120])
 
+    # Phase 4.5 — the continuous loop's own execution history (approved/dismissed
+    # work, recurring events, achieved goals). Real signals only.
+    ops_lines: list[str] = []
+    try:
+        from aicmo.modules.operations import learning_feed
+
+        ops_lines = await learning_feed.learning_signals(session, brand_id=brand_id)
+        if ops_lines:
+            blocks.append(
+                "## Autonomous operations history\n"
+                + "\n".join(f"- {ln}" for ln in ops_lines)
+            )
+            considered += len(ops_lines)
+    except Exception as e:
+        log.warning("learning.synth.ops_failed", error=str(e)[:120])
+
     has_history = bool(
         sig.total_leads
         or sig.published_posts
@@ -171,6 +187,7 @@ async def _build_evidence_blocks(
         or sig.audience_patterns
         or creative_events
         or memory_rows
+        or ops_lines
     )
     return business, industry, blocks, has_history, considered
 
