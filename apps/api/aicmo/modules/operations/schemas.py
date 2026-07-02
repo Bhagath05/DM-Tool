@@ -167,3 +167,34 @@ class WorkStatusUpdate(BaseModel):
     # cancels it. Execution wiring stays gated (4.9), so approving does not
     # itself run anything yet.
     status: Literal["approved", "dismissed"]
+
+
+class OperationsSystemStatus(BaseModel):
+    last_run_at: datetime | None
+    last_run_status: str | None
+    last_brands_scanned: int = 0
+    monitored: bool = False
+
+
+class OperationsAutonomyStatus(BaseModel):
+    autonomy_level: str
+    execution_enabled: bool
+    configured: bool
+
+
+class OperationsDashboard(BaseModel):
+    """Phase 4.7 — the live AI Operations dashboard: one composite of every
+    operations + reasoning read. Pure aggregation (no new intelligence)."""
+
+    generated_at: str
+    headline: str = Field(description="One plain-language line: what the AI is doing / needs.")
+    system: OperationsSystemStatus
+    autonomy: OperationsAutonomyStatus
+    latest_metrics: MetricSnapshotResponse | None
+    open_events: list[DetectedEventResponse]
+    open_event_count: int
+    active_goals: list[GoalResponse]
+    work_awaiting_approval: list[WorkItemResponse]
+    awaiting_approval_count: int
+    recent_learnings: list[dict]
+    lifecycle: dict = Field(description="The Agent Orchestrator's next-action plan (reused).")

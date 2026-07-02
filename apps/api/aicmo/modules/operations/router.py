@@ -32,6 +32,7 @@ from aicmo.modules.operations.schemas import (
     GoalResponse,
     GoalStatusUpdate,
     MonitoringView,
+    OperationsDashboard,
     TickResult,
     WorkItemResponse,
     WorkList,
@@ -70,6 +71,17 @@ async def tick(
     gated, throttled, idempotent. Nothing executes — the cycle observes and
     queues; execution stays behind the Autonomy Policy."""
     return await run_operations_cycle(session, trigger="api")
+
+
+@router.get("/dashboard", response_model=OperationsDashboard)
+async def dashboard(
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> OperationsDashboard:
+    """The live AI Operations dashboard — system health, autonomy status, open
+    events, goals, the approval queue, recent learnings, and the lifecycle plan,
+    all in one composite (reused reads; nothing new computed)."""
+    return await service.dashboard(session, tenant=tenant)
 
 
 @router.get("/monitoring", response_model=MonitoringView)
