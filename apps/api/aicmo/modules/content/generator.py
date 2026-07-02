@@ -39,6 +39,26 @@ _MAX_TOKENS_BY_TYPE: dict[ContentType, int] = {
     "email": 2600,
     "product_description": 2600,
     "press_release": 3200,
+    # Part 2 — larger structured types (micro-copy types fall back to 2200).
+    "case_study": 3200,
+    "customer_story": 3200,
+    "product_comparison": 3200,
+    "faq": 3200,
+    "website_copy": 3400,
+    "homepage_copy": 3400,
+    "about_us": 3000,
+    "service_page": 3400,
+    "sales_page": 4200,
+    "email_newsletter": 2600,
+    "cold_email": 2200,
+    "followup_email": 2200,
+    "promo_email": 2400,
+    "youtube_description": 2600,
+    "video_script": 3600,
+    "shorts_script": 3000,
+    "tiktok_script": 3000,
+    "x_thread": 3200,
+    "keyword_ideas": 2600,
 }
 
 

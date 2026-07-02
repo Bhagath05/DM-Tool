@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -10,40 +10,58 @@ from aicmo.copy.creative_brief import MarketingCreativeBrief
 from aicmo.security.prompt_safety import sanitize_prompt_input
 
 ContentType = Literal[
+    # Original social/ad/landing types.
     "social_post",
     "reel",
     "carousel",
     "ad_copy",
     "landing_page_copy",
-    # Phase 6.2 — written / long-form content types (same pipeline, new schemas).
+    # Phase 6.2 Part 1 — written / long-form.
     "blog_article",
     "email",
     "product_description",
     "press_release",
+    # Phase 6.2 Part 2 — full content-type coverage (shared schemas, distinct prompts).
+    "case_study",
+    "customer_story",
+    "testimonial",
+    "product_comparison",
+    "faq",
+    "website_copy",
+    "homepage_copy",
+    "about_us",
+    "service_page",
+    "sales_page",
+    "email_newsletter",
+    "cold_email",
+    "followup_email",
+    "promo_email",
+    "youtube_title",
+    "youtube_description",
+    "video_script",
+    "shorts_script",
+    "tiktok_script",
+    "pinterest_description",
+    "x_thread",
+    "cta_variations",
+    "headlines",
+    "taglines",
+    "hooks",
+    "meta_description",
+    "seo_title",
+    "keyword_ideas",
 ]
 
-CONTENT_TYPES: tuple[ContentType, ...] = (
-    "social_post",
-    "reel",
-    "carousel",
-    "ad_copy",
-    "landing_page_copy",
-    "blog_article",
-    "email",
-    "product_description",
-    "press_release",
-)
+CONTENT_TYPES: tuple[ContentType, ...] = get_args(ContentType)
 
-# Types that are NOT tied to a social platform — the platform-membership check
-# is skipped for these (they're written for a site/inbox/wire, not a feed).
+# Types NOT gated by the preferred-platform check (written/web/email/micro-copy/
+# scripts — generated for a site/inbox/doc, or a platform the user needn't have
+# pre-configured). The original social-feed types keep the check.
+_PLATFORM_GATED: frozenset[str] = frozenset(
+    {"social_post", "reel", "carousel", "ad_copy"}
+)
 NON_PLATFORM_TYPES: frozenset[str] = frozenset(
-    {
-        "landing_page_copy",
-        "blog_article",
-        "email",
-        "product_description",
-        "press_release",
-    }
+    ct for ct in CONTENT_TYPES if ct not in _PLATFORM_GATED
 )
 
 
@@ -290,6 +308,122 @@ class PressReleaseFull(BaseModel):
     )
 
 
+# ---------- Phase 6.2 (Part 2) — shared schemas for structurally-similar types ----------
+# One schema, many content_types, DISTINCT prompts (per the 'reuse schemas, never
+# duplicate templates' rule). SCHEMA_BY_TYPE maps each type to the right shape;
+# _TYPE_INSTRUCTIONS gives each its own task guidance.
+
+
+class MicroCopyListFull(BaseModel):
+    """Short-copy option sets: headlines, taglines, hooks, CTAs, SEO/meta titles,
+    YouTube titles, Pinterest descriptions."""
+
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    primary: str = Field(description="The single strongest option.")
+    variants: list[str] = Field(
+        min_length=3, max_length=12, description="Alternative options, distinct angles."
+    )
+    usage_note: str = Field(description="When/where to use these + how to A/B them.")
+
+
+class KeywordIdea(BaseModel):
+    keyword: str
+    intent: Literal["informational", "commercial", "transactional", "navigational"]
+    priority: Literal["high", "medium", "low"] = Field(
+        description="Honest priority from fit + specificity — NOT a fabricated search volume."
+    )
+
+
+class KeywordIdeasFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    seed_topic: str
+    keywords: list[KeywordIdea] = Field(min_length=5, max_length=30)
+
+
+class WebPageSection(BaseModel):
+    heading: str
+    body: str
+
+
+class WebPageCopyFull(BaseModel):
+    """Full website page copy: website/homepage/about/service/sales pages."""
+
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    headline: str
+    subheadline: str
+    sections: list[WebPageSection] = Field(min_length=2, max_length=10)
+    cta_text: str = Field(max_length=40)
+    seo_title: str = Field(max_length=70, description="≤60 chars ideally, includes the topic.")
+    meta_description: str = Field(max_length=200, description="SEO meta ≤160 chars.")
+
+
+class CaseStudyFull(BaseModel):
+    """Case study / customer story."""
+
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    title: str
+    client_descriptor: str = Field(description="Anonymised client type — no fabricated real name.")
+    challenge: str
+    solution: str
+    results: list[str] = Field(min_length=2, max_length=6, description="Outcome bullets.")
+    quote: str = Field(description="A representative quote attributed to a placeholder role.")
+    cta: str
+
+
+class TestimonialFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    quote: str = Field(description="A believable testimonial in the customer's voice (illustrative).")
+    attribution: str = Field(description="[Name], [role/company] placeholders — never a fabricated real person.")
+    context: str = Field(description="What prompted it — the before/after.")
+    variants: list[str] = Field(default_factory=list, max_length=4)
+
+
+class FaqItem(BaseModel):
+    question: str
+    answer: str
+
+
+class FaqFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    items: list[FaqItem] = Field(min_length=4, max_length=12)
+
+
+class ProductComparisonFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    intro: str
+    criteria: list[str] = Field(min_length=3, max_length=8, description="Comparison dimensions.")
+    our_strengths: list[str] = Field(min_length=2, max_length=6)
+    honest_tradeoffs: list[str] = Field(
+        default_factory=list, description="Where an alternative may fit better — honest, builds trust."
+    )
+    verdict: str
+    cta: str
+
+
+class XThreadFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    hook_tweet: str = Field(max_length=280, description="Tweet 1 — earns the unroll.")
+    tweets: list[str] = Field(min_length=3, max_length=15, description="Body tweets, ≤280 each.")
+    cta_tweet: str = Field(max_length=280)
+    hashtags: list[str] = Field(default_factory=list, max_length=5)
+
+
+class YouTubeDescriptionFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    description: str = Field(description="Full YouTube description, keyword-aware, scannable.")
+    hashtags: list[str] = Field(default_factory=list, max_length=8)
+    cta: str
+
+
 # ---------- API request / response ----------
 
 PRESET_GOALS: tuple[str, ...] = (
@@ -322,6 +456,12 @@ class GenerateRequest(BaseModel):
         description="Attach this asset to a published lead page — the generated "
         "CTAs and share URL will point there with full attribution.",
     )
+    # Phase 6.2 — optional traceability links (each validated against the tenant's
+    # brand before persisting; cross-tenant IDs are rejected).
+    campaign_id: uuid.UUID | None = Field(default=None)
+    bundle_id: uuid.UUID | None = Field(default=None)
+    strategy_id: uuid.UUID | None = Field(default=None)
+    recommendation_id: uuid.UUID | None = Field(default=None)
 
     # Phase S2.5 — sanitise free-text fields before the prompt composer.
     @field_validator("goal", "recommendation_context", mode="before")
@@ -342,6 +482,11 @@ class GeneratedContentResponse(BaseModel):
     business_profile_id: uuid.UUID
     trend_report_id: uuid.UUID | None
     landing_page_id: uuid.UUID | None
+    # Phase 6.2 — traceability links.
+    campaign_id: uuid.UUID | None = None
+    bundle_id: uuid.UUID | None = None
+    strategy_id: uuid.UUID | None = None
+    recommendation_id: uuid.UUID | None = None
     content_type: ContentType
     platform: str
     goal: str
@@ -373,6 +518,41 @@ SCHEMA_BY_TYPE: dict[ContentType, type[BaseModel]] = {
     "email": EmailFull,
     "product_description": ProductDescriptionFull,
     "press_release": PressReleaseFull,
+    # Part 2 — story/proof.
+    "case_study": CaseStudyFull,
+    "customer_story": CaseStudyFull,
+    "testimonial": TestimonialFull,
+    "product_comparison": ProductComparisonFull,
+    "faq": FaqFull,
+    # Part 2 — web page copy (shared shape).
+    "website_copy": WebPageCopyFull,
+    "homepage_copy": WebPageCopyFull,
+    "about_us": WebPageCopyFull,
+    "service_page": WebPageCopyFull,
+    "sales_page": WebPageCopyFull,
+    # Part 2 — email variants (reuse EmailFull).
+    "email_newsletter": EmailFull,
+    "cold_email": EmailFull,
+    "followup_email": EmailFull,
+    "promo_email": EmailFull,
+    # Part 2 — video scripts (reuse ReelFull).
+    "video_script": ReelFull,
+    "shorts_script": ReelFull,
+    "tiktok_script": ReelFull,
+    # Part 2 — platform micro/long copy.
+    "youtube_title": MicroCopyListFull,
+    "youtube_description": YouTubeDescriptionFull,
+    "pinterest_description": MicroCopyListFull,
+    "x_thread": XThreadFull,
+    # Part 2 — micro-copy option sets (shared shape).
+    "cta_variations": MicroCopyListFull,
+    "headlines": MicroCopyListFull,
+    "taglines": MicroCopyListFull,
+    "hooks": MicroCopyListFull,
+    "meta_description": MicroCopyListFull,
+    "seo_title": MicroCopyListFull,
+    # Part 2 — SEO keyword ideas.
+    "keyword_ideas": KeywordIdeasFull,
 }
 
 

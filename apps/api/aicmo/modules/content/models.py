@@ -40,6 +40,35 @@ class GeneratedContent(Base, TimestampMixin, TenantMixin):
         index=True,
     )
 
+    # Phase 6.2 — full asset traceability. All nullable + SET NULL: the content
+    # is valuable in its own right, so deleting a campaign/bundle/strategy/
+    # recommendation must NOT delete the asset, only unlink it. Ownership of each
+    # is validated against the tenant's brand before persisting.
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaign_plans.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    bundle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    strategy_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("marketing_strategies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("advisor_recommendations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     content_type: Mapped[str] = mapped_column(String(32))  # social_post|reel|carousel|ad_copy
     platform: Mapped[str] = mapped_column(String(64))
     goal: Mapped[str] = mapped_column(String(255))

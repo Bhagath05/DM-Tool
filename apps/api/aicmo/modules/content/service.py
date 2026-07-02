@@ -43,6 +43,34 @@ from aicmo.modules.trends.schemas import TrendAnalysis
 from aicmo.tenancy.context import TenantContext
 
 
+async def _validate_link_ownership(
+    session: AsyncSession, *, tenant: TenantContext, payload: GenerateRequest
+) -> None:
+    """Phase 6.2 — every provided traceability link (campaign/bundle/strategy/
+    recommendation) must belong to THIS tenant's brand. Rejects unknown or
+    cross-tenant IDs (IDOR-safe). Lazy imports avoid an import cycle."""
+    from aicmo.modules.advisor.models import AdvisorRecommendation
+    from aicmo.modules.bundles.models import Bundle
+    from aicmo.modules.campaigns.models import CampaignPlan
+    from aicmo.modules.strategist.models import MarketingStrategyRecord
+
+    checks = (
+        (payload.campaign_id, CampaignPlan, "Campaign"),
+        (payload.bundle_id, Bundle, "Bundle"),
+        (payload.strategy_id, MarketingStrategyRecord, "Strategy"),
+        (payload.recommendation_id, AdvisorRecommendation, "Recommendation"),
+    )
+    for id_, model, label in checks:
+        if id_ is None:
+            continue
+        row = await session.get(model, id_)
+        if row is None or getattr(row, "brand_id", None) != tenant.brand_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} not found in this workspace.",
+            )
+
+
 async def generate(
     session: AsyncSession,
     *,
@@ -83,6 +111,9 @@ async def generate(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Landing page not found or archived",
             )
+
+    # Phase 6.2 — validate optional traceability links before doing any work.
+    await _validate_link_ownership(session, tenant=tenant, payload=payload)
 
     trend_row = await trends_service.get_report(session, tenant.brand_id)
     trend_analysis: TrendAnalysis | None = None
@@ -134,6 +165,10 @@ async def generate(
         business_profile_id=profile.id,
         trend_report_id=trend_report_id,
         landing_page_id=payload.landing_page_id,
+        campaign_id=payload.campaign_id,
+        bundle_id=payload.bundle_id,
+        strategy_id=payload.strategy_id,
+        recommendation_id=payload.recommendation_id,
         content_type=payload.content_type,
         platform=payload.platform,
         goal=payload.goal,

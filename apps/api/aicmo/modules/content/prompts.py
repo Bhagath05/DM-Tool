@@ -110,6 +110,152 @@ _TYPE_INSTRUCTIONS: dict[ContentType, str] = {
         "'[Founder Name], CEO'), a company boilerplate, and a media_contact block "
         "with placeholder name/email — never fabricate real contact details."
     ),
+    # ---- Part 2: story / proof ----
+    "case_study": (
+        "Write a customer case study: challenge → solution → results. Anonymise "
+        "the client (client_descriptor, e.g. 'a mid-market B2B SaaS'). Results are "
+        "concrete outcome bullets. Include one illustrative quote attributed to a "
+        "placeholder role. Never invent a real company name or fabricated metric "
+        "you can't support — frame results as representative outcomes."
+    ),
+    "customer_story": (
+        "Write a narrative customer success story — same structure as a case study "
+        "but warmer and story-first (the customer is the hero, the product is the "
+        "guide). Anonymise the client; keep outcomes representative, not fabricated."
+    ),
+    "testimonial": (
+        "Write a believable, specific testimonial in the customer's voice "
+        "(illustrative — clearly a sample, attributed to '[Name], [role]'). It "
+        "names a concrete before/after, not vague praise. Provide a few variants."
+    ),
+    "product_comparison": (
+        "Write an honest product/category comparison. List the criteria that "
+        "matter, our genuine strengths, and honest tradeoffs where an alternative "
+        "may fit better (this builds trust). End with a clear verdict + CTA. Never "
+        "fabricate competitor facts."
+    ),
+    "faq": (
+        "Write an FAQ that answers the real objections + questions this audience "
+        "has before buying. 4-12 Q&A pairs, plain answers, each removing a specific "
+        "point of friction. Weave in relevant keywords naturally."
+    ),
+    # ---- Part 2: web page copy (shared WebPageCopyFull) ----
+    "website_copy": (
+        "Write general website page copy: a clear headline + subheadline, 2-10 "
+        "benefit-led sections, and a CTA. Include an SEO title (≤60 chars) and meta "
+        "description (≤160). Scannable, specific to this business."
+    ),
+    "homepage_copy": (
+        "Write homepage copy: an above-the-fold headline that states the core value "
+        "in one line, a supporting subheadline, sections for how-it-works / social "
+        "proof / benefits, and a primary CTA. SEO title + meta included."
+    ),
+    "about_us": (
+        "Write an About page: the origin/mission, what the business believes, who "
+        "it serves, and why it's credible — human and specific, not corporate "
+        "filler. Sections + a soft CTA. SEO title + meta included."
+    ),
+    "service_page": (
+        "Write a service page: headline naming the service + outcome, sections for "
+        "what's included / who it's for / how it works / proof, and a booking CTA. "
+        "SEO title + meta included."
+    ),
+    "sales_page": (
+        "Write a long-form sales page: strong headline + subheadline, "
+        "problem/agitation, the offer + benefits, objection handling, and a "
+        "high-intent CTA. Sections build the argument top to bottom. SEO title + "
+        "meta included."
+    ),
+    # ---- Part 2: email variants (shared EmailFull) ----
+    "email_newsletter": (
+        "Write a value-first newsletter email to an existing list: subject lines, "
+        "preheader, a warm greeting, a skimmable body delivering ONE useful idea, "
+        "and a soft CTA. cta_url_hint names where it points."
+    ),
+    "cold_email": (
+        "Write a short, respectful cold outreach email: subject lines that earn the "
+        "open without clickbait, one line of genuine relevance to the recipient, a "
+        "single clear ask, and an easy CTA. Keep it tight — no fabricated claims."
+    ),
+    "followup_email": (
+        "Write a follow-up email that adds NEW value (not just 'bumping this'): "
+        "reference the prior touch, give one fresh reason to act, and restate a "
+        "low-friction CTA."
+    ),
+    "promo_email": (
+        "Write a promotional email for an offer: subject lines that convey the "
+        "value + a touch of urgency (honest, no fake scarcity), a body that leads "
+        "with the benefit, and a strong CTA. cta_url_hint names the offer page."
+    ),
+    # ---- Part 2: video scripts (shared ReelFull) ----
+    "video_script": (
+        "Write a short-form video script (general). Hook in the first 2 seconds, "
+        "scene-by-scene beats, a full voiceover_script, on-screen text overlays, and "
+        "a caption. Optional veo_prompt for generative video."
+    ),
+    "shorts_script": (
+        "Write a YouTube Shorts script: vertical, 15-60s, a pattern-interrupt hook, "
+        "fast beats, voiceover + overlays, and a subscribe/CTA end card."
+    ),
+    "tiktok_script": (
+        "Write a TikTok script: native, trend-aware, hook in 0-2s, punchy beats "
+        "with on-screen text, spoken voiceover, and a comment-baiting CTA. Keep it "
+        "authentic, not ad-like."
+    ),
+    # ---- Part 2: platform copy ----
+    "youtube_title": (
+        "Generate YouTube video titles: `primary` is the strongest, `variants` are "
+        "3-12 alternatives. ≤70 chars, front-load the keyword + the payoff, avoid "
+        "clickbait that the video can't deliver."
+    ),
+    "youtube_description": (
+        "Write a full YouTube description: a keyword-aware first 2 lines (what's "
+        "shown before 'more'), a scannable body, relevant hashtags, and a CTA. No "
+        "fabricated links — describe where the CTA points."
+    ),
+    "pinterest_description": (
+        "Generate Pinterest pin descriptions: `primary` + `variants`. Keyword-rich, "
+        "helpful, ≤500 chars, with a clear reason to click through."
+    ),
+    "x_thread": (
+        "Write an X (Twitter) thread: hook_tweet earns the unroll, 3-15 body tweets "
+        "each ≤280 chars carrying ONE idea, and a cta_tweet. Punchy, no filler, "
+        "one thought per tweet."
+    ),
+    # ---- Part 2: micro-copy option sets (shared MicroCopyListFull) ----
+    "cta_variations": (
+        "Generate CTA button/line variations: `primary` + 3-12 `variants` across "
+        "distinct angles (curiosity / urgency / value reveal / social proof). "
+        "Verb-led, specific, ≤6 words where possible."
+    ),
+    "headlines": (
+        "Generate headline options: `primary` + variants. Different angles "
+        "(benefit, curiosity, objection, outcome). Specific, scannable, no clickbait."
+    ),
+    "taglines": (
+        "Generate brand/product taglines: `primary` + variants. Short, memorable, "
+        "true to the brand — capture the core promise in a few words."
+    ),
+    "hooks": (
+        "Generate opening hooks (first line / first 2 seconds): `primary` + "
+        "variants. Each opens a curiosity gap or names a sharp pain/benefit."
+    ),
+    "meta_description": (
+        "Generate SEO meta descriptions: `primary` + variants, each ≤160 chars, "
+        "including the primary keyword + a reason to click. usage_note explains "
+        "which to test."
+    ),
+    "seo_title": (
+        "Generate SEO page titles: `primary` + variants, ≤60 chars, keyword "
+        "front-loaded, click-worthy but accurate."
+    ),
+    # ---- Part 2: keyword ideas ----
+    "keyword_ideas": (
+        "Generate keyword ideas for the seed_topic: 5-30 keywords, each tagged with "
+        "search intent (informational/commercial/transactional/navigational) and an "
+        "HONEST priority (high/medium/low) based on fit + specificity. Do NOT "
+        "invent search-volume numbers you can't know."
+    ),
 }
 
 
