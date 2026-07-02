@@ -15,6 +15,7 @@ from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.performance import service as performance_service
 from aicmo.modules.publishing import service as publishing_service
+from aicmo.modules.social import service as social_service
 from aicmo.modules.strategist import service as strategist_service
 from aicmo.tenancy.context import TenantContext
 
@@ -80,5 +81,17 @@ async def gather_signals(
             sig.strategy_top_move = record.strategy.get("recommendation")
     except Exception as e:
         log.warning("decision.signals.strategy_failed", error=str(e)[:120])
+
+    # Learned memory — reuse the Learning Engine's social patterns (what has
+    # actually worked). Highest performance/confidence first.
+    try:
+        wins = await social_service.list_winning_patterns(
+            session, brand_id=brand_id, limit=5
+        )
+        sig.winning_patterns = [w.summary for w in wins if w.summary]
+        auds = await social_service.list_audience_patterns(session, brand_id=brand_id)
+        sig.audience_patterns = [a.description for a in auds[:5] if a.description]
+    except Exception as e:
+        log.warning("decision.signals.memory_failed", error=str(e)[:120])
 
     return sig

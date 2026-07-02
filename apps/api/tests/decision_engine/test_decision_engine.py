@@ -34,6 +34,8 @@ def _signals(**over) -> DecisionSignals:
         failed_posts=1,
         has_strategy=True,
         strategy_top_move="Launch a weekday loyalty card",
+        winning_patterns=["Founder-led reels outperform product showcases 2.4x"],
+        audience_patterns=["9pm IST drives 2x engagement"],
     )
     base.update(over)
     return DecisionSignals(**base)
@@ -65,6 +67,20 @@ def test_prompt_quotes_real_numbers():
     assert "42" in prompt
     assert "8" in prompt
     assert "Brew & Bloom Cafe" in prompt
+
+
+def test_prompt_includes_learned_memory():
+    # Module 6 integration: the Learning Engine's patterns ground decisions.
+    prompt = prompts.build_decision_prompt(_signals())
+    assert "Founder-led reels outperform" in prompt
+    assert "9pm IST drives 2x engagement" in prompt
+
+
+def test_prompt_without_memory_states_it():
+    prompt = prompts.build_decision_prompt(
+        _signals(winning_patterns=[], audience_patterns=[])
+    )
+    assert "no learned patterns yet" in prompt
 
 
 def test_prompt_without_profile_points_to_onboarding():

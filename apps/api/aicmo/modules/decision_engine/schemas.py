@@ -51,6 +51,11 @@ class DecisionSignals(BaseModel):
     has_strategy: bool = False
     strategy_top_move: str | None = None
 
+    # Learned memory (reused from the existing Learning Engine — social
+    # winning/audience patterns). What has actually worked for this brand.
+    winning_patterns: list[str] = Field(default_factory=list)
+    audience_patterns: list[str] = Field(default_factory=list)
+
 
 class Decision(BaseModel):
     """One structured decision — never an executed action."""

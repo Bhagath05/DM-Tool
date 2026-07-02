@@ -44,6 +44,19 @@ def build_decision_prompt(s: DecisionSignals) -> str:
     conv = round(s.conversion_rate * 100, 1)
     strat = f" — top move: {s.strategy_top_move}" if s.strategy_top_move else ""
 
+    memory_parts = []
+    if s.winning_patterns:
+        memory_parts.append(
+            "What has won before:\n" + "\n".join(f"- {w}" for w in s.winning_patterns)
+        )
+    if s.audience_patterns:
+        memory_parts.append(
+            "Audience patterns:\n" + "\n".join(f"- {a}" for a in s.audience_patterns)
+        )
+    memory_block = "\n".join(memory_parts) or (
+        "(no learned patterns yet — not enough published history to learn from)"
+    )
+
     return f"""Decide what this business should do next, based ONLY on the real data below.
 
 # Business
@@ -61,6 +74,9 @@ Scheduled: {s.scheduled_posts} | published: {s.published_posts} | failed: {s.fai
 
 # Strategy
 Has a marketing strategy: {s.has_strategy}{strat}
+
+# Learned memory (what actually worked in past posts — prefer these over guesses)
+{memory_block}
 
 # What to produce
 Prioritised, structured decisions grounded ONLY in the numbers above — each with
