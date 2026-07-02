@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -88,7 +89,7 @@ class IntegrationConnection(Base):
         nullable=False,
     )
 
-    credential: Mapped["IntegrationCredential | None"] = relationship(
+    credential: Mapped[IntegrationCredential | None] = relationship(
         "IntegrationCredential",
         back_populates="connection",
         uselist=False,
@@ -145,4 +146,56 @@ class IntegrationCredential(Base):
 
     connection: Mapped[IntegrationConnection] = relationship(
         "IntegrationConnection", back_populates="credential"
+    )
+
+
+class IntegrationEvent(Base):
+    """Phase 6.1 — append-only activity log for a connection: every OAuth,
+    sync, refresh, disconnect, and error event. Powers Sync History, the Error
+    Center, Activity Logs, and Integration Analytics from ONE source of truth.
+
+    Tenant-scoped (org + optional brand, mirroring the connection). `connection_id`
+    is SET NULL on connection delete so history survives a hard-delete. Contains
+    NO secrets — never the token, only metadata.
+    """
+
+    __tablename__ = "integration_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    brand_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("brands.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("integration_connection.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    provider_slug: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+
+    # oauth_success | oauth_failure | sync_completed | sync_failed |
+    # token_refreshed | disconnect | reconnect | error | webhook_received.
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # success | failure | info — drives Error Center filtering + analytics.
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="info", index=True
+    )
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # rows_pulled, duration_ms, external_account, etc. Never a secret.
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

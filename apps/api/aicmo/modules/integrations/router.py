@@ -31,6 +31,9 @@ from aicmo.modules.integrations.schemas import (
     ConnectionRead,
     ConnectResponse,
     HealthResponse,
+    IntegrationAnalytics,
+    IntegrationEventList,
+    IntegrationEventResponse,
     SyncResponse,
 )
 from aicmo.modules.integrations.state import InvalidStateTransition
@@ -59,6 +62,64 @@ async def list_catalog(
     Integrations grid."""
     items = await service.build_catalog(session, tenant=tenant)
     return CatalogResponse(items=items)
+
+
+# ---------------------------------------------------------------------
+#  Phase 6.1 — Activity log / Sync History / Error Center / Analytics.
+#  Registered BEFORE `/{slug}` so these literal paths aren't captured as a slug.
+# ---------------------------------------------------------------------
+
+
+@router.get("/events", response_model=IntegrationEventList)
+async def list_events(
+    connection_id: uuid.UUID | None = Query(default=None),
+    provider: str | None = Query(default=None),
+    event_type: str | None = Query(
+        default=None,
+        description="e.g. sync_completed (Sync History), oauth_success, disconnect.",
+    ),
+    status_filter: str | None = Query(
+        default=None, alias="status", description="'failure' → the Error Center."
+    ),
+    limit: int = Query(default=100, ge=1, le=500),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> IntegrationEventList:
+    """The integration activity log — one feed powering Activity Logs, Sync
+    History (event_type=sync_completed) and the Error Center (status=failure)."""
+    from aicmo.modules.integrations import events
+
+    rows = await events.list_events(
+        session,
+        organization_id=tenant.organization_id,
+        brand_id=tenant.brand_id,
+        connection_id=connection_id,
+        provider_slug=provider,
+        event_type=event_type,
+        status=status_filter,
+        limit=limit,
+    )
+    return IntegrationEventList(
+        items=[IntegrationEventResponse.model_validate(r) for r in rows]
+    )
+
+
+@router.get("/analytics", response_model=IntegrationAnalytics)
+async def integration_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> IntegrationAnalytics:
+    """Aggregate connection health + sync success + error counts for this tenant."""
+    from aicmo.modules.integrations import events
+
+    data = await events.analytics(
+        session,
+        organization_id=tenant.organization_id,
+        brand_id=tenant.brand_id,
+        days=days,
+    )
+    return IntegrationAnalytics.model_validate(data)
 
 
 @router.get("/{slug}", response_model=CatalogEntry)
@@ -157,7 +218,7 @@ async def oauth_callback(
         return RedirectResponse(url=error_url)
     except service.ProviderNotReady:
         return RedirectResponse(url=error_url)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return RedirectResponse(url=error_url)
 
     slug = conn.provider_slug
@@ -220,7 +281,7 @@ async def trigger_sync(
         )
 
     # Re-fetch the connection to surface the latest state to the caller.
-    conn = await service._load_owned_connection(  # noqa: SLF001
+    conn = await service._load_owned_connection(
         session, tenant=tenant, connection_id=connection_id
     )
     return SyncResponse(
@@ -243,7 +304,7 @@ async def health(
     tenant: TenantContext = Depends(require_permission("analytics.view")),
 ) -> HealthResponse:
     try:
-        conn = await service._load_owned_connection(  # noqa: SLF001
+        conn = await service._load_owned_connection(
             session, tenant=tenant, connection_id=connection_id
         )
     except service.UnknownConnection as exc:

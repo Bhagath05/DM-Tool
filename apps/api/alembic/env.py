@@ -56,6 +56,7 @@ from aicmo.modules.growth.models import (  # noqa: F401
 from aicmo.modules.integrations.models import (  # noqa: F401
     IntegrationConnection,
     IntegrationCredential,
+    IntegrationEvent,
 )
 from aicmo.modules.landing_pages.models import LandingPage  # noqa: F401
 from aicmo.modules.leads.models import Lead  # noqa: F401

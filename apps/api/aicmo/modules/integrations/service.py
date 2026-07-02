@@ -16,16 +16,15 @@ The router is a thin shell over this file.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Awaitable, Callable, TypeVar
+from datetime import UTC, datetime, timedelta
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from aicmo.modules.integrations import crypto, oauth_state, state
 from aicmo.modules.audit import service as audit_service
+from aicmo.modules.integrations import crypto, events, oauth_state, state
 from aicmo.modules.integrations.models import (
     IntegrationConnection,
     IntegrationCredential,
@@ -46,7 +45,6 @@ from aicmo.modules.integrations.schemas import (
     ConnectionState,
 )
 from aicmo.tenancy.context import TenantContext
-
 
 T = TypeVar("T")
 
@@ -213,10 +211,10 @@ async def handle_callback(
         tokens = await provider.exchange_code(code, redirect_uri)
         account = await provider.fetch_account_info(tokens.access_token)
     except NotYetAvailable as exc:
-        await _fail_to_error(session, conn, str(exc))
+        await _fail_to_error(session, conn, str(exc), event_type="oauth_failure")
         raise ProviderNotReady(slug=conn.provider_slug, message=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 — protocol-level errors all flow here
-        await _fail_to_error(session, conn, repr(exc))
+    except Exception as exc:
+        await _fail_to_error(session, conn, repr(exc), event_type="oauth_failure")
         raise
 
     # Persist encrypted credential.
@@ -226,8 +224,16 @@ async def handle_callback(
     conn.external_account_id = account.external_account_id
     conn.external_account_name = account.external_account_name
     conn.scopes_granted = list(account.scopes_granted)
-    conn.connected_at = datetime.now(timezone.utc)
+    conn.connected_at = datetime.now(UTC)
     conn.error_message = None
+    events.record_event(
+        session,
+        connection=conn,
+        event_type="oauth_success",
+        status="success",
+        message=f"Connected {account.external_account_name or conn.provider_slug}.",
+        detail={"external_account_id": account.external_account_id},
+    )
     await session.commit()
     await session.refresh(conn)
     log.info(
@@ -269,6 +275,13 @@ async def disconnect(
     )
     conn.state = "DISCONNECTED"
     conn.error_message = None
+    events.record_event(
+        session,
+        connection=conn,
+        event_type="disconnect",
+        status="info",
+        message="Disconnected by user.",
+    )
     if tenant.user_uuid:
         await audit_service.record(
             session,
@@ -313,7 +326,7 @@ async def sync(
         )
 
     provider = IntegrationRegistry.get(conn.provider_slug)
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     try:
         access_token = await _read_access_token(session, conn, provider=provider)
         result = await provider.sync(
@@ -322,10 +335,10 @@ async def sync(
             external_account_id=conn.external_account_id,
         )
     except NotYetAvailable as exc:
-        await _fail_to_error(session, conn, str(exc))
+        await _fail_to_error(session, conn, str(exc), event_type="sync_failed")
         raise ProviderNotReady(slug=conn.provider_slug, message=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        await _fail_to_error(session, conn, repr(exc))
+    except Exception as exc:
+        await _fail_to_error(session, conn, repr(exc), event_type="sync_failed")
         raise
 
     if result.metrics and conn.brand_id:
@@ -344,13 +357,24 @@ async def sync(
                 raw_json=raw_map.get(key, {"source": "integration_sync"}),
             )
 
-    conn.last_sync_at = result.finished_at or datetime.now(timezone.utc)
+    conn.last_sync_at = result.finished_at or datetime.now(UTC)
+    _finished = result.finished_at or datetime.now(UTC)
+    _duration_ms = int((_finished - started).total_seconds() * 1000)
     if result.error_message:
         conn.state = "ERROR"
         conn.error_message = result.error_message
         conn.last_error_at = conn.last_sync_at
     else:
         conn.error_message = None
+    events.record_event(
+        session,
+        connection=conn,
+        event_type="sync_completed",
+        status="failure" if result.error_message else "success",
+        message=result.error_message or f"Synced {result.rows_pulled} rows.",
+        detail={"rows_pulled": result.rows_pulled},
+        duration_ms=_duration_ms,
+    )
     if tenant.user_uuid:
         await audit_service.record(
             session,
@@ -439,7 +463,7 @@ async def _replace_credential(
             if tokens.raw_response
             else None
         ),
-        rotated_at=datetime.now(timezone.utc),
+        rotated_at=datetime.now(UTC),
     )
     session.add(cred)
 
@@ -460,7 +484,7 @@ async def _read_access_token(
         if conn.state == "ACTIVE":
             conn.state = "ERROR"
             conn.error_message = "Connection has no stored credentials — reconnect."
-            conn.last_error_at = datetime.now(timezone.utc)
+            conn.last_error_at = datetime.now(UTC)
             await session.commit()
         raise NotConnectable(
             connection_id=conn.id,
@@ -468,7 +492,7 @@ async def _read_access_token(
             message="Connection has no stored credentials.",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires = cred.token_expires_at
     needs_refresh = (
         expires is not None
@@ -495,13 +519,22 @@ async def _fail_to_error(
     session: AsyncSession,
     conn: IntegrationConnection,
     message: str,
+    *,
+    event_type: str = "error",
 ) -> None:
-    """Roll the connection to ERROR, persist the error message, commit.
-    Caller still raises whatever exception triggered this — we just
-    record it durably before the request unwinds."""
+    """Roll the connection to ERROR, persist the error message + an activity-log
+    event, commit. Caller still raises whatever exception triggered this — we
+    just record it durably before the request unwinds."""
     conn.state = "ERROR"
     conn.error_message = message[:500]  # never let provider blobs balloon
-    conn.last_error_at = datetime.now(timezone.utc)
+    conn.last_error_at = datetime.now(UTC)
+    events.record_event(
+        session,
+        connection=conn,
+        event_type=event_type,
+        status="failure",
+        message=message,
+    )
     await session.commit()
 
 
@@ -571,16 +604,16 @@ async def ensure_access_token(
 # without piercing into the registry module. UnknownProvider is the
 # "no such slug" error; the four above are operational errors.
 __all__ = [
-    "build_catalog",
-    "get_provider_detail",
-    "start_connect",
-    "handle_callback",
-    "disconnect",
-    "sync",
-    "ensure_access_token",
     "AlreadyConnected",
-    "UnknownConnection",
     "NotConnectable",
     "ProviderNotReady",
+    "UnknownConnection",
     "UnknownProvider",
+    "build_catalog",
+    "disconnect",
+    "ensure_access_token",
+    "get_provider_detail",
+    "handle_callback",
+    "start_connect",
+    "sync",
 ]

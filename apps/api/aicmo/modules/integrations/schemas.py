@@ -125,3 +125,36 @@ class SyncResponse(BaseModel):
     finished_at: datetime
     rows_pulled: int = 0
     error_message: str | None = None
+
+
+class IntegrationEventResponse(BaseModel):
+    """Phase 6.1 — one activity-log row. Contains NO secrets."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    connection_id: uuid.UUID | None
+    provider_slug: str
+    event_type: str
+    status: str
+    message: str | None
+    detail: dict
+    duration_ms: int | None
+    occurred_at: datetime
+
+
+class IntegrationEventList(BaseModel):
+    items: list[IntegrationEventResponse]
+
+
+class IntegrationAnalytics(BaseModel):
+    window_days: int
+    connections_total: int
+    connections_by_state: dict[str, int]
+    syncs_total: int
+    syncs_succeeded: int
+    syncs_failed: int
+    sync_success_rate: float | None
+    errors_total: int
+    events_total: int
+    events_by_provider: dict[str, int]
