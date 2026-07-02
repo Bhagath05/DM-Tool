@@ -36,6 +36,8 @@ class WorkDraft:
     priority: str = "medium"
     source_kind: str = "event"
     source_id: uuid.UUID | None = None
+    # Extra dedupe discriminator for sources without a row id (e.g. a decision).
+    dedupe_hint: str | None = None
     tags: list[str] = field(default_factory=list)
 
 
@@ -162,8 +164,24 @@ async def schedule_work(
 
     if not drafts:
         return 0
+    return await persist_drafts(
+        session, organization_id=organization_id, brand_id=brand_id, drafts=drafts
+    )
 
-    # Evaluate the Autonomy Policy once per brand.
+
+async def persist_drafts(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    brand_id: uuid.UUID,
+    drafts: list[WorkDraft],
+) -> int:
+    """Policy-gate + persist a list of WorkDrafts, deduped against open items.
+    Shared by the deterministic scheduler (events/goals) and the decision
+    pipeline (4.6). Does not commit."""
+    if not drafts:
+        return 0
+
     from aicmo.config import get_settings
     from aicmo.modules.autonomy import service as autonomy_service
 
@@ -173,7 +191,8 @@ async def schedule_work(
     existing = await _open_dedupe_keys(session, brand_id=brand_id)
     created = 0
     for d in drafts:
-        dedupe = f"{brand_id}:{d.kind}:{d.source_id or d.source_kind}"
+        disc = d.source_id or d.dedupe_hint or d.source_kind
+        dedupe = f"{brand_id}:{d.kind}:{disc}"
         if dedupe in existing:
             continue
         decision = autonomy_service.evaluate_policy(

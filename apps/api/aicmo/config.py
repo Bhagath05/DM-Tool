@@ -137,6 +137,14 @@ class Settings(BaseSettings):
     operations_monitor_interval_seconds: int = Field(default=300)
     operations_tick_min_gap_seconds: int = Field(default=20)
 
+    # Phase 4.6 — the reasoning steps of the loop (Decision Engine + Learning
+    # synthesis) cost LLM calls, so they're OFF by default. Cheap monitoring /
+    # detection / scheduling always run; enable this to add the reasoning layer.
+    # Cooldowns bound how often each engine runs per brand (cost control).
+    operations_pipeline_enabled: bool = Field(default=False)
+    operations_decision_cooldown_seconds: int = Field(default=21600)   # 6h
+    operations_learning_cooldown_seconds: int = Field(default=86400)   # 24h
+
     # -----------------------------------------------------------------
     # Creative Platform / Video (Creative Core V0). Ships DARK:
     # `video_enabled=false` → every /creative/* endpoint returns 409 and

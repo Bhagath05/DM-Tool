@@ -147,6 +147,22 @@ async def run_operations_cycle(
     run.detail = {"errors": errors, "brands": len(brands), "work_scheduled": work_total}
     await session.commit()
 
+    # 4.6 — reasoning pass (Decision Engine + Learning synthesis). Gated OFF by
+    # default; runs AFTER the capture commit because those engines manage their
+    # own transactions. Each brand is guarded so one failure never sinks the loop.
+    if get_settings().operations_pipeline_enabled:
+        from aicmo.modules.operations import pipeline
+
+        for brand_id, org_id in brands:
+            try:
+                await pipeline.run_reasoning(
+                    session, organization_id=org_id, brand_id=brand_id, now=started
+                )
+            except Exception as e:
+                log.warning(
+                    "ops.cycle.reasoning_failed", brand_id=str(brand_id), error=str(e)[:120]
+                )
+
     log.info(
         "ops.cycle.ran",
         trigger=trigger,
