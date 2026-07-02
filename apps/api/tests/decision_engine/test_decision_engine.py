@@ -36,6 +36,7 @@ def _signals(**over) -> DecisionSignals:
         strategy_top_move="Launch a weekday loyalty card",
         winning_patterns=["Founder-led reels outperform product showcases 2.4x"],
         audience_patterns=["9pm IST drives 2x engagement"],
+        learning_insights=["Weekday loyalty card lifts repeat visits → keep running it"],
     )
     base.update(over)
     return DecisionSignals(**base)
@@ -76,9 +77,15 @@ def test_prompt_includes_learned_memory():
     assert "9pm IST drives 2x engagement" in prompt
 
 
+def test_prompt_includes_synthesised_learning_insights():
+    # Module 6 feedback: cross-domain lessons flow into the decision prompt.
+    prompt = prompts.build_decision_prompt(_signals())
+    assert "Weekday loyalty card lifts repeat visits" in prompt
+
+
 def test_prompt_without_memory_states_it():
     prompt = prompts.build_decision_prompt(
-        _signals(winning_patterns=[], audience_patterns=[])
+        _signals(winning_patterns=[], audience_patterns=[], learning_insights=[])
     )
     assert "no learned patterns yet" in prompt
 

@@ -29,14 +29,22 @@ from aicmo.tenancy.context import TenantContext
 log = structlog.get_logger()
 
 
-async def generate_strategy(profile: BusinessProfileResponse) -> MarketingStrategy:
-    """Pure of the DB so it can be unit-tested with a mocked LLM router."""
+async def generate_strategy(
+    profile: BusinessProfileResponse, learning_block: str = ""
+) -> MarketingStrategy:
+    """Pure of the DB so it can be unit-tested with a mocked LLM router.
+
+    `learning_block` (Module 6) injects the brand's learned lessons so the
+    strategy improves as real results accrue."""
     router = get_llm_router()
     result = await router.generate(
         response_schema=MarketingStrategy,
         system=prompts.SYSTEM_PROMPT,
         messages=[
-            LLMMessage(role="user", content=prompts.build_strategy_prompt(profile)),
+            LLMMessage(
+                role="user",
+                content=prompts.build_strategy_prompt(profile, learning_block),
+            ),
         ],
         max_tokens=4096,
     )
@@ -86,11 +94,13 @@ async def list_strategies(
     )
 
 
-async def run_strategy(record_id: str, snapshot: BusinessProfileResponse) -> None:
+async def run_strategy(
+    record_id: str, snapshot: BusinessProfileResponse, learning_block: str = ""
+) -> None:
     """Background task — generate then persist. Never raises (worker safety);
     a failure is recorded on the row so the UI can surface + retry."""
     try:
-        strategy = await generate_strategy(snapshot)
+        strategy = await generate_strategy(snapshot, learning_block)
     except Exception as e:
         log.warning("strategist.generate.failed", error=str(e)[:200])
         async with SessionLocal() as session:

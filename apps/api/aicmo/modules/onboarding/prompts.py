@@ -41,7 +41,9 @@ recommended_acquisition_channels).
 )
 
 
-def build_analysis_user_prompt(profile: BusinessProfileBase) -> str:
+def build_analysis_user_prompt(
+    profile: BusinessProfileBase, learning_block: str = ""
+) -> str:
     competitors = ", ".join(profile.competitors) or "(none provided — infer plausible categories, do not name fake brands)"
     goals = "\n".join(f"- {g}" for g in profile.goals) or "(none provided)"
     platforms = ", ".join(profile.preferred_platforms)
@@ -90,6 +92,9 @@ Other goals:
 # Context
 Preferred platforms: {platforms}
 Known competitors: {competitors}
+
+# Lessons learned so far (from this brand's real results — refine, don't contradict)
+{learning_block or "(no lessons learned yet — this may be a new business)"}
 
 # What to produce
 

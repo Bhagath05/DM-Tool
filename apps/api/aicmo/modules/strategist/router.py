@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
+from aicmo.modules.learning import feedback as learning_feedback
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.strategist import service
@@ -44,9 +45,16 @@ async def generate(
             detail="Complete your business profile before generating a strategy.",
         )
     snapshot = BusinessProfileResponse.model_validate(profile_row)
+    # Module 6 — feed the brand's learned lessons into the strategy (cheap read
+    # on the request path; the block is empty until the Learning Engine has run).
+    learning_block = await learning_feedback.learning_context_block(
+        session, brand_id=tenant.brand_id, module="strategy"
+    )
     record = await service.create_pending(session, tenant=tenant)
     # Generate off the request path (big LLM call); the client polls /latest.
-    background.add_task(service.run_strategy, str(record.id), snapshot)
+    background.add_task(
+        service.run_strategy, str(record.id), snapshot, learning_block
+    )
     return MarketingStrategyResponse.model_validate(record)
 
 

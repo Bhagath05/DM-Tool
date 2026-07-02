@@ -14,11 +14,25 @@ from sqlalchemy import update
 from aicmo.db.session import SessionLocal
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
+from aicmo.modules.learning import feedback as learning_feedback
 from aicmo.modules.onboarding.models import BusinessProfile
 from aicmo.modules.onboarding.prompts import SYSTEM_PROMPT, build_analysis_user_prompt
 from aicmo.modules.onboarding.schemas import BusinessAnalysis, BusinessProfileResponse
 
 log = structlog.get_logger()
+
+
+async def _learning_block_for(snapshot: BusinessProfileResponse) -> str:
+    """Module 6 — lessons learned for this brand, if any. Guarded: analysis must
+    never fail because the feedback read did. Empty for a brand-new business."""
+    try:
+        async with SessionLocal() as session:
+            return await learning_feedback.learning_context_block(
+                session, brand_id=snapshot.brand_id, module="business_understanding"
+            )
+    except Exception as e:
+        log.warning("onboarding.learning_block_failed", error=str(e)[:120])
+        return ""
 
 # Uses platform-default LLM provider (see config.llm_default_provider).
 
@@ -28,11 +42,17 @@ async def run_analysis(profile_id: str, snapshot: BusinessProfileResponse) -> No
     request that triggered it. Failures are recorded on the profile row,
     not re-raised."""
     router = get_llm_router()
+    learning_block = await _learning_block_for(snapshot)
     try:
         result = await router.generate(
             response_schema=BusinessAnalysis,
             system=SYSTEM_PROMPT,
-            messages=[LLMMessage(role="user", content=build_analysis_user_prompt(snapshot))],
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content=build_analysis_user_prompt(snapshot, learning_block),
+                )
+            ],
             temperature=0.6,
             # Phase 2.1 — the v2 BusinessAnalysis adds 3 narrative paragraphs
             # + 3 milestone objects + 3 channel objects + 2 bullet lists, so
@@ -40,7 +60,7 @@ async def run_analysis(profile_id: str, snapshot: BusinessProfileResponse) -> No
             # verbose audience descriptions without truncating the JSON tail.
             max_tokens=4500,
         )
-    except Exception as e:  # noqa: BLE001 — analyzer must never crash the worker
+    except Exception as e:
         log.warning(
             "onboarding.analysis_failed", profile_id=profile_id, error=str(e)
         )

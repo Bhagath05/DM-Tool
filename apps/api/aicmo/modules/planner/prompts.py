@@ -24,7 +24,9 @@ Output only what the response schema asks for."""
 
 
 def build_plan_prompt(
-    profile: BusinessProfileResponse, strategy: MarketingStrategy | None
+    profile: BusinessProfileResponse,
+    strategy: MarketingStrategy | None,
+    learning_block: str = "",
 ) -> str:
     goals = "; ".join(profile.goals) or "(none provided)"
 
@@ -64,6 +66,9 @@ Monthly budget: {profile.monthly_budget_band or "(not specified)"}
 
 # Marketing strategy (ground today's plan in THIS)
 {strategy_block}
+
+# Lessons learned so far (from this brand's real results — prefer these over guesses)
+{learning_block or "(no lessons learned yet — plan from the strategy + business above)"}
 
 # What to produce
 Today's plan: a summary line, the single focus, and 3-7 prioritized tasks that

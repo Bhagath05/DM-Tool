@@ -84,6 +84,18 @@ def test_system_prompt_forbids_invented_numbers():
     assert "NEVER invent numbers" in prompts.SYSTEM_PROMPT
 
 
+def test_prompt_injects_learned_lessons():
+    # Module 6 feedback: learned lessons flow into the strategy prompt.
+    block = "LEARNED LESSONS:\n- ✓ [channel] Instagram beats email 2x"
+    prompt = prompts.build_strategy_prompt(_profile(), block)
+    assert "Instagram beats email 2x" in prompt
+
+
+def test_prompt_states_when_no_lessons_yet():
+    prompt = prompts.build_strategy_prompt(_profile())
+    assert "no lessons learned yet" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_strategy_calls_llm_with_our_schema(monkeypatch):
     strategy = MarketingStrategy.model_validate(_valid_strategy())

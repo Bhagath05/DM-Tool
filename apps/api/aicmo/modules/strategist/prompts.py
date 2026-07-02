@@ -31,7 +31,9 @@ plumber), say so honestly in `focus`/`why` and set priority "low" — never pad.
 Output only what the response schema asks for."""
 
 
-def build_strategy_prompt(profile: BusinessProfileResponse) -> str:
+def build_strategy_prompt(
+    profile: BusinessProfileResponse, learning_block: str = ""
+) -> str:
     products = ", ".join(profile.products) or "(not specified — infer from industry)"
     services = ", ".join(profile.services) or "(not specified — infer from industry)"
     usps = "; ".join(profile.unique_selling_points) or "(not specified — propose likely ones)"
@@ -84,6 +86,9 @@ Competitors: {competitors}
 
 # Prior AI analysis (build on this, don't contradict it)
 {analysis_block}
+
+# Lessons learned so far (from this brand's real results — prefer these over guesses)
+{learning_block or "(no lessons learned yet — plan from the business facts above)"}
 
 # What to produce
 A complete strategy covering: content, SEO, local SEO, paid ads, organic/social,

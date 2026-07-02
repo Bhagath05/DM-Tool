@@ -56,6 +56,11 @@ class DecisionSignals(BaseModel):
     winning_patterns: list[str] = Field(default_factory=list)
     audience_patterns: list[str] = Field(default_factory=list)
 
+    # Synthesised cross-domain lessons from the Learning Engine (Module 6),
+    # already routed to `decision`. Higher-order than the raw patterns above —
+    # durable observations that should steer this decision ("obs → rec").
+    learning_insights: list[str] = Field(default_factory=list)
+
 
 class Decision(BaseModel):
     """One structured decision — never an executed action."""

@@ -86,6 +86,13 @@ def test_prompt_without_strategy_nudges_to_generate_one():
     assert "no marketing strategy yet" in prompt
 
 
+def test_prompt_injects_learned_lessons():
+    # Module 6 feedback: learned lessons flow into today's plan prompt.
+    block = "LEARNED LESSONS:\n- ✓ [posting_time] 9pm posts get 2x engagement"
+    prompt = prompts.build_plan_prompt(_profile(), _strategy(), block)
+    assert "9pm posts get 2x engagement" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_daily_plan_calls_llm_with_our_schema(monkeypatch):
     plan = DailyPlan.model_validate(_valid_plan())

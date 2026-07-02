@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.analytics import service as analytics_service
 from aicmo.modules.decision_engine.schemas import DecisionSignals
+from aicmo.modules.learning import feedback as learning_feedback
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.performance import service as performance_service
@@ -93,5 +94,17 @@ async def gather_signals(
         sig.audience_patterns = [a.description for a in auds[:5] if a.description]
     except Exception as e:
         log.warning("decision.signals.memory_failed", error=str(e)[:120])
+
+    # Learning Engine (Module 6) — durable cross-domain lessons already routed
+    # to `decision`. These are synthesised, higher-order than the raw patterns.
+    try:
+        lessons = await learning_feedback.active_insights_for_module(
+            session, brand_id=brand_id, module="decision", limit=5
+        )
+        sig.learning_insights = [
+            f"{r.observation} → {r.recommendation}" for r in lessons
+        ]
+    except Exception as e:
+        log.warning("decision.signals.lessons_failed", error=str(e)[:120])
 
     return sig

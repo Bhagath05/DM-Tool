@@ -45,6 +45,11 @@ def build_decision_prompt(s: DecisionSignals) -> str:
     strat = f" — top move: {s.strategy_top_move}" if s.strategy_top_move else ""
 
     memory_parts = []
+    if s.learning_insights:
+        memory_parts.append(
+            "Lessons learned (synthesised across the whole business — prefer these):\n"
+            + "\n".join(f"- {x}" for x in s.learning_insights)
+        )
     if s.winning_patterns:
         memory_parts.append(
             "What has won before:\n" + "\n".join(f"- {w}" for w in s.winning_patterns)
