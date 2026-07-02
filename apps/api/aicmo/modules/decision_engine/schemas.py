@@ -61,6 +61,10 @@ class DecisionSignals(BaseModel):
     # durable observations that should steer this decision ("obs → rec").
     learning_insights: list[str] = Field(default_factory=list)
 
+    # The brand's active business goals + real progress (Phase 4.3). Decisions
+    # should serve these; empty when none are set.
+    business_goals: list[str] = Field(default_factory=list)
+
 
 class Decision(BaseModel):
     """One structured decision — never an executed action."""

@@ -32,7 +32,7 @@ Output only what the response schema asks for."""
 
 
 def build_strategy_prompt(
-    profile: BusinessProfileResponse, learning_block: str = ""
+    profile: BusinessProfileResponse, learning_block: str = "", goals_block: str = ""
 ) -> str:
     products = ", ".join(profile.products) or "(not specified — infer from industry)"
     services = ", ".join(profile.services) or "(not specified — infer from industry)"
@@ -89,6 +89,8 @@ Competitors: {competitors}
 
 # Lessons learned so far (from this brand's real results — prefer these over guesses)
 {learning_block or "(no lessons learned yet — plan from the business facts above)"}
+
+# {goals_block or "Business goals: none set — optimise for lead + revenue growth."}
 
 # What to produce
 A complete strategy covering: content, SEO, local SEO, paid ads, organic/social,

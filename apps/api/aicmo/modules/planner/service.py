@@ -30,11 +30,12 @@ async def generate_daily_plan(
     profile: BusinessProfileResponse,
     strategy: MarketingStrategy | None,
     learning_block: str = "",
+    goals_block: str = "",
 ) -> DailyPlan:
     """Pure of the DB so it can be unit-tested with a mocked LLM router.
 
-    `learning_block` (Module 6) injects the brand's learned lessons so the plan
-    reflects what has actually worked."""
+    `learning_block` (Module 6) injects learned lessons; `goals_block` (4.3)
+    injects the brand's active goals so today's plan moves them forward."""
     router = get_llm_router()
     result = await router.generate(
         response_schema=DailyPlan,
@@ -42,7 +43,9 @@ async def generate_daily_plan(
         messages=[
             LLMMessage(
                 role="user",
-                content=prompts.build_plan_prompt(profile, strategy, learning_block),
+                content=prompts.build_plan_prompt(
+                    profile, strategy, learning_block, goals_block
+                ),
             ),
         ],
         max_tokens=2048,
@@ -67,5 +70,9 @@ async def plan_today(
     learning_block = await learning_feedback.learning_context_block(
         session, brand_id=brand_id, module="planner"
     )
-    plan = await generate_daily_plan(profile, strategy, learning_block)
+    # Phase 4.3 — today's plan moves the brand's active goals forward.
+    from aicmo.modules.operations import goals as ops_goals
+
+    goals_block = await ops_goals.active_goals_context(session, brand_id=brand_id)
+    plan = await generate_daily_plan(profile, strategy, learning_block, goals_block)
     return DailyPlanResponse(plan=plan, grounded_in_strategy=strategy is not None)

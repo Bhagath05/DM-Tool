@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.config import get_settings
-from aicmo.modules.operations import events, monitoring
+from aicmo.modules.operations import events, goals, monitoring
 from aicmo.modules.operations.models import OperationsRun
 from aicmo.modules.operations.schemas import BrandCycleResult, TickResult
 
@@ -106,6 +106,10 @@ async def run_operations_cycle(
                     )
                     brand_events = len(evs)
                     events_total += brand_events
+                # 4.3 — measure goal progress from the fresh snapshot.
+                await goals.measure_goals(
+                    session, brand_id=brand_id, metrics=metrics, now=started
+                )
             details.append(
                 BrandCycleResult(
                     brand_id=str(brand_id),

@@ -50,10 +50,16 @@ async def generate(
     learning_block = await learning_feedback.learning_context_block(
         session, brand_id=tenant.brand_id, module="strategy"
     )
+    # Phase 4.3 — feed the brand's active goals into the strategy.
+    from aicmo.modules.operations import goals as ops_goals
+
+    goals_block = await ops_goals.active_goals_context(
+        session, brand_id=tenant.brand_id
+    )
     record = await service.create_pending(session, tenant=tenant)
     # Generate off the request path (big LLM call); the client polls /latest.
     background.add_task(
-        service.run_strategy, str(record.id), snapshot, learning_block
+        service.run_strategy, str(record.id), snapshot, learning_block, goals_block
     )
     return MarketingStrategyResponse.model_validate(record)
 

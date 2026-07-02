@@ -62,6 +62,12 @@ def build_decision_prompt(s: DecisionSignals) -> str:
         "(no learned patterns yet — not enough published history to learn from)"
     )
 
+    goals_block = (
+        "\n".join(f"- {g}" for g in s.business_goals)
+        if s.business_goals
+        else "(no explicit goals set — optimise for lead + revenue growth)"
+    )
+
     return f"""Decide what this business should do next, based ONLY on the real data below.
 
 # Business
@@ -79,6 +85,9 @@ Scheduled: {s.scheduled_posts} | published: {s.published_posts} | failed: {s.fai
 
 # Strategy
 Has a marketing strategy: {s.has_strategy}{strat}
+
+# Business goals (decisions must serve these)
+{goals_block}
 
 # Learned memory (what actually worked in past posts — prefer these over guesses)
 {memory_block}

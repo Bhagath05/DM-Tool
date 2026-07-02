@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -122,4 +122,52 @@ class DetectedEvent(Base, TimestampMixin, TenantMixin):
     # new → acknowledged → actioned → dismissed | resolved.
     status: Mapped[str] = mapped_column(
         String(16), default="new", server_default="new", index=True
+    )
+
+
+class OperationalGoal(Base, TimestampMixin, TenantMixin):
+    """Phase 4.3 — a user-defined marketing goal the AI continuously works toward.
+    Progress is measured from real metric snapshots (deterministic; never
+    invented). Active goals feed Strategy, Planner, and the Decision Engine."""
+
+    __tablename__ = "operational_goals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[str] = mapped_column(String(255), index=True)  # creator
+
+    title: Mapped[str] = mapped_column(Text)
+    # leads | website_traffic | conversions | content_output | roas | cpa |
+    # instagram_followers | linkedin_followers | appointments.
+    metric: Mapped[str] = mapped_column(String(32), index=True)
+    # increase | decrease | reach.
+    goal_type: Mapped[str] = mapped_column(
+        String(16), default="increase", server_default="increase"
+    )
+    target_value: Mapped[float] = mapped_column(Float)
+    # Captured at creation from the latest snapshot (0 if none / unmeasured).
+    baseline_value: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0"
+    )
+    current_value: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0"
+    )
+    timeframe_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # False when the goal's metric isn't captured yet (roas/cpa/followers/
+    # appointments) — the goal is tracked but progress is honestly "unmeasured".
+    measurable: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+
+    # active → achieved | paused | archived.
+    status: Mapped[str] = mapped_column(
+        String(16), default="active", server_default="active", index=True
+    )
+    achieved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_measured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

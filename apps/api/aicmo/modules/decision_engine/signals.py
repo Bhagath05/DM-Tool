@@ -107,4 +107,14 @@ async def gather_signals(
     except Exception as e:
         log.warning("decision.signals.lessons_failed", error=str(e)[:120])
 
+    # Autonomous Goal Engine (Phase 4.3) — the goals this decision should serve.
+    try:
+        from aicmo.modules.operations import goals as ops_goals
+
+        sig.business_goals = await ops_goals.active_goal_summaries(
+            session, brand_id=brand_id, limit=6
+        )
+    except Exception as e:
+        log.warning("decision.signals.goals_failed", error=str(e)[:120])
+
     return sig

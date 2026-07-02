@@ -27,6 +27,7 @@ def build_plan_prompt(
     profile: BusinessProfileResponse,
     strategy: MarketingStrategy | None,
     learning_block: str = "",
+    goals_block: str = "",
 ) -> str:
     goals = "; ".join(profile.goals) or "(none provided)"
 
@@ -69,6 +70,8 @@ Monthly budget: {profile.monthly_budget_band or "(not specified)"}
 
 # Lessons learned so far (from this brand's real results — prefer these over guesses)
 {learning_block or "(no lessons learned yet — plan from the strategy + business above)"}
+
+# {goals_block or "Business goals: none set — move leads + revenue forward."}
 
 # What to produce
 Today's plan: a summary line, the single focus, and 3-7 prioritized tasks that

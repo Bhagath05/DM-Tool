@@ -3,8 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+GoalMetric = Literal[
+    "leads",
+    "website_traffic",
+    "conversions",
+    "content_output",
+    "roas",
+    "cpa",
+    "instagram_followers",
+    "linkedin_followers",
+    "appointments",
+]
+GoalType = Literal["increase", "decrease", "reach"]
 
 
 class MetricSnapshotResponse(BaseModel):
@@ -84,3 +98,39 @@ class EventsView(BaseModel):
     items: list[DetectedEventResponse]
     open_count: int = Field(description="Events still needing attention (new/acknowledged).")
     note: str | None = None
+
+
+class GoalCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    metric: GoalMetric
+    goal_type: GoalType = "increase"
+    target_value: float = Field(gt=0)
+    timeframe_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class GoalStatusUpdate(BaseModel):
+    status: Literal["active", "paused", "archived"]
+
+
+class GoalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: object
+    title: str
+    metric: str
+    goal_type: str
+    target_value: float
+    baseline_value: float
+    current_value: float
+    timeframe_days: int | None
+    measurable: bool
+    status: str
+    achieved_at: datetime | None
+    last_measured_at: datetime | None
+    progress_pct: int | None = Field(
+        default=None, description="0-100 progress; null when not yet measurable."
+    )
+
+
+class GoalList(BaseModel):
+    items: list[GoalResponse]
