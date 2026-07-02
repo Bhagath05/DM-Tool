@@ -62,19 +62,46 @@ class BusinessHours(BaseModel):
     )
 
 
+AutonomyLevel = Literal["manual", "assisted", "scheduled", "supervised", "full"]
+
+
 class AutonomyPolicyConfig(BaseModel):
     """The resolved policy for a brand."""
 
     model_config = ConfigDict(from_attributes=True)
 
+    autonomy_level: AutonomyLevel = "manual"
     default_mode: PolicyMode = "always_approve"
     policies: dict[str, ActionPolicy] = Field(default_factory=dict)
     business_hours: BusinessHours = Field(default_factory=BusinessHours)
     trusted: bool = False
+    # Module 10 master switch (platform-wide). Reflected here so the UI can show
+    # "autonomy is globally paused" even when a high level is configured.
+    execution_enabled: bool = Field(
+        default=False,
+        description="Platform master switch. When false, NOTHING auto-runs regardless of level.",
+    )
     updated_at: datetime | None = None
     configured: bool = Field(
         default=False, description="False when this is the safe default (no row saved yet)."
     )
+
+
+class ApplyLevelRequest(BaseModel):
+    level: AutonomyLevel
+
+
+class AutonomyLevelInfo(BaseModel):
+    key: str
+    order: int
+    label: str
+    description: str
+
+
+class AutonomyLevelsCatalog(BaseModel):
+    levels: list[AutonomyLevelInfo]
+    current: AutonomyLevel
+    execution_enabled: bool
 
 
 class AutonomyPolicyUpdate(BaseModel):

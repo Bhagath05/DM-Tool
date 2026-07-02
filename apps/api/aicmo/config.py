@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     advisor_agent_enabled: bool = Field(default=True)
     connector_sync_enabled: bool = Field(default=True)
 
+    # Autonomy master switch (Module 10 — Future Autonomy Flags). The platform-
+    # wide kill-switch for AI auto-execution. Default OFF: even if a brand sets a
+    # high autonomy level, no action auto-runs until this is explicitly enabled
+    # per environment. Mirrors the video_enabled / billing_live_enabled pattern —
+    # the ultimate guarantee that nothing executes automatically by default.
+    autonomy_execution_enabled: bool = Field(default=False)
+
     # -----------------------------------------------------------------
     # Creative Platform / Video (Creative Core V0). Ships DARK:
     # `video_enabled=false` → every /creative/* endpoint returns 409 and

@@ -25,6 +25,13 @@ class AutonomyPolicy(Base, TimestampMixin, TenantMixin):
     # across business tables.
     user_id: Mapped[str] = mapped_column(String(255), index=True)
 
+    # The progressive autonomy level (Module 10) this policy reflects. A preset
+    # the admin applied; "manual" is the safe default. Fine-tuned per-action
+    # overrides can diverge from the level afterwards.
+    autonomy_level: Mapped[str] = mapped_column(
+        String(32), default="manual", server_default="manual"
+    )
+
     # Fallback policy mode for any action type not explicitly configured.
     # Safe default: require approval for everything.
     default_mode: Mapped[str] = mapped_column(

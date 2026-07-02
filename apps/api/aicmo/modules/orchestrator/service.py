@@ -337,11 +337,16 @@ async def _apply_autonomy_policy(
         log.warning("orchestrator.policy_failed", error=str(e)[:120])
         return
 
+    from aicmo.config import get_settings
+
+    execution_enabled = get_settings().autonomy_execution_enabled
     for s in stages:
         action_type = _STAGE_ACTION_TYPE.get(s.key)
         if action_type is None or s.status not in _ACTIONABLE:
             continue
-        decision = autonomy_service.evaluate_policy(config, action_type)
+        decision = autonomy_service.evaluate_policy(
+            config, action_type, execution_enabled=execution_enabled
+        )
         s.requires_approval = decision.requires_approval
         s.auto_eligible = decision.allow_auto
         s.policy_mode = decision.mode

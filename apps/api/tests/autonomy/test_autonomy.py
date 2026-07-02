@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -128,7 +129,7 @@ def test_catalog_lists_all_actions_and_modes():
 
 
 # --------------------------------------------------------------------------
-#  Orchestrator consults the policy (Module 8 × 9)
+#  Orchestrator consults the policy (Module 8 x 9)
 # --------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_orchestrator_applies_policy_to_execute_stage(monkeypatch):
@@ -150,8 +151,9 @@ async def test_orchestrator_applies_policy_to_execute_stage(monkeypatch):
     ex = next(s for s in stages if s.key == "execute")
     assert ex.requires_approval is True and ex.auto_eligible is False
 
-    # Policy granting full autonomy for campaign_launch → execute auto-eligible.
-    stages2 = orch._assess_stages(st)
+    # Full autonomy for campaign_launch, but the platform master switch is OFF
+    # (default) → the orchestrator STILL gates it. Safety holds.
+    stages_off = orch._assess_stages(st)
 
     async def auto_cfg(_s, *, brand_id):
         return AutonomyPolicyConfig(
@@ -159,13 +161,89 @@ async def test_orchestrator_applies_policy_to_execute_stage(monkeypatch):
         )
 
     monkeypatch.setattr(service, "get_or_default", auto_cfg)
-    await orch._apply_autonomy_policy(None, tenant=_Tenant(), stages=stages2)
-    ex2 = next(s for s in stages2 if s.key == "execute")
-    assert ex2.auto_eligible is True and ex2.requires_approval is False
-    assert ex2.policy_mode == "auto_always"
+    await orch._apply_autonomy_policy(None, tenant=_Tenant(), stages=stages_off)
+    ex_off = next(s for s in stages_off if s.key == "execute")
+    assert ex_off.requires_approval is True and ex_off.auto_eligible is False
+
+    # Same policy, but the master switch ON → execute becomes auto-eligible.
+    import aicmo.config as config_mod
+
+    monkeypatch.setattr(
+        config_mod,
+        "get_settings",
+        lambda: SimpleNamespace(autonomy_execution_enabled=True),
+    )
+    stages_on = orch._assess_stages(st)
+    await orch._apply_autonomy_policy(None, tenant=_Tenant(), stages=stages_on)
+    ex_on = next(s for s in stages_on if s.key == "execute")
+    assert ex_on.auto_eligible is True and ex_on.requires_approval is False
+    assert ex_on.policy_mode == "auto_always"
 
 
 class _Tenant:
     brand_id = "brand-1"
     organization_id = "org-1"
     user_id = "u1"
+
+
+# --------------------------------------------------------------------------
+#  Module 10 — master switch + progressive levels
+# --------------------------------------------------------------------------
+def test_master_switch_downgrades_auto_to_approval():
+    cfg = _config(policies={"ai_recommendation": ActionPolicy(mode="auto_always")})
+    # Master ON → auto allowed.
+    on = service.evaluate_policy(cfg, "ai_recommendation", execution_enabled=True)
+    assert on.allow_auto is True
+    # Master OFF → the same policy is downgraded to requiring approval.
+    off = service.evaluate_policy(cfg, "ai_recommendation", execution_enabled=False)
+    assert off.allow_auto is False and off.requires_approval is True
+    assert "master switch" in off.reason
+
+
+def _config_for_level(level: str) -> AutonomyPolicyConfig:
+    from aicmo.modules.autonomy import levels as levels_mod
+
+    dm, preset = levels_mod.preset_for(level)
+    return AutonomyPolicyConfig(
+        default_mode=dm,  # type: ignore[arg-type]
+        policies={a: ActionPolicy(mode=m) for a, m in preset.items()},  # type: ignore[arg-type]
+    )
+
+
+def test_manual_level_keeps_everything_approval():
+    cfg = _config_for_level("manual")
+    for action in ("content_generation", "social_publishing", "ad_spending"):
+        assert service.evaluate_policy(cfg, action, execution_enabled=True).requires_approval
+
+
+def test_assisted_level_automates_drafting_not_publishing():
+    cfg = _config_for_level("assisted")
+    assert service.evaluate_policy(cfg, "content_generation", execution_enabled=True).allow_auto
+    assert service.evaluate_policy(cfg, "ai_decision", execution_enabled=True).allow_auto
+    # Publishing/spending still require approval.
+    assert service.evaluate_policy(cfg, "social_publishing", execution_enabled=True).requires_approval
+    assert service.evaluate_policy(cfg, "ad_spending", execution_enabled=True).requires_approval
+
+
+def test_full_level_automates_all_but_master_switch_still_gates():
+    cfg = _config_for_level("full")
+    # Master ON → everything auto.
+    assert service.evaluate_policy(cfg, "ad_spending", execution_enabled=True).allow_auto
+    # Master OFF → nothing auto-runs even at 'full'.
+    assert service.evaluate_policy(cfg, "ad_spending", execution_enabled=False).requires_approval
+
+
+def test_levels_catalog_is_ordered_and_complete():
+    from aicmo.modules.autonomy import levels as levels_mod
+
+    cat = levels_mod.catalog()
+    keys = [c["key"] for c in cat]
+    assert keys == ["manual", "assisted", "scheduled", "supervised", "full"]
+    assert all(cat[i]["order"] <= cat[i + 1]["order"] for i in range(len(cat) - 1))
+
+
+def test_unknown_level_falls_back_to_manual():
+    from aicmo.modules.autonomy import levels as levels_mod
+
+    assert levels_mod.preset_for("bogus") == levels_mod.preset_for("manual")
+    assert levels_mod.is_level("bogus") is False

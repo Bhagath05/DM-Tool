@@ -16,10 +16,13 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.audit import service as audit_service
+from aicmo.modules.autonomy import levels as levels_mod
 from aicmo.modules.autonomy.models import AutonomyPolicy
 from aicmo.modules.autonomy.schemas import (
     ActionPolicy,
     AutonomyCatalog,
+    AutonomyLevelInfo,
+    AutonomyLevelsCatalog,
     AutonomyPolicyConfig,
     AutonomyPolicyUpdate,
     BusinessHours,
@@ -73,9 +76,31 @@ def evaluate_policy(
     *,
     amount: float | None = None,
     now: datetime | None = None,
+    execution_enabled: bool = True,
 ) -> PolicyDecision:
     """Decide whether `action_type` may run automatically under `config`.
-    Fails safe: unknown modes / missing thresholds → approval required."""
+    Fails safe: unknown modes / missing thresholds → approval required.
+
+    `execution_enabled` is the Module 10 platform master switch: when False, any
+    auto-eligible decision is downgraded to requiring approval — the ultimate
+    guarantee that nothing auto-runs until the platform globally enables it."""
+    decision = _evaluate_from_policy(config, action_type, amount=amount, now=now)
+    if decision.allow_auto and not execution_enabled:
+        return _requires_approval(
+            action_type,
+            decision.mode,
+            "Automatic execution is paused platform-wide (master switch off) — approval required.",
+        )
+    return decision
+
+
+def _evaluate_from_policy(
+    config: AutonomyPolicyConfig,
+    action_type: str,
+    *,
+    amount: float | None = None,
+    now: datetime | None = None,
+) -> PolicyDecision:
     now = now or datetime.now(UTC)
     ap = config.policies.get(action_type)
     mode = ap.mode if ap is not None else config.default_mode
@@ -136,14 +161,22 @@ def evaluate_policy(
 # ---------------------------------------------------------------------
 #  Persistence
 # ---------------------------------------------------------------------
+def _execution_enabled() -> bool:
+    from aicmo.config import get_settings
+
+    return get_settings().autonomy_execution_enabled
+
+
 def _to_config(row: AutonomyPolicy) -> AutonomyPolicyConfig:
     return AutonomyPolicyConfig(
+        autonomy_level=getattr(row, "autonomy_level", "manual"),  # type: ignore[arg-type]
         default_mode=row.default_mode,  # type: ignore[arg-type]
         policies={k: ActionPolicy.model_validate(v) for k, v in (row.policies or {}).items()},
         business_hours=BusinessHours.model_validate(row.business_hours)
         if row.business_hours
         else BusinessHours(),
         trusted=row.trusted,
+        execution_enabled=_execution_enabled(),
         updated_at=row.updated_at,
         configured=True,
     )
@@ -165,7 +198,8 @@ async def get_or_default(
     """The brand's policy, or the SAFE default (approve everything) if none."""
     row = await _get_row(session, brand_id=brand_id)
     if row is None:
-        return AutonomyPolicyConfig()  # default_mode=always_approve, configured=False
+        # default_mode=always_approve, level=manual, configured=False
+        return AutonomyPolicyConfig(execution_enabled=_execution_enabled())
     return _to_config(row)
 
 
@@ -211,6 +245,63 @@ async def upsert(
     )
     await session.commit()
     return _to_config(row)
+
+
+# ---------------------------------------------------------------------
+#  Progressive autonomy levels (Module 10)
+# ---------------------------------------------------------------------
+async def apply_level(
+    session: AsyncSession, *, tenant: TenantContext, level: str
+) -> AutonomyPolicyConfig:
+    """Apply a progressive-autonomy LEVEL preset — one click sets every action's
+    mode. The admin can still fine-tune individual actions afterwards."""
+    if not levels_mod.is_level(level):
+        level = "manual"  # fail safe to fully-manual on an unknown level
+    default_mode, preset = levels_mod.preset_for(level)
+
+    row = await _get_row(session, brand_id=tenant.brand_id)
+    before = _to_config(row).model_dump(mode="json") if row is not None else None
+    if row is None:
+        row = AutonomyPolicy(
+            id=uuid.uuid4(),
+            user_id=tenant.user_id,
+            organization_id=tenant.organization_id,
+            brand_id=tenant.brand_id,
+        )
+        session.add(row)
+
+    row.autonomy_level = level
+    row.default_mode = default_mode
+    row.policies = {action: {"mode": mode} for action, mode in preset.items()}
+    row.user_id = tenant.user_id
+
+    await session.flush()
+    after = _to_config(row).model_dump(mode="json")
+    await audit_service.record(
+        session,
+        organization_id=tenant.organization_id,
+        brand_id=tenant.brand_id,
+        actor_user_id=tenant.user_uuid,
+        action="autonomy.level_applied",
+        target_type="autonomy_policy",
+        target_id=row.id,
+        before=before,
+        after=after,
+        metadata={"level": level},
+    )
+    await session.commit()
+    return _to_config(row)
+
+
+async def list_levels(
+    session: AsyncSession, *, brand_id: uuid.UUID
+) -> AutonomyLevelsCatalog:
+    config = await get_or_default(session, brand_id=brand_id)
+    return AutonomyLevelsCatalog(
+        levels=[AutonomyLevelInfo(**entry) for entry in levels_mod.catalog()],
+        current=config.autonomy_level,
+        execution_enabled=config.execution_enabled,
+    )
 
 
 # ---------------------------------------------------------------------
