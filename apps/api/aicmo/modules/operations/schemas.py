@@ -188,6 +188,23 @@ class NotificationList(BaseModel):
     unread: int
 
 
+class SafetyActionStatus(BaseModel):
+    action_type: str
+    auto_eligible: bool
+    requires_approval: bool
+    policy_mode: str
+
+
+class SafetyStatus(BaseModel):
+    execution_enabled: bool
+    autonomy_level: str
+    all_side_effecting_gated: bool = Field(
+        description="True when NO side-effecting action can auto-run (fully safe)."
+    )
+    actions: list[SafetyActionStatus]
+    summary: str
+
+
 class OperationsSystemStatus(BaseModel):
     last_run_at: datetime | None
     last_run_status: str | None

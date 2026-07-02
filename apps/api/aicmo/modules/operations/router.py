@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.config import get_settings
 from aicmo.db.session import get_db
 from aicmo.modules.operations import goals as goals_mod
-from aicmo.modules.operations import monitoring, service
+from aicmo.modules.operations import monitoring, safety, service
 from aicmo.modules.operations.driver import run_operations_cycle
 from aicmo.modules.operations.schemas import (
     EventsView,
@@ -35,6 +35,7 @@ from aicmo.modules.operations.schemas import (
     NotificationList,
     NotificationResponse,
     OperationsDashboard,
+    SafetyStatus,
     TickResult,
     WorkItemResponse,
     WorkList,
@@ -73,6 +74,18 @@ async def tick(
     gated, throttled, idempotent. Nothing executes — the cycle observes and
     queues; execution stays behind the Autonomy Policy."""
     return await run_operations_cycle(session, trigger="api")
+
+
+@router.get("/safety", response_model=SafetyStatus)
+async def get_safety(
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> SafetyStatus:
+    """The brand's safety posture — the master switch + whether each
+    side-effecting action (spend/publish/email/etc.) can auto-run. Read-only."""
+    return SafetyStatus.model_validate(
+        await safety.safety_status(session, brand_id=tenant.brand_id)
+    )
 
 
 @router.get("/dashboard", response_model=OperationsDashboard)
