@@ -28,7 +28,7 @@ the middleware's "public" bucket, intentional defence in depth.
 from __future__ import annotations
 
 import hashlib
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException
@@ -93,16 +93,26 @@ def _classify(path: str) -> str | None:
 
 
 def _client_ip(request: Request) -> str:
-    """Pull the originating IP. Trust X-Forwarded-For only when behind a
-    proxy (api_env != development); otherwise use peer address to avoid
-    spoofing from arbitrary clients."""
+    """Pull the originating IP for rate-limiting.
+
+    Phase 5.1/5.9 hardening: X-Forwarded-For is client-appendable, so the
+    LEFTMOST entry is attacker-spoofable — a client can send
+    `X-Forwarded-For: <random>` to mint a fresh limiter bucket per request and
+    evade throttling (or frame an arbitrary IP). We instead read the entry
+    `trusted_proxy_hops` positions from the RIGHT: proxies APPEND the address
+    they received from, so the rightmost entries are the ones OUR trusted proxy
+    added and cannot be forged by the client. Only trusted when behind a proxy
+    (api_env != development)."""
     settings = get_settings()
     if settings.api_env != "development":
         xff = request.headers.get("x-forwarded-for")
         if xff:
-            # Leftmost is the original client per RFC 7239 convention,
-            # provided the proxy chain is trusted.
-            return xff.split(",")[0].strip()
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                hops = max(1, settings.trusted_proxy_hops)
+                # The client as seen by the closest trusted proxy. Falls back to
+                # the leftmost only when the chain is shorter than expected.
+                return parts[-hops] if hops <= len(parts) else parts[0]
     client = request.client
     return client.host if client else "unknown"
 
@@ -149,7 +159,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     headers={"Retry-After": "60"},
                 )
             raise
-        except Exception as e:  # noqa: BLE001 — never block traffic on limiter failure
+        except Exception as e:
             # If Postgres is down, fail open rather than 500 every request.
             # The leads service still has its own internal check on top.
             log.warning("rate_limit.middleware.error", error=str(e), path=request.url.path)

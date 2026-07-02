@@ -7,14 +7,15 @@ from dataclasses import dataclass
 
 import httpx
 import structlog
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.integrations import crypto
 from aicmo.modules.integrations.http_retry import with_retry
 from aicmo.modules.integrations.models import IntegrationCredential
 from aicmo.modules.integrations.providers.facebook_pages import get_page_access_token
 from aicmo.modules.publishing.text import extract_caption, extract_media_url
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from aicmo.security.ssrf import UnsafeURLError, assert_public_url
 
 log = structlog.get_logger()
 
@@ -251,6 +252,13 @@ async def publish_youtube(
 
     title = (caption.split("\n")[0] if caption else "Uploaded video")[:100]
     description = caption[:5000] if caption else ""
+
+    # SSRF guard (Phase 5.3): the video is fetched server-side, so refuse any
+    # URL that resolves to a private / loopback / metadata address.
+    try:
+        await assert_public_url(media_url)
+    except UnsafeURLError as e:
+        raise RuntimeError(f"Refusing to fetch video from an unsafe URL: {e}") from e
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         video_resp = await with_retry(lambda: client.get(media_url))

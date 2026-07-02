@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     api_log_level: str = "INFO"
     api_cors_origins: str = "http://localhost:3000"
 
+    # Phase 5.1/5.9 — number of trusted reverse-proxy hops in front of the app.
+    # The client IP is taken this many entries from the RIGHT of X-Forwarded-For
+    # (the entries closest to us are the ones our trusted proxy appended;
+    # leftmost entries are attacker-spoofable). Render terminates with a single
+    # proxy → 1. Increase only if you add a trusted CDN/WAF in front.
+    trusted_proxy_hops: int = 1
+
     # AUTH_MODE — single source of truth for which auth backend is in
     # effect:
     #   "demo"   → no Clerk verification ever. Every request resolves to
