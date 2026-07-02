@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.config import get_settings
-from aicmo.modules.operations import monitoring
+from aicmo.modules.operations import events, monitoring
 from aicmo.modules.operations.models import OperationsRun
 from aicmo.modules.operations.schemas import BrandCycleResult, TickResult
 
@@ -81,21 +81,38 @@ async def run_operations_cycle(
     brands = await _active_brands(session)
     details: list[BrandCycleResult] = []
     captured = 0
+    events_total = 0
     errors = 0
 
     for brand_id, org_id in brands:
         try:
+            # Grab the prior snapshot BEFORE capturing the new one so 4.2 can
+            # compare current → previous.
+            prev = await monitoring.latest_snapshot(session, brand_id=brand_id)
             did, reason, metrics = await monitoring.capture_brand_snapshot(
                 session, organization_id=org_id, brand_id=brand_id, now=started
             )
+            brand_events = 0
             if did:
                 captured += 1
+                if prev is not None:
+                    evs = await events.detect_and_store(
+                        session,
+                        organization_id=org_id,
+                        brand_id=brand_id,
+                        current=metrics,
+                        previous=dict(prev.metrics or {}),
+                        now=started,
+                    )
+                    brand_events = len(evs)
+                    events_total += brand_events
             details.append(
                 BrandCycleResult(
                     brand_id=str(brand_id),
                     snapshot_captured=did,
                     reason=reason,
                     metrics_count=len(metrics),
+                    events_detected=brand_events,
                 )
             )
         except Exception as e:
@@ -113,7 +130,7 @@ async def run_operations_cycle(
     run.finished_at = finished
     run.brands_scanned = len(brands)
     run.snapshots_captured = captured
-    run.events_detected = 0  # populated by 4.2
+    run.events_detected = events_total
     run.status = "partial" if errors else "completed"
     run.detail = {"errors": errors, "brands": len(brands)}
     await session.commit()
@@ -123,6 +140,7 @@ async def run_operations_cycle(
         trigger=trigger,
         brands=len(brands),
         captured=captured,
+        events=events_total,
         errors=errors,
     )
     return TickResult(
@@ -131,7 +149,7 @@ async def run_operations_cycle(
         status=run.status,
         brands_scanned=len(brands),
         snapshots_captured=captured,
-        events_detected=0,
+        events_detected=events_total,
         duration_ms=int((finished - started).total_seconds() * 1000),
         detail=details,
     )

@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -81,3 +81,45 @@ class OperationsRun(Base, TimestampMixin):
     # Per-brand summary + any errors (operator visibility).
     detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DetectedEvent(Base, TimestampMixin, TenantMixin):
+    """Phase 4.2 — a meaningful change detected by comparing consecutive metric
+    snapshots. Deterministic (no LLM); every field is grounded in a real metric
+    delta. Becomes structured input for the Decision Engine (4.6). One active
+    event per (brand, type) via `dedupe_key` so a persistent condition isn't
+    re-emitted every cycle."""
+
+    __tablename__ = "detected_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    # e.g. no_recent_leads | leads_declining | leads_surge | traffic_spike |
+    # traffic_drop | conversion_drop | publishing_failures | performance_flagged.
+    event_type: Mapped[str] = mapped_column(String(48), index=True)
+    severity: Mapped[str] = mapped_column(
+        String(16), default="medium", server_default="medium"
+    )
+    direction: Mapped[str] = mapped_column(
+        String(16), default="negative", server_default="negative"
+    )
+    metric: Mapped[str] = mapped_column(String(48))
+    previous_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    title: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+
+    # Stable key to avoid re-emitting the same active condition each cycle.
+    dedupe_key: Mapped[str] = mapped_column(String(128), index=True)
+
+    # new → acknowledged → actioned → dismissed | resolved.
+    status: Mapped[str] = mapped_column(
+        String(16), default="new", server_default="new", index=True
+    )

@@ -23,7 +23,7 @@ from aicmo.config import get_settings
 from aicmo.db.session import get_db
 from aicmo.modules.operations import service
 from aicmo.modules.operations.driver import run_operations_cycle
-from aicmo.modules.operations.schemas import MonitoringView, TickResult
+from aicmo.modules.operations.schemas import EventsView, MonitoringView, TickResult
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
 
@@ -67,4 +67,17 @@ async def monitoring(
 ) -> MonitoringView:
     return await service.monitoring_view(
         session, brand_id=tenant.brand_id, history=history
+    )
+
+
+@router.get("/events", response_model=EventsView)
+async def events(
+    only_open: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> EventsView:
+    """Meaningful changes the monitoring loop detected for this brand (4.2)."""
+    return await service.events_view(
+        session, brand_id=tenant.brand_id, only_open=only_open, limit=limit
     )

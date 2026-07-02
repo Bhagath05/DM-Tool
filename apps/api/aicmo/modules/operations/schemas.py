@@ -23,6 +23,7 @@ class BrandCycleResult(BaseModel):
     snapshot_captured: bool
     reason: str
     metrics_count: int = 0
+    events_detected: int = 0
 
 
 class TickResult(BaseModel):
@@ -58,4 +59,28 @@ class MonitoringView(BaseModel):
     latest: MetricSnapshotResponse | None
     history: list[MetricSnapshotResponse]
     monitored: bool = Field(description="True once at least one snapshot exists.")
+    note: str | None = None
+
+
+class DetectedEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: object
+    detected_at: datetime
+    event_type: str
+    severity: str
+    direction: str
+    metric: str
+    previous_value: float | None
+    current_value: float | None
+    change_pct: float | None
+    title: str
+    summary: str
+    evidence: list[str]
+    status: str
+
+
+class EventsView(BaseModel):
+    items: list[DetectedEventResponse]
+    open_count: int = Field(description="Events still needing attention (new/acknowledged).")
     note: str | None = None
