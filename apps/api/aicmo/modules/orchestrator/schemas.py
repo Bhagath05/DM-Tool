@@ -30,7 +30,15 @@ class LifecycleStage(BaseModel):
     link: str = Field(description="Where to go to act on this stage.")
     requires_approval: bool = Field(
         default=False,
-        description="True when acting here publishes/spends and must be human-approved.",
+        description="True when acting here must be human-approved (per the autonomy policy).",
+    )
+    # Autonomy Policy Layer (Module 9) annotations — what the policy permits.
+    auto_eligible: bool = Field(
+        default=False,
+        description="True when the autonomy policy would let this run automatically now.",
+    )
+    policy_mode: str | None = Field(
+        default=None, description="The policy mode governing this action, if any."
     )
     blocked_by: StageKey | None = None
 
@@ -43,6 +51,7 @@ class NextAction(BaseModel):
     why: str
     link: str
     requires_approval: bool
+    auto_eligible: bool = False
 
 
 class OrchestratorPlan(BaseModel):

@@ -25,6 +25,16 @@ _STRATEGY_STALE_DAYS = 45
 _ORDER = ("understand", "strategize", "plan", "decide", "execute", "learn", "review")
 _ACTIONABLE = ("ready", "stale", "needs_approval")
 
+# Which autonomy-policy action type governs each stage (Module 9). Stages not
+# listed are setup/navigation and carry no execution risk.
+_STAGE_ACTION_TYPE = {
+    "strategize": "ai_recommendation",
+    "plan": "ai_recommendation",
+    "decide": "ai_decision",
+    "execute": "campaign_launch",
+    "learn": "ai_recommendation",
+}
+
 
 class _State:
     """Cheap, guarded snapshot of each module's state."""
@@ -259,6 +269,7 @@ async def build_plan(
 ) -> OrchestratorPlan:
     st = await _gather_state(session, tenant=tenant)
     stages = _assess_stages(st)
+    await _apply_autonomy_policy(session, tenant=tenant, stages=stages)
     by_key = {s.key: s for s in stages}
 
     # current stage = earliest not-done; next action = earliest actionable step.
@@ -274,7 +285,7 @@ async def build_plan(
         if s.status in _ACTIONABLE and s.action:
             next_action = NextAction(
                 stage=s.key, action=s.action, why=s.reason, link=s.link,
-                requires_approval=s.requires_approval,
+                requires_approval=s.requires_approval, auto_eligible=s.auto_eligible,
             )
             break
 
@@ -287,6 +298,17 @@ async def build_plan(
     else:
         summary = "Everything's current — keep an eye on your insights feed."
 
+    any_auto = any(s.auto_eligible for s in stages)
+    autonomy_note = (
+        "Your autonomy policy lets some actions run automatically; every other "
+        "step still needs your approval. Review these under Autonomy settings."
+        if any_auto
+        else (
+            "Nothing here runs automatically. Every step is a recommendation you "
+            "approve and trigger — the AI plans and drafts; you decide."
+        )
+    )
+
     return OrchestratorPlan(
         summary=summary,
         current_stage=current,  # type: ignore[arg-type]
@@ -294,5 +316,32 @@ async def build_plan(
         stages=stages,
         blocked_on=blocked_on,
         pending_approvals=st.pending_approvals,
+        autonomy_note=autonomy_note,
         generated_at=datetime.now(UTC).isoformat(),
     )
+
+
+async def _apply_autonomy_policy(
+    session: AsyncSession, *, tenant: TenantContext, stages: list[LifecycleStage]
+) -> None:
+    """Consult the Autonomy Policy Layer (Module 9) for each actionable stage and
+    annotate whether it may auto-run or requires approval. Fails safe: if the
+    policy can't be read, everything stays approval-gated."""
+    try:
+        from aicmo.modules.autonomy import service as autonomy_service
+
+        config = await autonomy_service.get_or_default(
+            session, brand_id=tenant.brand_id
+        )
+    except Exception as e:
+        log.warning("orchestrator.policy_failed", error=str(e)[:120])
+        return
+
+    for s in stages:
+        action_type = _STAGE_ACTION_TYPE.get(s.key)
+        if action_type is None or s.status not in _ACTIONABLE:
+            continue
+        decision = autonomy_service.evaluate_policy(config, action_type)
+        s.requires_approval = decision.requires_approval
+        s.auto_eligible = decision.allow_auto
+        s.policy_mode = decision.mode
