@@ -29,6 +29,7 @@ from aicmo.modules.competitors.router import router as competitors_router
 from aicmo.modules.content.router import router as content_router
 from aicmo.modules.context.router import router as context_router
 from aicmo.modules.creative.storage.base import MediaPersistenceUnavailable
+from aicmo.modules.decision_engine.router import router as decision_engine_router
 from aicmo.modules.integrations.router import (
     public_router as integrations_public_router,
 )
@@ -253,6 +254,7 @@ app.include_router(advisor_router, prefix="/api/v1")
 app.include_router(competitors_router, prefix="/api/v1")
 app.include_router(strategist_router, prefix="/api/v1")
 app.include_router(planner_router, prefix="/api/v1")
+app.include_router(decision_engine_router, prefix="/api/v1")
 app.include_router(context_router, prefix="/api/v1")
 app.include_router(bundles_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
