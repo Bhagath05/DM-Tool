@@ -63,6 +63,7 @@ from aicmo.modules.learning.models import (  # noqa: F401
     CampaignExperiment,
     ExperimentResult,
     LearningEvent,
+    LearningInsight,
 )
 from aicmo.modules.notifications.models import (  # noqa: F401
     NotificationPreference,

@@ -8,8 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
-from aicmo.modules.learning import service
+from aicmo.modules.learning import insights_service, service
 from aicmo.modules.learning.engine import run_engine
+from aicmo.modules.learning.insights_schemas import (
+    LearningInsightList,
+    LearningInsightResponse,
+    SynthesisRunResult,
+)
 from aicmo.modules.learning.schemas import (
     CampaignExperimentList,
     CampaignExperimentResponse,
@@ -20,6 +25,7 @@ from aicmo.modules.learning.schemas import (
     LearningRunRequest,
     LearningRunResult,
 )
+from aicmo.modules.learning.synthesis import synthesize
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
 
@@ -161,3 +167,54 @@ async def analyze(
         tenant=tenant,
         variable=payload.variable,
     )
+
+
+# ---------------------------------------------------------------------
+#  Module 6 — cross-domain Learning Engine (LearningInsight)
+# ---------------------------------------------------------------------
+
+
+@router.post("/synthesize", response_model=SynthesisRunResult)
+async def synthesize_insights(
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("settings.manage")),
+) -> SynthesisRunResult:
+    """Learn durable lessons from this brand's real history. Never fabricates —
+    returns 'Not enough historical evidence.' when history is too thin."""
+    return await synthesize(session, tenant=tenant)
+
+
+@router.get("/insights", response_model=LearningInsightList)
+async def list_insights(
+    category: str | None = Query(default=None),
+    only_active: bool = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> LearningInsightList:
+    items = await insights_service.list_insights(
+        session,
+        brand_id=tenant.brand_id,
+        only_active=only_active,
+        category=category,
+        limit=limit,
+    )
+    return LearningInsightList(items=items)
+
+
+@router.post("/insights/{insight_id}/archive", response_model=LearningInsightResponse)
+async def archive_insight(
+    insight_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.delete")),
+) -> LearningInsightResponse:
+    row = await insights_service.archive_insight(
+        session, brand_id=tenant.brand_id, insight_id=insight_id
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Learning insight not found.",
+        )
+    await session.commit()
+    return row

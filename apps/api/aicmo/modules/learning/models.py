@@ -263,3 +263,96 @@ class LearningEvent(Base, TimestampMixin, TenantMixin):
         server_default="active",
         index=True,
     )
+
+
+class LearningInsight(Base, TimestampMixin, TenantMixin):
+    """Module 6 — the cross-domain Learning Engine's output.
+
+    Distinct from LearningEvent (above), which learns *creative*
+    dimensions (hook/format/tone) from generation experiments and feeds
+    the GenerationContext. A LearningInsight is a *business-level* lesson
+    synthesised across many real signals — leads, publishing, performance,
+    social patterns, creative learnings, and the user's own
+    approvals/rejections — and it feeds the four REASONING modules
+    (Business Understanding → Strategy → Planner → Decision).
+
+    Every row is explainable and self-justifying: an observation, the
+    exact evidence it stands on, a confidence score, which modules it
+    should influence, a forward-looking recommendation with an expected
+    result, and (for time-bound lessons like seasonal trends) an
+    expiry. The engine NEVER fabricates — with too little history it
+    writes no rows and says "Not enough historical evidence."
+    """
+
+    __tablename__ = "learning_insights"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[str] = mapped_column(String(255), index=True)
+
+    # What kind of lesson this is. Conventional values:
+    # posting_time | channel | campaign_type | creative | content_format |
+    # audience_segment | budget | seasonal | conversion | winning_strategy |
+    # failed_strategy.
+    category: Mapped[str] = mapped_column(String(32), index=True)
+
+    # The lesson itself, one plain-language line grounded in the evidence.
+    observation: Mapped[str] = mapped_column(Text)
+
+    # The specific real signals this stands on (quoted facts/numbers). Same
+    # shape as LearningEvent.evidence so the frontend renders provenance
+    # uniformly.
+    evidence: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+
+    # Forward-looking action + expected result — the recommendation
+    # contract (recommendation + expected_result + confidence + the
+    # observation as its reason).
+    recommendation: Mapped[str] = mapped_column(Text)
+    expected_result: Mapped[str] = mapped_column(Text)
+
+    # 0-100. The reasoning modules only inherit insights above a floor.
+    confidence: Mapped[int] = mapped_column(
+        Integer, default=50, server_default="50"
+    )
+
+    # "positive" | "negative" | "neutral" — a failed_strategy is a negative
+    # lesson worth keeping (don't repeat it).
+    direction: Mapped[str] = mapped_column(
+        String(16), default="positive", server_default="positive"
+    )
+
+    # Which reasoning modules this lesson should influence. Subset of
+    # {business_understanding, strategy, planner, decision}. Drives which
+    # prompts inherit it via learning.feedback.
+    affected_modules: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+
+    # When the lesson was learned (== created_at at insert; kept explicit
+    # because the spec treats it as a first-class field).
+    learned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    # Time-bound lessons (seasonal trends, short-lived wins) expire; stable
+    # lessons are null (never expire on their own). feedback + the expiry
+    # sweep stop feeding expired lessons back.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    # "auto" (LLM synthesis) | "manual" (user-affirmed). Manual > auto.
+    source: Mapped[str] = mapped_column(
+        String(16), default="auto", server_default="auto"
+    )
+
+    # active → archived (user dismissed) | superseded (a newer, contradicting
+    # lesson replaced it) | expired (past expires_at). Only active feeds back.
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="active",
+        server_default="active",
+        index=True,
+    )
