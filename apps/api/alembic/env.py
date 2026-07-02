@@ -65,6 +65,7 @@ from aicmo.modules.operations.models import (  # noqa: F401
     MetricSnapshot,
     OperationalGoal,
     OperationsRun,
+    ScheduledWork,
 )
 from aicmo.modules.learning.models import (  # noqa: F401
     CampaignExperiment,

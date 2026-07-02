@@ -38,6 +38,7 @@ class BrandCycleResult(BaseModel):
     reason: str
     metrics_count: int = 0
     events_detected: int = 0
+    work_scheduled: int = 0
 
 
 class TickResult(BaseModel):
@@ -49,6 +50,7 @@ class TickResult(BaseModel):
     brands_scanned: int = 0
     snapshots_captured: int = 0
     events_detected: int = 0
+    work_scheduled: int = 0
     duration_ms: int = 0
     detail: list[BrandCycleResult] = Field(default_factory=list)
     note: str | None = None
@@ -134,3 +136,34 @@ class GoalResponse(BaseModel):
 
 class GoalList(BaseModel):
     items: list[GoalResponse]
+
+
+class WorkItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: object
+    kind: str
+    action_type: str
+    title: str
+    description: str
+    rationale: str
+    source_kind: str
+    priority: str
+    requires_approval: bool
+    auto_eligible: bool
+    policy_mode: str | None
+    status: str
+    scheduled_for: datetime | None
+    created_at: datetime
+
+
+class WorkList(BaseModel):
+    items: list[WorkItemResponse]
+    awaiting_approval: int = Field(description="Items still needing human approval.")
+
+
+class WorkStatusUpdate(BaseModel):
+    # Human decisions on a scheduled item. 'approved' releases it; 'dismissed'
+    # cancels it. Execution wiring stays gated (4.9), so approving does not
+    # itself run anything yet.
+    status: Literal["approved", "dismissed"]

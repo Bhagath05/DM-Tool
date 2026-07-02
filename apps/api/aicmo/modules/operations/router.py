@@ -33,6 +33,9 @@ from aicmo.modules.operations.schemas import (
     GoalStatusUpdate,
     MonitoringView,
     TickResult,
+    WorkItemResponse,
+    WorkList,
+    WorkStatusUpdate,
 )
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
@@ -156,3 +159,40 @@ async def update_goal_status(
         )
     await session.commit()
     return goals_mod.to_response(row)
+
+
+# ---------------------------------------------------------------------
+#  4.4 — Autonomous Work Scheduler (queue is read + approve/dismiss only)
+# ---------------------------------------------------------------------
+@router.get("/work", response_model=WorkList)
+async def list_work(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> WorkList:
+    """The AI's scheduled work queue for this brand. Every item is policy-gated;
+    by default items await approval — nothing executes."""
+    return await service.work_view(
+        session, brand_id=tenant.brand_id, status=status_filter, limit=limit
+    )
+
+
+@router.patch("/work/{work_id}", response_model=WorkItemResponse)
+async def update_work_status(
+    work_id: uuid.UUID,
+    payload: WorkStatusUpdate,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.create")),
+) -> WorkItemResponse:
+    """Approve or dismiss a scheduled item. Approving releases it for a future
+    (still policy-gated) execution step — it does not run anything now."""
+    row = await service.set_work_status(
+        session, brand_id=tenant.brand_id, work_id=work_id, status=payload.status
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Work item not found."
+        )
+    await session.commit()
+    return WorkItemResponse.model_validate(row)

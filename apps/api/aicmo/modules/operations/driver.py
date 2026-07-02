@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.config import get_settings
-from aicmo.modules.operations import events, goals, monitoring
+from aicmo.modules.operations import events, goals, monitoring, scheduler
 from aicmo.modules.operations.models import OperationsRun
 from aicmo.modules.operations.schemas import BrandCycleResult, TickResult
 
@@ -82,6 +82,7 @@ async def run_operations_cycle(
     details: list[BrandCycleResult] = []
     captured = 0
     events_total = 0
+    work_total = 0
     errors = 0
 
     for brand_id, org_id in brands:
@@ -93,6 +94,7 @@ async def run_operations_cycle(
                 session, organization_id=org_id, brand_id=brand_id, now=started
             )
             brand_events = 0
+            brand_work = 0
             if did:
                 captured += 1
                 if prev is not None:
@@ -110,6 +112,11 @@ async def run_operations_cycle(
                 await goals.measure_goals(
                     session, brand_id=brand_id, metrics=metrics, now=started
                 )
+                # 4.4 — schedule policy-gated work from open events + goals.
+                brand_work = await scheduler.schedule_work(
+                    session, organization_id=org_id, brand_id=brand_id, now=started
+                )
+                work_total += brand_work
             details.append(
                 BrandCycleResult(
                     brand_id=str(brand_id),
@@ -117,6 +124,7 @@ async def run_operations_cycle(
                     reason=reason,
                     metrics_count=len(metrics),
                     events_detected=brand_events,
+                    work_scheduled=brand_work,
                 )
             )
         except Exception as e:
@@ -136,7 +144,7 @@ async def run_operations_cycle(
     run.snapshots_captured = captured
     run.events_detected = events_total
     run.status = "partial" if errors else "completed"
-    run.detail = {"errors": errors, "brands": len(brands)}
+    run.detail = {"errors": errors, "brands": len(brands), "work_scheduled": work_total}
     await session.commit()
 
     log.info(
@@ -145,6 +153,7 @@ async def run_operations_cycle(
         brands=len(brands),
         captured=captured,
         events=events_total,
+        work=work_total,
         errors=errors,
     )
     return TickResult(
@@ -154,6 +163,7 @@ async def run_operations_cycle(
         brands_scanned=len(brands),
         snapshots_captured=captured,
         events_detected=events_total,
+        work_scheduled=work_total,
         duration_ms=int((finished - started).total_seconds() * 1000),
         detail=details,
     )

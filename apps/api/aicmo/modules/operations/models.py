@@ -171,3 +171,58 @@ class OperationalGoal(Base, TimestampMixin, TenantMixin):
     last_measured_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ScheduledWork(Base, TimestampMixin, TenantMixin):
+    """Phase 4.4 — a unit of marketing work the AI has SCHEDULED (not executed).
+    Proposed deterministically from open events + goals, each gated by the
+    Autonomy Policy. Nothing runs from here unless policy + the master switch
+    permit; by default every item awaits human approval."""
+
+    __tablename__ = "scheduled_work"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # What kind of work: content_generation | campaign_update | budget_change |
+    # blog | reel | ad | email | weekly_report.
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    # The Autonomy-Policy action type this maps to (governs approval).
+    action_type: Mapped[str] = mapped_column(String(32))
+
+    title: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text)
+    rationale: Mapped[str] = mapped_column(Text)  # WHY — grounded in the source
+
+    # event | goal | recurring | decision.
+    source_kind: Mapped[str] = mapped_column(String(16), default="event")
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    priority: Mapped[str] = mapped_column(
+        String(16), default="medium", server_default="medium"
+    )
+
+    # Policy evaluation snapshot (from autonomy.evaluate_policy at scheduling).
+    requires_approval: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    auto_eligible: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    policy_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    # proposed → awaiting_approval → approved → queued → executed | dismissed |
+    # failed. Default awaiting_approval: safe until a human (or policy) releases it.
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="awaiting_approval",
+        server_default="awaiting_approval",
+        index=True,
+    )
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Dedupe: one open item per (brand, kind, source).
+    dedupe_key: Mapped[str] = mapped_column(String(160), index=True)
+    result: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")

@@ -8,12 +8,14 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.operations import monitoring
-from aicmo.modules.operations.models import DetectedEvent
+from aicmo.modules.operations.models import DetectedEvent, ScheduledWork
 from aicmo.modules.operations.schemas import (
     DetectedEventResponse,
     EventsView,
     MetricSnapshotResponse,
     MonitoringView,
+    WorkItemResponse,
+    WorkList,
 )
 
 
@@ -52,3 +54,35 @@ async def events_view(
         open_count=open_count,
         note=None if items else "No events detected yet.",
     )
+
+
+async def work_view(
+    session: AsyncSession,
+    *,
+    brand_id: uuid.UUID,
+    status: str | None = None,
+    limit: int = 50,
+) -> WorkList:
+    stmt = select(ScheduledWork).where(ScheduledWork.brand_id == brand_id)
+    if status:
+        stmt = stmt.where(ScheduledWork.status == status)
+    stmt = stmt.order_by(desc(ScheduledWork.created_at)).limit(max(1, min(limit, 200)))
+    rows = list((await session.execute(stmt)).scalars().all())
+    items = [WorkItemResponse.model_validate(r) for r in rows]
+    awaiting = sum(1 for r in rows if r.status == "awaiting_approval")
+    return WorkList(items=items, awaiting_approval=awaiting)
+
+
+async def set_work_status(
+    session: AsyncSession,
+    *,
+    brand_id: uuid.UUID,
+    work_id: uuid.UUID,
+    status: str,
+) -> ScheduledWork | None:
+    row = await session.get(ScheduledWork, work_id)
+    if row is None or row.brand_id != brand_id:
+        return None
+    row.status = status
+    await session.flush()
+    return row
