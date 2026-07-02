@@ -1202,6 +1202,40 @@ export interface IntegrationSyncResult {
   error_message: string | null;
 }
 
+// Phase 6.1 — integration activity log + analytics.
+export interface IntegrationEvent {
+  id: string;
+  connection_id: string | null;
+  provider_slug: string;
+  event_type: string;
+  status: "success" | "failure" | "info";
+  message: string | null;
+  detail: Record<string, unknown>;
+  duration_ms: number | null;
+  occurred_at: string;
+}
+
+export interface IntegrationAnalytics {
+  window_days: number;
+  connections_total: number;
+  connections_by_state: Record<string, number>;
+  syncs_total: number;
+  syncs_succeeded: number;
+  syncs_failed: number;
+  sync_success_rate: number | null;
+  errors_total: number;
+  events_total: number;
+  events_by_provider: Record<string, number>;
+}
+
+export interface IntegrationEventQuery {
+  connection_id?: string;
+  provider?: string;
+  event_type?: string;
+  status?: string;
+  limit?: number;
+}
+
 export type PublishPlatform =
   | "instagram"
   | "facebook"
@@ -2148,6 +2182,22 @@ export const api = {
       request<IntegrationConnection>(
         `/api/v1/integrations/${connectionId}/disconnect`,
         { method: "POST" },
+      ),
+    events: async (q: IntegrationEventQuery = {}): Promise<IntegrationEvent[]> => {
+      const params = new URLSearchParams();
+      if (q.connection_id) params.set("connection_id", q.connection_id);
+      if (q.provider) params.set("provider", q.provider);
+      if (q.event_type) params.set("event_type", q.event_type);
+      if (q.status) params.set("status", q.status);
+      params.set("limit", String(q.limit ?? 200));
+      const r = await request<{ items: IntegrationEvent[] }>(
+        `/api/v1/integrations/events?${params.toString()}`,
+      );
+      return r.items;
+    },
+    analytics: (days = 30) =>
+      request<IntegrationAnalytics>(
+        `/api/v1/integrations/analytics?days=${days}`,
       ),
   },
   publishing: {

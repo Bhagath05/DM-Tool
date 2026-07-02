@@ -31,6 +31,7 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { StatusPill } from "@/components/ui/status-pill";
 import { cn } from "@/lib/utils";
 
+import { IntegrationDashboard } from "./_components/integration-dashboard";
 import { SocialPublishingConnectors } from "./_components/social-connectors";
 
 export const dynamic = "force-dynamic";
@@ -153,6 +154,16 @@ export default function IntegrationsSettingsPage() {
           description="OAuth connections for scheduling and publishing content across platforms."
         />
         <SocialPublishingConnectors />
+      </section>
+
+      {/* Phase 6.1 — operations dashboard: health, analytics, activity log */}
+      <section className="flex flex-col gap-4">
+        <SectionHeading
+          eyebrow="Operations"
+          heading="Connected apps & activity"
+          description="Live health, sync analytics, and the full activity log for every connected integration."
+        />
+        <IntegrationDashboard />
       </section>
 
       {/* Ad platforms */}
