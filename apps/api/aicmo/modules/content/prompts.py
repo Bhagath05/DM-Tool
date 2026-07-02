@@ -8,7 +8,10 @@ output schema differ.
 from __future__ import annotations
 
 from aicmo.copy.banned_phrases import TONE_GUARDRAILS
-from aicmo.copy.creative_brief import CREATIVE_BRIEF_INSTRUCTION, render_recommendation_context_block
+from aicmo.copy.creative_brief import (
+    CREATIVE_BRIEF_INSTRUCTION,
+    render_recommendation_context_block,
+)
 from aicmo.modules.content.schemas import ContentType
 from aicmo.modules.content.templates import (
     effective_tone,
@@ -76,6 +79,36 @@ _TYPE_INSTRUCTIONS: dict[ContentType, str] = {
         "Write paid ad copy (Meta / Google). Lead with the strongest benefit. "
         "Use a sanctioned CTA button label. targeting_note tells the marketer "
         "who to put this in front of."
+    ),
+    "blog_article": (
+        "Write a complete, SEO-optimised blog article. Title earns the click and "
+        "contains the primary keyword. meta_description ≤160 chars. 3-10 body "
+        "sections with clear H2 headings and scannable paragraphs — genuinely "
+        "useful, specific to this business, never generic filler. Weave the "
+        "primary + secondary keywords naturally (no stuffing). Close with a CTA. "
+        "Estimate an honest reading_time_minutes from the length."
+    ),
+    "email": (
+        "Write a marketing email. Provide 2-4 A/B subject lines (≤60 chars, no "
+        "clickbait), a preview_text preheader, a personalised greeting using "
+        "{{first_name}}, a skimmable body built around ONE idea and ONE ask, and "
+        "a specific CTA. Do NOT invent a URL — cta_url_hint names where it points. "
+        "Match the goal: a nurture/campaign email warms an existing list; a cold "
+        "email is short, respectful, and leads with relevance."
+    ),
+    "product_description": (
+        "Write conversion product copy. tagline is a one-line hook. "
+        "short_description suits a listing/card; long_description is the full "
+        "benefit-led pitch. key_features are benefit-framed (feature → what it "
+        "means for the buyer), not spec dumps. End with a purchase-intent CTA."
+    ),
+    "press_release": (
+        "Write a professional press release in standard format: newsworthy "
+        "headline, supporting subheadline, dateline, a lead paragraph answering "
+        "who/what/when/where/why, 2-6 body paragraphs INCLUDING at least one "
+        "quote attributed to a named role (use a placeholder like "
+        "'[Founder Name], CEO'), a company boilerplate, and a media_contact block "
+        "with placeholder name/email — never fabricate real contact details."
     ),
 }
 

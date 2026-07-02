@@ -9,7 +9,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from aicmo.copy.creative_brief import MarketingCreativeBrief
 from aicmo.security.prompt_safety import sanitize_prompt_input
 
-ContentType = Literal["social_post", "reel", "carousel", "ad_copy", "landing_page_copy"]
+ContentType = Literal[
+    "social_post",
+    "reel",
+    "carousel",
+    "ad_copy",
+    "landing_page_copy",
+    # Phase 6.2 — written / long-form content types (same pipeline, new schemas).
+    "blog_article",
+    "email",
+    "product_description",
+    "press_release",
+]
 
 CONTENT_TYPES: tuple[ContentType, ...] = (
     "social_post",
@@ -17,6 +28,22 @@ CONTENT_TYPES: tuple[ContentType, ...] = (
     "carousel",
     "ad_copy",
     "landing_page_copy",
+    "blog_article",
+    "email",
+    "product_description",
+    "press_release",
+)
+
+# Types that are NOT tied to a social platform — the platform-membership check
+# is skipped for these (they're written for a site/inbox/wire, not a feed).
+NON_PLATFORM_TYPES: frozenset[str] = frozenset(
+    {
+        "landing_page_copy",
+        "blog_article",
+        "email",
+        "product_description",
+        "press_release",
+    }
 )
 
 
@@ -188,6 +215,81 @@ class AdCopyFull(BaseModel):
     )
 
 
+# ---------- Phase 6.2 written / long-form types ----------
+
+
+class BlogSection(BaseModel):
+    heading: str = Field(description="Section H2 heading.")
+    body: str = Field(description="Section body, 2-5 short paragraphs, scannable.")
+
+
+class BlogArticleFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    title: str = Field(description="SEO-friendly, compelling article title.")
+    slug: str = Field(description="URL slug, lowercase-hyphenated.")
+    meta_description: str = Field(
+        max_length=200,
+        description="SEO meta description ≤160 chars — includes the primary keyword.",
+    )
+    primary_keyword: str = Field(description="The main keyword this article ranks for.")
+    secondary_keywords: list[str] = Field(
+        default_factory=list, max_length=10, description="Supporting keywords / entities."
+    )
+    intro: str = Field(description="Opening 1-2 paragraphs that hook + set the promise.")
+    sections: list[BlogSection] = Field(
+        min_length=3, max_length=10, description="Body sections with H2 headings."
+    )
+    conclusion: str = Field(description="Closing that reinforces the takeaway + leads to the CTA.")
+    cta: str = Field(description="Primary call to action for the reader.")
+    reading_time_minutes: int = Field(ge=1, le=60)
+
+
+class EmailFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    subject_lines: list[str] = Field(
+        min_length=2, max_length=4, description="A/B-ready subject lines, ≤60 chars each."
+    )
+    preview_text: str = Field(max_length=140, description="Inbox preheader line.")
+    greeting: str = Field(description="Personalised opener, e.g. 'Hi {{first_name}},'.")
+    body: str = Field(description="Email body — plain, skimmable, one clear idea.")
+    cta: str = Field(description="Primary CTA — verb-led, specific.")
+    cta_url_hint: str = Field(
+        description="Where the CTA should point (page/offer), plain text — no fabricated URL."
+    )
+    ps_line: str | None = Field(default=None, description="Optional P.S. reinforcing the offer.")
+
+
+class ProductDescriptionFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    title: str = Field(description="Product name / title as it should appear.")
+    tagline: str = Field(max_length=120, description="One-line hook.")
+    short_description: str = Field(description="1-2 sentence summary for listings.")
+    long_description: str = Field(description="Full benefit-led description, scannable.")
+    key_features: list[str] = Field(
+        min_length=3, max_length=8, description="Benefit-framed feature bullets."
+    )
+    cta: str = Field(description="Buy / add-to-cart style CTA.")
+
+
+class PressReleaseFull(BaseModel):
+    creative_brief: MarketingCreativeBrief
+    strategy: ContentStrategy
+    headline: str = Field(description="Announcement headline, newsworthy + specific.")
+    subheadline: str = Field(description="Supporting deck line under the headline.")
+    dateline: str = Field(description="CITY, State — Month Day, Year format (placeholder ok).")
+    lead_paragraph: str = Field(description="Who/what/when/where/why in the first paragraph.")
+    body_paragraphs: list[str] = Field(
+        min_length=2, max_length=6, description="Supporting paragraphs incl. a quote."
+    )
+    boilerplate: str = Field(description="About-the-company standard paragraph.")
+    media_contact: str = Field(
+        description="Contact block — name/role/email placeholders; no fabricated real contact."
+    )
+
+
 # ---------- API request / response ----------
 
 PRESET_GOALS: tuple[str, ...] = (
@@ -267,6 +369,10 @@ SCHEMA_BY_TYPE: dict[ContentType, type[BaseModel]] = {
     "carousel": CarouselFull,
     "ad_copy": AdCopyFull,
     "landing_page_copy": LandingPageCopyFull,
+    "blog_article": BlogArticleFull,
+    "email": EmailFull,
+    "product_description": ProductDescriptionFull,
+    "press_release": PressReleaseFull,
 }
 
 

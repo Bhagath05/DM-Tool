@@ -34,6 +34,11 @@ _MAX_TOKENS_BY_TYPE: dict[ContentType, int] = {
     "carousel": 4000,
     "ad_copy": 2400,
     "landing_page_copy": 3200,
+    # Phase 6.2 — long-form written types need more headroom.
+    "blog_article": 4500,
+    "email": 2600,
+    "product_description": 2600,
+    "press_release": 3200,
 }
 
 

@@ -13,30 +13,31 @@ from fastapi import HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aicmo.config import get_settings
 from aicmo.distribution.url_builder import (
     MEDIUM_BY_CONTENT_TYPE,
     maybe_share_url,
 )
-from aicmo.modules.content.generator import generate_content
-from aicmo.modules.content.models import GeneratedContent
-from aicmo.modules.content.schemas import (
-    GeneratedContentResponse,
-    GenerateRequest,
-)
-from aicmo.config import get_settings
 from aicmo.modules.ai_audit.service import (
     ACTION_GENERATE_CONTENT,
     ACTION_GENERATE_REEL,
     record_ai_generation,
 )
 from aicmo.modules.billing import billing_live
+from aicmo.modules.content.generator import generate_content
+from aicmo.modules.content.models import GeneratedContent
+from aicmo.modules.content.schemas import (
+    NON_PLATFORM_TYPES,
+    GeneratedContentResponse,
+    GenerateRequest,
+)
 from aicmo.modules.content.templates import effective_tone
 from aicmo.modules.context.builder import build_generation_context
 from aicmo.modules.landing_pages import service as landing_pages_service
 from aicmo.modules.learning.recorder import record_generation
 from aicmo.modules.onboarding import service as onboarding_service
-from aicmo.modules.performance.tagging import resolve_creative_tags
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+from aicmo.modules.performance.tagging import resolve_creative_tags
 from aicmo.modules.trends import service as trends_service
 from aicmo.modules.trends.schemas import TrendAnalysis
 from aicmo.tenancy.context import TenantContext
@@ -63,7 +64,10 @@ async def generate(
         session, organization_id=tenant.organization_id, kind="generation"
     )
 
-    if payload.content_type != "landing_page_copy" and payload.platform not in profile.preferred_platforms:
+    if (
+        payload.content_type not in NON_PLATFORM_TYPES
+        and payload.platform not in profile.preferred_platforms
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"'{payload.platform}' is not one of your preferred platforms",
