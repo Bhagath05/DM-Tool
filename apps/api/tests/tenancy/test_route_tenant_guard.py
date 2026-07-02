@@ -56,6 +56,12 @@ _PUBLIC_EXACT: frozenset[str] = frozenset(
         # tenant-guarded (a logged-in user starting the connect flow), so we must
         # NOT use a broad /social/oauth/ prefix here.
         "/api/v1/social/oauth/{platform}/callback",  # state-verified provider redirect
+        # Phase 4 continuous-loop driver. A SYSTEM endpoint that runs across ALL
+        # tenants (iterates active brands RLS-bypassed), so it is deliberately
+        # NOT tenant-scoped. Secured instead by a shared operations secret
+        # (X-Operations-Token) + global throttle; disabled (503) until a secret
+        # is configured. The sibling /operations/monitoring IS tenant-guarded.
+        "/api/v1/operations/tick",
     }
 )
 

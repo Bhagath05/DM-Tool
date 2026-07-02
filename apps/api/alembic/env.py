@@ -60,6 +60,10 @@ from aicmo.modules.integrations.models import (  # noqa: F401
 from aicmo.modules.landing_pages.models import LandingPage  # noqa: F401
 from aicmo.modules.leads.models import Lead  # noqa: F401
 from aicmo.modules.autonomy.models import AutonomyPolicy  # noqa: F401
+from aicmo.modules.operations.models import (  # noqa: F401
+    MetricSnapshot,
+    OperationsRun,
+)
 from aicmo.modules.learning.models import (  # noqa: F401
     CampaignExperiment,
     ExperimentResult,

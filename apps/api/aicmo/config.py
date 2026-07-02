@@ -121,6 +121,22 @@ class Settings(BaseSettings):
     # the ultimate guarantee that nothing executes automatically by default.
     autonomy_execution_enabled: bool = Field(default=False)
 
+    # Phase 4 — Autonomous Operations Engine (continuous loop).
+    # The loop is driven by a driver-agnostic service (`operations.driver`).
+    # Today it's invoked by POST /operations/tick; tomorrow by the Arq worker
+    # cron — same business logic. These knobs govern that loop.
+    #   operations_tick_secret — shared secret the /operations/tick endpoint
+    #     requires. Empty (default) → the endpoint is DISABLED (503), so the
+    #     loop cannot be triggered until an operator sets a secret per env.
+    #   operations_monitor_interval_seconds — per-brand cadence: a brand is only
+    #     re-snapshotted after this many seconds (idempotency; repeated ticks are
+    #     no-ops within the window).
+    #   operations_tick_min_gap_seconds — global throttle between full cycles
+    #     (rate-limit on the endpoint).
+    operations_tick_secret: str = Field(default="")
+    operations_monitor_interval_seconds: int = Field(default=300)
+    operations_tick_min_gap_seconds: int = Field(default=20)
+
     # -----------------------------------------------------------------
     # Creative Platform / Video (Creative Core V0). Ships DARK:
     # `video_enabled=false` → every /creative/* endpoint returns 409 and

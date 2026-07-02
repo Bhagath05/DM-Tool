@@ -45,6 +45,7 @@ from aicmo.modules.insights.router import router as insights_router
 from aicmo.modules.learning.router import router as learning_router
 from aicmo.modules.notifications.router import router as notifications_router
 from aicmo.modules.onboarding.router import router as onboarding_router
+from aicmo.modules.operations.router import router as operations_router
 from aicmo.modules.opportunities.router import router as opportunities_router
 from aicmo.modules.orchestrator.router import router as orchestrator_router
 from aicmo.modules.orgs.router import router as orgs_router
@@ -266,6 +267,7 @@ app.include_router(learning_router, prefix="/api/v1")
 app.include_router(insights_router, prefix="/api/v1")
 app.include_router(orchestrator_router, prefix="/api/v1")
 app.include_router(autonomy_router, prefix="/api/v1")
+app.include_router(operations_router, prefix="/api/v1")
 # Phase 9.1 — Performance Intelligence Engine (CSV-only ingest + diagnostics).
 app.include_router(performance_router, prefix="/api/v1")
 app.include_router(publishing_router, prefix="/api/v1")
