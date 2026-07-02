@@ -667,7 +667,7 @@ function confidenceBand(confidence: number): { label: string; cls: string } {
   };
 }
 
-const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
+const CONTENT_TYPE_LABEL: Partial<Record<ContentType, string>> = {
   social_post: "Social post",
   reel: "Reel / Short",
   carousel: "Carousel",
@@ -675,7 +675,11 @@ const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
 };
 
 function prettyContentType(t: ContentType): string {
-  return CONTENT_TYPE_LABEL[t] ?? t;
+  // Phase 6.2 — 37 content types; humanise the slug for those without a label.
+  return (
+    CONTENT_TYPE_LABEL[t] ??
+    t.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase())
+  );
 }
 
 /**

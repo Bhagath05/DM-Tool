@@ -57,7 +57,59 @@ export function ContentRenderer({
       return <RenderCarousel data={output as unknown as Carousel} />;
     case "ad_copy":
       return <RenderAdCopy data={output as unknown as AdCopy} />;
+    default:
+      // Phase 6.2 — written / long-form / micro-copy types render generically
+      // from their structured output (no bespoke per-type component needed).
+      return <RenderGeneric data={output} />;
   }
+}
+
+/** Generic structured-output renderer for content types without a bespoke
+ * component. Walks the output dict and renders labelled text + lists. */
+function RenderGeneric({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data).filter(([k]) => k !== "creative_brief");
+  return (
+    <div className="space-y-3 text-sm">
+      {entries.map(([key, value]) => (
+        <div key={key} className="space-y-1">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {key.replace(/_/g, " ")}
+          </div>
+          <GenericValue value={value} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GenericValue({ value }: { value: unknown }) {
+  if (value == null) return <span className="text-muted-foreground">—</span>;
+  if (typeof value === "string" || typeof value === "number")
+    return <p className="whitespace-pre-wrap leading-relaxed">{String(value)}</p>;
+  if (Array.isArray(value))
+    return (
+      <ul className="list-disc space-y-1 pl-5">
+        {value.map((v, i) => (
+          <li key={i}>
+            <GenericValue value={v} />
+          </li>
+        ))}
+      </ul>
+    );
+  if (typeof value === "object")
+    return (
+      <div className="space-y-1 rounded-md border border-border/60 p-2">
+        {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
+          <div key={k}>
+            <span className="text-xs text-muted-foreground">
+              {k.replace(/_/g, " ")}:{" "}
+            </span>
+            <GenericValue value={v} />
+          </div>
+        ))}
+      </div>
+    );
+  return <span>{String(value)}</span>;
 }
 
 /** Plain-text serializer used by the Copy button. */
@@ -97,7 +149,27 @@ export function serializeForCopy(
         `Targeting: ${d.targeting_note}`
       );
     }
+    default:
+      // Phase 6.2 — generic serialization for the written / long-form types.
+      return genericSerialize(output);
   }
+}
+
+/** Flatten any structured output into readable labelled text for the clipboard. */
+function genericSerialize(output: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const walk = (label: string, v: unknown) => {
+    if (label === "creative_brief" || label === "strategy") return;
+    if (v == null) return;
+    if (typeof v === "string" || typeof v === "number")
+      parts.push(`${label ? label.replace(/_/g, " ").toUpperCase() + ": " : ""}${v}`);
+    else if (Array.isArray(v))
+      v.forEach((x, i) => walk(`${label} ${i + 1}`.trim(), x));
+    else if (typeof v === "object")
+      Object.entries(v as Record<string, unknown>).forEach(([k, x]) => walk(k, x));
+  };
+  Object.entries(output).forEach(([k, v]) => walk(k, v));
+  return parts.join("\n\n");
 }
 
 const tagLine = (hashtags: string[]) =>

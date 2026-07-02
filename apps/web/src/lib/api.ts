@@ -334,7 +334,56 @@ export interface TrendReport {
 
 // ---------- Content ----------
 
-export type ContentType = "social_post" | "reel" | "carousel" | "ad_copy";
+export type ContentType =
+  | "social_post"
+  | "reel"
+  | "carousel"
+  | "ad_copy"
+  | "landing_page_copy"
+  | "blog_article"
+  | "email"
+  | "product_description"
+  | "press_release"
+  | "case_study"
+  | "customer_story"
+  | "testimonial"
+  | "product_comparison"
+  | "faq"
+  | "website_copy"
+  | "homepage_copy"
+  | "about_us"
+  | "service_page"
+  | "sales_page"
+  | "email_newsletter"
+  | "cold_email"
+  | "followup_email"
+  | "promo_email"
+  | "youtube_title"
+  | "youtube_description"
+  | "video_script"
+  | "shorts_script"
+  | "tiktok_script"
+  | "pinterest_description"
+  | "x_thread"
+  | "cta_variations"
+  | "headlines"
+  | "taglines"
+  | "hooks"
+  | "meta_description"
+  | "seo_title"
+  | "keyword_ideas";
+
+// All content types, for filter dropdowns (kept in sync with the backend enum).
+export const CONTENT_TYPES: ContentType[] = [
+  "social_post", "reel", "carousel", "ad_copy", "landing_page_copy",
+  "blog_article", "email", "product_description", "press_release",
+  "case_study", "customer_story", "testimonial", "product_comparison", "faq",
+  "website_copy", "homepage_copy", "about_us", "service_page", "sales_page",
+  "email_newsletter", "cold_email", "followup_email", "promo_email",
+  "youtube_title", "youtube_description", "video_script", "shorts_script",
+  "tiktok_script", "pinterest_description", "x_thread", "cta_variations",
+  "headlines", "taglines", "hooks", "meta_description", "seo_title", "keyword_ideas",
+];
 
 export interface ContentStrategy {
   trend_influence: string;
@@ -348,6 +397,10 @@ export interface GeneratedContent {
   business_profile_id: string;
   trend_report_id: string | null;
   landing_page_id: string | null;
+  campaign_id: string | null;
+  bundle_id: string | null;
+  strategy_id: string | null;
+  recommendation_id: string | null;
   content_type: ContentType;
   platform: string;
   goal: string;
