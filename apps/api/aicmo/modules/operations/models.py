@@ -226,3 +226,35 @@ class ScheduledWork(Base, TimestampMixin, TenantMixin):
     # Dedupe: one open item per (brand, kind, source).
     dedupe_key: Mapped[str] = mapped_column(String(160), index=True)
     result: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+
+
+class OperationsNotification(Base, TimestampMixin, TenantMixin):
+    """Phase 4.8 — an in-app notification the operations loop raises for the
+    owner. Reuses the existing notifications catalog's CATEGORY taxonomy (so the
+    future email/slack/sms dispatcher can gate delivery via the preference
+    matrix); the in-app feed itself works today. Deduped so a standing condition
+    notifies once."""
+
+    __tablename__ = "operations_notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # One of the notifications-catalog categories (campaign_alert / winner_alert
+    # / weekly_digest / system_alert / ...). Validated against the catalog.
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    # event | approval | goal | learning | budget | competitor | system.
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    severity: Mapped[str] = mapped_column(
+        String(16), default="info", server_default="info"
+    )
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    dedupe_key: Mapped[str] = mapped_column(String(180), index=True)
+    read: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", index=True
+    )

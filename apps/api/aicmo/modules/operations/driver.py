@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.config import get_settings
-from aicmo.modules.operations import events, goals, monitoring, scheduler
+from aicmo.modules.operations import events, goals, monitoring, notifier, scheduler
 from aicmo.modules.operations.models import OperationsRun
 from aicmo.modules.operations.schemas import BrandCycleResult, TickResult
 
@@ -95,6 +95,7 @@ async def run_operations_cycle(
             )
             brand_events = 0
             brand_work = 0
+            evs: list = []
             if did:
                 captured += 1
                 if prev is not None:
@@ -117,6 +118,15 @@ async def run_operations_cycle(
                     session, organization_id=org_id, brand_id=brand_id, now=started
                 )
                 work_total += brand_work
+                # 4.8 — raise in-app notifications for the real changes.
+                await notifier.emit_for_cycle(
+                    session,
+                    organization_id=org_id,
+                    brand_id=brand_id,
+                    new_events=evs,
+                    work_created=brand_work,
+                    now=started,
+                )
             details.append(
                 BrandCycleResult(
                     brand_id=str(brand_id),

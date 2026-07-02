@@ -9,12 +9,18 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.operations import monitoring
-from aicmo.modules.operations.models import DetectedEvent, ScheduledWork
+from aicmo.modules.operations.models import (
+    DetectedEvent,
+    OperationsNotification,
+    ScheduledWork,
+)
 from aicmo.modules.operations.schemas import (
     DetectedEventResponse,
     EventsView,
     MetricSnapshotResponse,
     MonitoringView,
+    NotificationList,
+    NotificationResponse,
     WorkItemResponse,
     WorkList,
 )
@@ -85,6 +91,41 @@ async def set_work_status(
     if row is None or row.brand_id != brand_id:
         return None
     row.status = status
+    await session.flush()
+    return row
+
+
+# ---------------------------------------------------------------------
+#  4.8 — Notification feed
+# ---------------------------------------------------------------------
+async def notifications_view(
+    session: AsyncSession,
+    *,
+    brand_id: uuid.UUID,
+    only_unread: bool = False,
+    limit: int = 50,
+) -> NotificationList:
+    stmt = select(OperationsNotification).where(
+        OperationsNotification.brand_id == brand_id
+    )
+    if only_unread:
+        stmt = stmt.where(OperationsNotification.read.is_(False))
+    stmt = stmt.order_by(desc(OperationsNotification.created_at)).limit(
+        max(1, min(limit, 200))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    items = [NotificationResponse.model_validate(r) for r in rows]
+    unread = sum(1 for r in rows if not r.read)
+    return NotificationList(items=items, unread=unread)
+
+
+async def mark_notification_read(
+    session: AsyncSession, *, brand_id: uuid.UUID, notification_id: uuid.UUID
+) -> OperationsNotification | None:
+    row = await session.get(OperationsNotification, notification_id)
+    if row is None or row.brand_id != brand_id:
+        return None
+    row.read = True
     await session.flush()
     return row
 

@@ -32,6 +32,8 @@ from aicmo.modules.operations.schemas import (
     GoalResponse,
     GoalStatusUpdate,
     MonitoringView,
+    NotificationList,
+    NotificationResponse,
     OperationsDashboard,
     TickResult,
     WorkItemResponse,
@@ -82,6 +84,36 @@ async def dashboard(
     events, goals, the approval queue, recent learnings, and the lifecycle plan,
     all in one composite (reused reads; nothing new computed)."""
     return await service.dashboard(session, tenant=tenant)
+
+
+@router.get("/notifications", response_model=NotificationList)
+async def list_notifications(
+    only_unread: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> NotificationList:
+    """The AI's in-app notifications for this brand (4.8)."""
+    return await service.notifications_view(
+        session, brand_id=tenant.brand_id, only_unread=only_unread, limit=limit
+    )
+
+
+@router.patch("/notifications/{notification_id}/read", response_model=NotificationResponse)
+async def mark_read(
+    notification_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> NotificationResponse:
+    row = await service.mark_notification_read(
+        session, brand_id=tenant.brand_id, notification_id=notification_id
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found."
+        )
+    await session.commit()
+    return NotificationResponse.model_validate(row)
 
 
 @router.get("/monitoring", response_model=MonitoringView)

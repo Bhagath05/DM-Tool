@@ -169,6 +169,25 @@ class WorkStatusUpdate(BaseModel):
     status: Literal["approved", "dismissed"]
 
 
+class NotificationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: object
+    category: str
+    kind: str
+    severity: str
+    title: str
+    body: str
+    link: str | None
+    read: bool
+    created_at: datetime
+
+
+class NotificationList(BaseModel):
+    items: list[NotificationResponse]
+    unread: int
+
+
 class OperationsSystemStatus(BaseModel):
     last_run_at: datetime | None
     last_run_status: str | None

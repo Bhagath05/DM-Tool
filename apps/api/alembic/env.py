@@ -64,6 +64,7 @@ from aicmo.modules.operations.models import (  # noqa: F401
     DetectedEvent,
     MetricSnapshot,
     OperationalGoal,
+    OperationsNotification,
     OperationsRun,
     ScheduledWork,
 )
