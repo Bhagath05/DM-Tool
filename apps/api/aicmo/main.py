@@ -40,6 +40,7 @@ from aicmo.modules.landing_pages.router import public_router as landing_pages_pu
 from aicmo.modules.landing_pages.router import router as landing_pages_router
 from aicmo.modules.leads.router import public_router as leads_public_router
 from aicmo.modules.leads.router import router as leads_router
+from aicmo.modules.insights.router import router as insights_router
 from aicmo.modules.learning.router import router as learning_router
 from aicmo.modules.notifications.router import router as notifications_router
 from aicmo.modules.onboarding.router import router as onboarding_router
@@ -260,6 +261,7 @@ app.include_router(bundles_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
 app.include_router(poster_router, prefix="/api/v1")
 app.include_router(learning_router, prefix="/api/v1")
+app.include_router(insights_router, prefix="/api/v1")
 # Phase 9.1 — Performance Intelligence Engine (CSV-only ingest + diagnostics).
 app.include_router(performance_router, prefix="/api/v1")
 app.include_router(publishing_router, prefix="/api/v1")
