@@ -68,9 +68,15 @@ def test_stock_provider_stub_empty():
     assert asyncio.run(image_providers.get_stock_provider().search("luxury office")) == []
 
 
-def test_image_gen_returns_bytes():
-    data, mime = asyncio.run(image_providers.get_image_gen_provider().generate("a doctor"))
-    assert data and mime == "image/png"
+def test_image_gen_returns_bytes_and_metadata():
+    # Hermetic: exercise the stub directly (never a real provider / real spend).
+    req = image_providers.ImageGenRequest(prompt="a doctor", seed=7, style="photo")
+    result = asyncio.run(image_providers.StubImageGenProvider().generate(req))
+    assert result.image_bytes and result.mime == "image/png"
+    # the full contract is populated even on the offline stub
+    assert result.provider == "stub" and result.model == "stub"
+    assert result.seed == 7
+    assert result.cost_cents == 0 and result.duration_ms == 0
 
 
 # ---- NL image-replace helpers ----

@@ -11,6 +11,8 @@ a NEW tenant-owned brand_asset — originals are never mutated.
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from typing import Protocol
 
 import structlog
@@ -19,6 +21,11 @@ from pydantic import BaseModel
 from aicmo.config import get_settings
 
 log = structlog.get_logger()
+
+# Default negatives keep AI hero images text-free + clean (they used to be
+# hardcoded inside the OpenAI impl; now they're the fallback when a caller
+# doesn't supply its own negative prompt).
+_DEFAULT_NEGATIVE = "text, words, letters, captions, watermark, logo, ui, low quality, blurry"
 
 # A minimal valid 1x1 transparent PNG — the stub "generated"/"processed" image.
 # Real providers return real bytes; this keeps the pipeline runnable offline.
@@ -83,20 +90,56 @@ class StubStockProvider:
 _ASPECT = {"1:1": "1:1", "4:5": "4:5", "9:16": "9:16", "16:9": "16:9"}
 
 
+@dataclass(frozen=True)
+class ImageGenRequest:
+    """The full generation contract (Phase 6.3, spec #2). Providers consume
+    what they support and echo the rest back on the result so the whole
+    contract is persistable."""
+
+    prompt: str
+    negative_prompt: str | None = None
+    aspect: str = "1:1"
+    style: str | None = None
+    width: int | None = None
+    height: int | None = None
+    seed: int | None = None
+
+
+@dataclass(frozen=True)
+class ImageGenResult:
+    """Bytes + the resolved metadata the caller persists on the asset."""
+
+    image_bytes: bytes
+    mime: str
+    provider: str
+    model: str
+    seed: int | None
+    width: int | None
+    height: int | None
+    cost_cents: int
+    duration_ms: int
+
+
 class ImageGenProvider(Protocol):
     name: str
 
-    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
-        """Return (image_bytes, mime) for a prompt. Stored as a new asset."""
+    async def generate(self, request: ImageGenRequest) -> ImageGenResult:
+        """Text → image + resolved generation metadata. Stored as a new asset."""
         ...
 
 
 class StubImageGenProvider:
     name = "stub"
 
-    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
-        # Offline placeholder (used only when no OpenAI key is configured).
-        return _TRANSPARENT_PNG, "image/png"
+    async def generate(self, request: ImageGenRequest) -> ImageGenResult:
+        # Offline placeholder (used only when no OpenAI key is configured). The
+        # metadata contract is still fully populated so persistence + tests are
+        # provider-independent.
+        return ImageGenResult(
+            image_bytes=_TRANSPARENT_PNG, mime="image/png", provider="stub",
+            model="stub", seed=request.seed, width=request.width,
+            height=request.height, cost_cents=0, duration_ms=0,
+        )
 
 
 class OpenAIImageGenProvider:
@@ -104,20 +147,30 @@ class OpenAIImageGenProvider:
 
     name = "openai"
 
-    async def generate(self, prompt: str, *, aspect: str = "1:1") -> tuple[bytes, str]:
+    async def generate(self, request: ImageGenRequest) -> ImageGenResult:
         from aicmo.providers.images.base import ImageRenderRequest
         from aicmo.providers.images.registry import get_image_provider
 
         provider = get_image_provider(get_settings().image_default_provider)
+        t0 = time.perf_counter()
         result = await provider.render(
             ImageRenderRequest(
-                prompt=prompt,
-                aspect_ratio=_ASPECT.get(aspect, "1:1"),  # type: ignore[arg-type]
+                prompt=request.prompt if not request.style
+                else f"{request.prompt}\nStyle: {request.style}",
+                aspect_ratio=_ASPECT.get(request.aspect, "1:1"),  # type: ignore[arg-type]
                 quality="standard",
-                negative_prompt="text, words, letters, captions, watermark, logo, ui, low quality, blurry",
+                negative_prompt=request.negative_prompt or _DEFAULT_NEGATIVE,
             )
         )
-        return result.image_bytes, result.mime_type
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        return ImageGenResult(
+            image_bytes=result.image_bytes, mime=result.mime_type,
+            provider=result.provider_name,
+            model=getattr(result, "model", None) or "gpt-image-1",
+            seed=request.seed, width=result.width, height=result.height,
+            cost_cents=result.cost_cents,
+            duration_ms=result.latency_ms or elapsed_ms,
+        )
 
 
 # ---------------------------------------------------------------------

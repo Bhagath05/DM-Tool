@@ -197,3 +197,25 @@ class CreativeExport(Base, TimestampMixin, TenantMixin):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(16), server_default="pending")
+
+
+class CreativeBrief(Base, TimestampMixin, TenantMixin):
+    """AI creative brief (Phase 6.3, spec #6) — GROUNDED in real context
+    (business profile + strategy + campaign + content) and persisted. The
+    source-id columns are plain UUIDs (no cross-module ORM FK — same boundary
+    rule as the rest of the creative core); `grounded_in` records exactly which
+    real sources fed the brief so nothing is ever fabricated."""
+
+    __tablename__ = "creative_brief"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)
+    content_id: Mapped[uuid.UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)
+    strategy_id: Mapped[uuid.UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)
+    title: Mapped[str] = mapped_column(String(200))
+    objective: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    brief: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    grounded_in: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    confidence: Mapped[int] = mapped_column(Integer, server_default="0")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)

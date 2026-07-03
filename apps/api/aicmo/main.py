@@ -14,6 +14,7 @@ from aicmo.db.session import dispose_engine
 from aicmo.modules.ads.router import router as ads_router
 from aicmo.modules.advisor.router import router as advisor_router
 from aicmo.modules.analytics.router import router as analytics_router
+from aicmo.modules.autonomy.router import router as autonomy_router
 from aicmo.modules.billing.router import (
     public_router as billing_public_router,
 )
@@ -31,6 +32,7 @@ from aicmo.modules.content.router import router as content_router
 from aicmo.modules.context.router import router as context_router
 from aicmo.modules.creative.storage.base import MediaPersistenceUnavailable
 from aicmo.modules.decision_engine.router import router as decision_engine_router
+from aicmo.modules.insights.router import router as insights_router
 from aicmo.modules.integrations.router import (
     public_router as integrations_public_router,
 )
@@ -41,8 +43,6 @@ from aicmo.modules.landing_pages.router import public_router as landing_pages_pu
 from aicmo.modules.landing_pages.router import router as landing_pages_router
 from aicmo.modules.leads.router import public_router as leads_public_router
 from aicmo.modules.leads.router import router as leads_router
-from aicmo.modules.autonomy.router import router as autonomy_router
-from aicmo.modules.insights.router import router as insights_router
 from aicmo.modules.learning.router import router as learning_router
 from aicmo.modules.notifications.router import router as notifications_router
 from aicmo.modules.onboarding.router import router as onboarding_router
@@ -310,6 +310,11 @@ from aicmo.modules.creative.router import (
 
 app.include_router(creative_router, prefix="/api/v1")
 app.include_router(creative_public_router, prefix="/api/v1")
+
+# Phase 6.3 — AI Creative Brief (grounded in business/strategy/campaign/content).
+from aicmo.modules.creative.brief_router import router as creative_brief_router  # noqa: E402
+
+app.include_router(creative_brief_router, prefix="/api/v1")
 
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.

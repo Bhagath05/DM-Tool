@@ -14,9 +14,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.modules.billing import billing_live
 from aicmo.modules.ai_audit import service as ai_audit
+from aicmo.modules.billing import billing_live
 from aicmo.modules.creative.design import ai_router, image_providers, transform
+from aicmo.modules.creative.design.image_providers import ImageGenRequest
 from aicmo.modules.creative.design.layer_schema import assert_tenant_refs, validate_doc
 from aicmo.modules.creative.design.models import (
     BrandAsset,
@@ -36,6 +37,7 @@ from aicmo.modules.creative.design.schemas import (
     RestyleRequest,
     TransformRequest,
 )
+from aicmo.modules.creative.models import CreativeCostEvent
 from aicmo.modules.creative.storage.base import StorageRef
 from aicmo.modules.creative.storage.registry import get_storage_backend
 from aicmo.tenancy.context import TenantContext
@@ -304,8 +306,16 @@ class NlEditOutcome:
     """Result of an NL edit — what happened, with confidence + (for preview)
     the proposed doc, or (for create-ops) the new designs."""
 
-    __slots__ = ("op_class", "confidence", "summary", "committed", "design",
-                 "proposed_doc", "created_designs", "notes")
+    __slots__ = (
+        "committed",
+        "confidence",
+        "created_designs",
+        "design",
+        "notes",
+        "op_class",
+        "proposed_doc",
+        "summary",
+    )
 
     def __init__(self, *, op_class, confidence, summary, committed, design,
                  proposed_doc=None, created_designs=None, notes=None) -> None:
@@ -432,10 +442,13 @@ async def create_brand_asset(
 
 async def upload_brand_asset(
     session: AsyncSession, *, tenant: TenantContext, kind: str, data: bytes,
-    content_type: str, label: str | None = None,
+    content_type: str, label: str | None = None, meta: dict | None = None,
 ) -> BrandAsset:
     """Store an uploaded file in the active storage backend + register a
-    tenant-owned brand_asset pointing at it (StorageRef, never bytes in PG)."""
+    tenant-owned brand_asset pointing at it (StorageRef, never bytes in PG).
+
+    `meta` carries provenance (e.g. the AI-generation contract) into the
+    asset's JSONB — persisted, queryable, never fabricated."""
     brand_id = _brand_id(tenant)
     backend = get_storage_backend()
     key = f"brand_asset/{tenant.organization_id}/{uuid.uuid4().hex}"
@@ -443,7 +456,8 @@ async def upload_brand_asset(
     asset = BrandAsset(
         id=uuid.uuid4(), organization_id=tenant.organization_id, brand_id=brand_id,
         user_id=tenant.user_id, kind=kind, label=label,
-        storage_backend=ref.backend, storage_key=ref.key, mime_type=content_type, meta={},
+        storage_backend=ref.backend, storage_key=ref.key, mime_type=content_type,
+        meta=meta or {},
     )
     session.add(asset)
     return asset
@@ -511,7 +525,7 @@ async def remove_bg(
     if read and src.storage_backend and src.storage_key:
         try:
             data = read(StorageRef(backend=src.storage_backend, key=src.storage_key))
-        except Exception:  # noqa: BLE001 — provider may still work from nothing (stub)
+        except Exception:
             data = b""
     new_bytes, mime = image_providers.get_bg_removal_provider().remove(
         data, src.mime_type or "image/png"
@@ -523,15 +537,49 @@ async def remove_bg(
 
 
 async def generate_image_asset(
-    session: AsyncSession, *, tenant: TenantContext, prompt: str, aspect: str = "1:1"
+    session: AsyncSession, *, tenant: TenantContext, prompt: str, aspect: str = "1:1",
+    negative_prompt: str | None = None, style: str | None = None,
+    width: int | None = None, height: int | None = None, seed: int | None = None,
 ) -> BrandAsset:
     """AI text→image → a NEW asset (used by NL 'replace this with …' + the
-    campaign composer's hero images). Real OpenAI image when a key is set."""
-    data, mime = await image_providers.get_image_gen_provider().generate(prompt, aspect=aspect)
-    return await upload_brand_asset(
-        session, tenant=tenant, kind="image", data=data, content_type=mime,
-        label=f"AI: {prompt[:40]}",
+    campaign composer's hero images). Real OpenAI image when a key is set.
+
+    Persists the FULL generation contract (spec #2) into the asset's meta —
+    prompt / negative_prompt / aspect / style / dimensions / seed / provider /
+    model / cost / time — and records a creative_cost_event on the ledger."""
+    result = await image_providers.get_image_gen_provider().generate(
+        ImageGenRequest(
+            prompt=prompt, negative_prompt=negative_prompt, aspect=aspect,
+            style=style, width=width, height=height, seed=seed,
+        )
     )
+    generation = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "aspect_ratio": aspect,
+        "style": style,
+        "width": result.width,
+        "height": result.height,
+        "seed": result.seed,
+        "provider": result.provider,
+        "model": result.model,
+        "generation_cost_cents": result.cost_cents,
+        "generation_time_ms": result.duration_ms,
+    }
+    asset = await upload_brand_asset(
+        session, tenant=tenant, kind="image", data=result.image_bytes,
+        content_type=result.mime, label=f"AI: {prompt[:40]}",
+        meta={"generation": generation},
+    )
+    session.add(
+        CreativeCostEvent(
+            id=uuid.uuid4(), organization_id=tenant.organization_id,
+            brand_id=_brand_id(tenant), media_type="image", stage="image_generate",
+            provider=result.provider, units=1, cost_cents=result.cost_cents,
+            duration_ms=result.duration_ms,
+        )
+    )
+    return asset
 
 
 async def stock_search(query: str, *, limit: int = 12):

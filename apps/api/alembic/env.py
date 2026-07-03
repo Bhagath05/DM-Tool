@@ -18,6 +18,7 @@ from aicmo.modules.advisor.models import (  # noqa: F401
 )
 from aicmo.modules.ai_audit.models import AiAuditEvent  # noqa: F401
 from aicmo.modules.audit.models import AuditEvent  # noqa: F401
+from aicmo.modules.autonomy.models import AutonomyPolicy  # noqa: F401
 from aicmo.modules.billing.models import (  # noqa: F401
     BillingUpgradeRequest,
     Invoice,
@@ -47,6 +48,7 @@ from aicmo.modules.creative.design.models import (  # noqa: F401
 from aicmo.modules.creative.models import (  # noqa: F401
     BrandKit,
     CreativeAsset,
+    CreativeBrief,
     CreativeCostEvent,
     CreativeExport,
     CreativeFormat,
@@ -66,15 +68,6 @@ from aicmo.modules.integrations.models import (  # noqa: F401
 )
 from aicmo.modules.landing_pages.models import LandingPage  # noqa: F401
 from aicmo.modules.leads.models import Lead  # noqa: F401
-from aicmo.modules.autonomy.models import AutonomyPolicy  # noqa: F401
-from aicmo.modules.operations.models import (  # noqa: F401
-    DetectedEvent,
-    MetricSnapshot,
-    OperationalGoal,
-    OperationsNotification,
-    OperationsRun,
-    ScheduledWork,
-)
 from aicmo.modules.learning.models import (  # noqa: F401
     CampaignExperiment,
     ExperimentResult,
@@ -85,6 +78,14 @@ from aicmo.modules.notifications.models import (  # noqa: F401
     NotificationPreference,
 )
 from aicmo.modules.onboarding.models import BusinessProfile  # noqa: F401
+from aicmo.modules.operations.models import (  # noqa: F401
+    DetectedEvent,
+    MetricSnapshot,
+    OperationalGoal,
+    OperationsNotification,
+    OperationsRun,
+    ScheduledWork,
+)
 from aicmo.modules.orgs.models import (  # noqa: F401
     MemberRole,
     Organization,
