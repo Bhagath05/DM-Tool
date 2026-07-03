@@ -33,6 +33,12 @@ from aicmo.modules.brands.models import Brand  # noqa: F401
 from aicmo.modules.bundles.models import Bundle  # noqa: F401
 from aicmo.modules.campaigns.models import CampaignPlan  # noqa: F401
 from aicmo.modules.content.models import GeneratedContent  # noqa: F401
+from aicmo.modules.content.ops_models import (  # noqa: F401
+    ContentComment,
+    ContentFolder,
+    ContentReviewEvent,
+    ContentVersion,
+)
 from aicmo.modules.creative.design.models import (  # noqa: F401
     BrandAsset,
     CreativeDesign,

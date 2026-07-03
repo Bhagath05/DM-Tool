@@ -89,3 +89,16 @@ class GeneratedContent(Base, TimestampMixin, TenantMixin):
     offer_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     is_saved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    # Phase 6.2B — enterprise content ops.
+    # Approval workflow: draft → in_review → changes_requested | approved |
+    # rejected → published → archived. History lives in content_review_events.
+    review_status: Mapped[str] = mapped_column(
+        String(24), default="draft", server_default="draft", index=True
+    )
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("content_folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )

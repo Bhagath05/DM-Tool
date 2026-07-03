@@ -238,6 +238,13 @@ async def generate(
         platform=payload.platform,
         output=output,
     )
+    # Phase 6.2B — seed version history (v1 = the AI generation).
+    from aicmo.modules.content import ops_service
+
+    await ops_service.snapshot_version(
+        session, tenant=tenant, content=row, edit_source="ai",
+        change_summary="Initial generation.",
+    )
     await session.commit()
     await session.refresh(row)
     return _to_response(row, landing_slug=landing_slug)
