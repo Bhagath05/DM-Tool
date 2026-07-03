@@ -95,6 +95,8 @@ const SOCIAL_RESULT: GeneratedContent = {
   },
   share_url: null,
   is_saved: false,
+  review_status: "draft",
+  folder_id: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };

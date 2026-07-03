@@ -409,6 +409,8 @@ export interface GeneratedContent {
   output: Record<string, unknown>;
   share_url: string | null;
   is_saved: boolean;
+  review_status: ReviewStatus;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -419,6 +421,103 @@ export interface GenerateContentPayload {
   goal: string;
   tone?: string;
   landing_page_id?: string;
+}
+
+// ---------- Content ops (Phase 6.2B) ----------
+
+export type ReviewStatus =
+  | "draft"
+  | "in_review"
+  | "changes_requested"
+  | "approved"
+  | "rejected"
+  | "published"
+  | "archived";
+
+export const REVIEW_STATUSES: ReviewStatus[] = [
+  "draft", "in_review", "changes_requested", "approved",
+  "rejected", "published", "archived",
+];
+
+// Legal next-states per status — mirrors the backend `_ALLOWED` transition
+// table so the UI only offers moves the API will accept.
+export const REVIEW_TRANSITIONS: Record<ReviewStatus, ReviewStatus[]> = {
+  draft: ["in_review", "archived"],
+  in_review: ["changes_requested", "approved", "rejected"],
+  changes_requested: ["in_review", "draft"],
+  approved: ["published", "changes_requested", "archived"],
+  rejected: ["draft", "archived"],
+  published: ["archived"],
+  archived: ["draft"],
+};
+
+export interface ContentVersion {
+  id: string;
+  version_no: number;
+  edit_source: string; // "ai" | "manual" | "restore"
+  change_summary: string | null;
+  author_user_id: string;
+  created_at: string;
+}
+
+export interface VersionOutput {
+  version_no: number;
+  edit_source: string;
+  output: Record<string, unknown>;
+}
+
+export interface VersionCompare {
+  a: VersionOutput;
+  b: VersionOutput;
+}
+
+export interface ReviewEvent {
+  id: string;
+  from_status: string;
+  to_status: string;
+  reason: string | null;
+  reviewer_user_id: string;
+  created_at: string;
+}
+
+export interface ContentFolder {
+  id: string;
+  name: string;
+  kind: string; // "folder" | "collection"
+  parent_id: string | null;
+  pinned: boolean;
+  created_at: string;
+}
+
+export interface ContentComment {
+  id: string;
+  content_id: string;
+  parent_id: string | null;
+  author_user_id: string;
+  body: string;
+  mentions: string[];
+  resolved: boolean;
+  resolved_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface ContentSearchResult {
+  items: GeneratedContent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ContentSearchParams {
+  q?: string;
+  content_type?: ContentType;
+  review_status?: ReviewStatus;
+  folder_id?: string;
+  campaign_id?: string;
+  strategy_id?: string;
+  saved_only?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 // ---------- Ads ----------
@@ -1973,6 +2072,110 @@ export const api = {
       }),
     delete: (id: string) =>
       request<null>(`/api/v1/content/${id}`, { method: "DELETE" }),
+
+    // ----- ops (Phase 6.2B) -----
+    search: async (params: ContentSearchParams = {}): Promise<ContentSearchResult> => {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.content_type) qs.set("content_type", params.content_type);
+      if (params.review_status) qs.set("review_status", params.review_status);
+      if (params.folder_id) qs.set("folder_id", params.folder_id);
+      if (params.campaign_id) qs.set("campaign_id", params.campaign_id);
+      if (params.strategy_id) qs.set("strategy_id", params.strategy_id);
+      if (params.saved_only) qs.set("saved_only", "true");
+      if (params.limit != null) qs.set("limit", String(params.limit));
+      if (params.offset != null) qs.set("offset", String(params.offset));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return request<ContentSearchResult>(`/api/v1/content/search${suffix}`);
+    },
+    versions: async (id: string): Promise<ContentVersion[]> => {
+      const res = await request<{ items: ContentVersion[] }>(
+        `/api/v1/content/${id}/versions`,
+      );
+      return res.items;
+    },
+    compareVersions: (id: string, a: number, b: number) =>
+      request<VersionCompare>(
+        `/api/v1/content/${id}/versions/compare?a=${a}&b=${b}`,
+      ),
+    restore: (id: string, version_no: number) =>
+      request<GeneratedContent>(`/api/v1/content/${id}/restore`, {
+        method: "POST",
+        body: JSON.stringify({ version_no }),
+      }),
+    edit: (id: string, output: Record<string, unknown>, change_summary?: string) =>
+      request<GeneratedContent>(`/api/v1/content/${id}/edit`, {
+        method: "PATCH",
+        body: JSON.stringify({ output, change_summary: change_summary ?? null }),
+      }),
+    review: (id: string, to_status: ReviewStatus, reason?: string) =>
+      request<GeneratedContent>(`/api/v1/content/${id}/review`, {
+        method: "POST",
+        body: JSON.stringify({ to_status, reason: reason ?? null }),
+      }),
+    reviewHistory: async (id: string): Promise<ReviewEvent[]> => {
+      const res = await request<{ items: ReviewEvent[] }>(
+        `/api/v1/content/${id}/review/history`,
+      );
+      return res.items;
+    },
+    comments: async (id: string): Promise<ContentComment[]> => {
+      const res = await request<{ items: ContentComment[] }>(
+        `/api/v1/content/${id}/comments`,
+      );
+      return res.items;
+    },
+    addComment: (
+      id: string,
+      body: string,
+      opts: { parent_id?: string; mentions?: string[] } = {},
+    ) =>
+      request<ContentComment>(`/api/v1/content/${id}/comments`, {
+        method: "POST",
+        body: JSON.stringify({
+          body,
+          parent_id: opts.parent_id ?? null,
+          mentions: opts.mentions ?? [],
+        }),
+      }),
+    resolveComment: (commentId: string, resolved: boolean) =>
+      request<ContentComment>(`/api/v1/content/comments/${commentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ resolved }),
+      }),
+    folders: async (): Promise<ContentFolder[]> => {
+      const res = await request<{ items: ContentFolder[] }>(
+        `/api/v1/content/folders`,
+      );
+      return res.items;
+    },
+    createFolder: (
+      name: string,
+      opts: { kind?: "folder" | "collection"; parent_id?: string } = {},
+    ) =>
+      request<ContentFolder>(`/api/v1/content/folders`, {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          kind: opts.kind ?? "folder",
+          parent_id: opts.parent_id ?? null,
+        }),
+      }),
+    updateFolder: (
+      folderId: string,
+      patch: { name?: string; pinned?: boolean },
+    ) =>
+      request<ContentFolder>(`/api/v1/content/folders/${folderId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    deleteFolder: (folderId: string) =>
+      request<null>(`/api/v1/content/folders/${folderId}`, { method: "DELETE" }),
+    assignFolder: (content_ids: string[], folder_id: string | null) =>
+      request<{ moved: number }>(`/api/v1/content/folders/assign`, {
+        method: "POST",
+        body: JSON.stringify({ content_ids, folder_id }),
+      }),
   },
   trends: {
     get: async (): Promise<TrendReport | null> => {

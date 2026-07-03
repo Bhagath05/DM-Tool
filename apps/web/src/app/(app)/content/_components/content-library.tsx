@@ -14,9 +14,11 @@ import {
   Copy,
   Download,
   FileText,
+  FolderPlus,
   Grid2x2,
   List,
   Search,
+  Settings2,
   Star,
   Trash2,
 } from "lucide-react";
@@ -27,17 +29,32 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill, type PillTone } from "@/components/ui/status-pill";
 import { Surface } from "@/components/ui/surface";
 import {
   api,
   CONTENT_TYPES,
+  REVIEW_STATUSES,
+  type ContentFolder,
   type ContentType,
   type GeneratedContent,
+  type ReviewStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { ContentOpsPanel } from "./content-ops-panel";
+
 const PAGE_SIZE = 12;
+
+const STATUS_TONE: Record<ReviewStatus, PillTone> = {
+  draft: "neutral",
+  in_review: "watch",
+  changes_requested: "watch",
+  approved: "good",
+  rejected: "bad",
+  published: "good",
+  archived: "muted",
+};
 
 // ---- text + scoring helpers (client-side, over the real output dict) ----
 
@@ -110,11 +127,15 @@ export function ContentLibrary() {
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ContentType | "">("");
+  const [statusFilter, setStatusFilter] = useState<ReviewStatus | "">("");
+  const [folderFilter, setFolderFilter] = useState<string>("");
   const [savedOnly, setSavedOnly] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [sortNewest, setSortNewest] = useState(true);
   const [page, setPage] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [folders, setFolders] = useState<ContentFolder[]>([]);
+  const [managing, setManaging] = useState<GeneratedContent | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,13 +154,50 @@ export function ContentLibrary() {
     }
   }, [typeFilter, savedOnly]);
 
+  const loadFolders = useCallback(async () => {
+    try {
+      setFolders(await api.content.folders());
+    } catch {
+      /* folders are optional chrome — never block the library */
+    }
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
+    void loadFolders();
+  }, [loadFolders]);
+
+  useEffect(() => {
     setPage(0);
-  }, [search, typeFilter, savedOnly, sortNewest]);
+  }, [search, typeFilter, statusFilter, folderFilter, savedOnly, sortNewest]);
+
+  const patchItem = useCallback((updated: GeneratedContent) => {
+    setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    setManaging((m) => (m && m.id === updated.id ? updated : m));
+  }, []);
+
+  const newFolder = async () => {
+    const name = prompt("New folder name")?.trim();
+    if (!name) return;
+    const folder = await api.content.createFolder(name);
+    setFolders((prev) => [...prev, folder]);
+  };
+
+  const assignFolder = async (c: GeneratedContent, folderId: string) => {
+    const target = folderId || null;
+    setBusyId(c.id);
+    try {
+      await api.content.assignFolder([c.id], target);
+      setItems((prev) =>
+        prev.map((x) => (x.id === c.id ? { ...x, folder_id: target } : x)),
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const toggleSaved = async (c: GeneratedContent) => {
     setBusyId(c.id);
@@ -176,11 +234,16 @@ export function ContentLibrary() {
           assetText(c).toLowerCase().includes(q),
       );
     }
+    if (statusFilter) rows = rows.filter((c) => c.review_status === statusFilter);
+    if (folderFilter)
+      rows = rows.filter((c) =>
+        folderFilter === "__none__" ? !c.folder_id : c.folder_id === folderFilter,
+      );
     return [...rows].sort((a, b) => {
       const cmp = a.created_at.localeCompare(b.created_at);
       return sortNewest ? -cmp : cmp;
     });
-  }, [items, search, sortNewest]);
+  }, [items, search, statusFilter, folderFilter, sortNewest]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -203,6 +266,9 @@ export function ContentLibrary() {
             <StatusPill tone="neutral" size="sm">
               {label(c.content_type)}
             </StatusPill>
+            <StatusPill tone={STATUS_TONE[c.review_status]} size="sm">
+              {label(c.review_status)}
+            </StatusPill>
             <span className="text-xs text-muted-foreground">{c.platform}</span>
             {c.is_saved && <Star className="h-3.5 w-3.5 fill-watch text-watch" />}
             <span className="ml-auto text-xs text-muted-foreground">
@@ -223,9 +289,36 @@ export function ContentLibrary() {
                 Read {read}
               </StatusPill>
             )}
+            {folders.length > 0 && (
+              <select
+                value={c.folder_id ?? ""}
+                onChange={(e) => void assignFolder(c, e.target.value)}
+                disabled={busyId === c.id}
+                className="h-6 rounded border border-input bg-background px-1 text-xs text-muted-foreground"
+                title="Folder"
+                aria-label="Assign to folder"
+                data-testid="content-folder-select"
+              >
+                <option value="">No folder</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 sm:flex-col">
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Manage — edit, versions, review, comments"
+            onClick={() => setManaging(c)}
+            data-testid="content-manage"
+          >
+            <Settings2 className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -319,6 +412,35 @@ export function ContentLibrary() {
             </option>
           ))}
         </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as ReviewStatus | "")}
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          data-testid="content-status-filter"
+        >
+          <option value="">All statuses</option>
+          {REVIEW_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {label(s)}
+            </option>
+          ))}
+        </select>
+        {folders.length > 0 && (
+          <select
+            value={folderFilter}
+            onChange={(e) => setFolderFilter(e.target.value)}
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            data-testid="content-folder-filter"
+          >
+            <option value="">All folders</option>
+            <option value="__none__">No folder</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        )}
         <Button
           variant={savedOnly ? "default" : "outline"}
           size="sm"
@@ -327,6 +449,10 @@ export function ContentLibrary() {
         >
           <Star className={cn("h-4 w-4", savedOnly && "fill-current")} />
           Favourites
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => void newFolder()} title="New folder">
+          <FolderPlus className="h-4 w-4" />
+          Folder
         </Button>
         <Button
           variant="ghost"
@@ -397,6 +523,15 @@ export function ContentLibrary() {
             </div>
           )}
         </>
+      )}
+
+      {managing && (
+        <ContentOpsPanel
+          content={managing}
+          open={managing != null}
+          onOpenChange={(o) => !o && setManaging(null)}
+          onChanged={patchItem}
+        />
       )}
     </div>
   );
