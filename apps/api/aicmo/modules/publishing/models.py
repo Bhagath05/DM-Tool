@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -72,6 +72,25 @@ class ScheduledPost(Base, TimestampMixin, TenantMixin):
         ForeignKey("social_assets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Phase 6.4 — enterprise queue lifecycle.
+    # next_attempt_at gates retries with exponential backoff (the due-query
+    # skips a failed row until this passes) so a failing platform isn't hammered
+    # every cron minute.
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    # Approval gate — the cron refuses to publish a post that requires approval
+    # and isn't approved. "not_required" (default) keeps existing posts flowing.
+    approval_status: Mapped[str] = mapped_column(
+        String(20), default="not_required", server_default="not_required", index=True
+    )
+    approval_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The IANA timezone the operator scheduled in (scheduled_at stays UTC).
+    schedule_timezone: Mapped[str | None] = mapped_column(String(48), nullable=True)
 
 
 class PublishEvent(Base):

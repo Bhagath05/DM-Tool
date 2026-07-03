@@ -9,12 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
 from aicmo.modules.publishing import assets as asset_registry
-from aicmo.modules.publishing import service
+from aicmo.modules.publishing import queue_service, service
 from aicmo.modules.publishing.models import ContentAsset
 from aicmo.modules.publishing.schemas import (
+    ApprovalDecisionRequest,
     AssetPerformanceResponse,
+    BulkScheduleRequest,
     ContentAssetResponse,
     PublishEventList,
+    QueueAnalyticsResponse,
+    RescheduleRequest,
     ScheduledPostList,
     ScheduledPostResponse,
     ScheduleFromRecommendationRequest,
@@ -137,4 +141,105 @@ async def list_post_events(
     """Audit trail (scheduled / attempts / published / failed) for one post."""
     return await service.list_events(
         session, brand_id=tenant.brand_id, scheduled_post_id=scheduled_post_id
+    )
+
+
+# ---------------------------------------------------------------------
+#  Phase 6.4 — enterprise queue ops (literal /analytics + /schedule/bulk
+#  register fine alongside the existing /posts/{id}/… param routes).
+# ---------------------------------------------------------------------
+_WRITE = require_permission("content.create")
+_VIEW = require_permission("analytics.view")
+
+
+@router.get("/analytics", response_model=QueueAnalyticsResponse)
+async def queue_analytics(
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_VIEW),
+) -> QueueAnalyticsResponse:
+    return await queue_service.queue_analytics(session, tenant=tenant)
+
+
+@router.post("/schedule/bulk", response_model=list[ScheduledPostResponse], status_code=201)
+async def bulk_schedule(
+    payload: BulkScheduleRequest,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> list[ScheduledPostResponse]:
+    return await queue_service.bulk_schedule(session, tenant=tenant, payload=payload)
+
+
+@router.post("/posts/{scheduled_post_id}/cancel", response_model=ScheduledPostResponse)
+async def cancel_post(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> ScheduledPostResponse:
+    return await queue_service.cancel_post(session, tenant=tenant, post_id=scheduled_post_id)
+
+
+@router.post("/posts/{scheduled_post_id}/pause", response_model=ScheduledPostResponse)
+async def pause_post(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> ScheduledPostResponse:
+    return await queue_service.pause_post(session, tenant=tenant, post_id=scheduled_post_id)
+
+
+@router.post("/posts/{scheduled_post_id}/resume", response_model=ScheduledPostResponse)
+async def resume_post(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> ScheduledPostResponse:
+    return await queue_service.resume_post(session, tenant=tenant, post_id=scheduled_post_id)
+
+
+@router.post("/posts/{scheduled_post_id}/reschedule", response_model=ScheduledPostResponse)
+async def reschedule_post(
+    scheduled_post_id: uuid.UUID, payload: RescheduleRequest,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> ScheduledPostResponse:
+    return await queue_service.reschedule_post(
+        session, tenant=tenant, post_id=scheduled_post_id,
+        scheduled_at=payload.scheduled_at, schedule_timezone=payload.schedule_timezone,
+    )
+
+
+@router.post("/posts/{scheduled_post_id}/submit", response_model=ScheduledPostResponse)
+async def submit_for_approval(
+    scheduled_post_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db), tenant: TenantContext = Depends(_WRITE),
+) -> ScheduledPostResponse:
+    return await queue_service.submit_for_approval(
+        session, tenant=tenant, post_id=scheduled_post_id
+    )
+
+
+@router.post("/posts/{scheduled_post_id}/approve", response_model=ScheduledPostResponse)
+async def approve_post(
+    scheduled_post_id: uuid.UUID, payload: ApprovalDecisionRequest,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.approve")),
+) -> ScheduledPostResponse:
+    return await queue_service.approve_post(
+        session, tenant=tenant, post_id=scheduled_post_id, reason=payload.reason
+    )
+
+
+@router.post("/posts/{scheduled_post_id}/reject", response_model=ScheduledPostResponse)
+async def reject_post(
+    scheduled_post_id: uuid.UUID, payload: ApprovalDecisionRequest,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.approve")),
+) -> ScheduledPostResponse:
+    return await queue_service.reject_post(
+        session, tenant=tenant, post_id=scheduled_post_id, reason=payload.reason
+    )
+
+
+@router.post("/posts/{scheduled_post_id}/request-changes", response_model=ScheduledPostResponse)
+async def request_changes(
+    scheduled_post_id: uuid.UUID, payload: ApprovalDecisionRequest,
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("content.approve")),
+) -> ScheduledPostResponse:
+    return await queue_service.request_changes(
+        session, tenant=tenant, post_id=scheduled_post_id, reason=payload.reason
     )

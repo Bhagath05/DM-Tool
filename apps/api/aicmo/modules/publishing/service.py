@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import HTTPException, status
@@ -243,6 +243,20 @@ async def publish_scheduled_post(
     if row.publish_status == "published":
         return ScheduledPostResponse.model_validate(row)
 
+    # Phase 6.4 gates — never publish a held or unapproved post (defence in
+    # depth; the cron's due-query already excludes these, but the manual
+    # publish endpoint funnels through here too).
+    if row.publish_status in ("cancelled", "paused"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Post is {row.publish_status}.",
+        )
+    if row.approval_status in ("pending", "rejected", "changes_requested"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Post requires approval (status: {row.approval_status}).",
+        )
+
     if row.attempt_count >= MAX_PUBLISH_ATTEMPTS:
         row.publish_status = "failed"
         row.error_message = row.error_message or "Max publish attempts reached."
@@ -311,15 +325,37 @@ async def publish_scheduled_post(
         else:
             raise RuntimeError(f"Unsupported platform: {row.platform}")
     except Exception as exc:
-        row.publish_status = "failed" if row.attempt_count >= MAX_PUBLISH_ATTEMPTS else "scheduled"
+        from aicmo.modules.publishing import queue_service
+
+        terminal = row.attempt_count >= MAX_PUBLISH_ATTEMPTS
+        row.publish_status = "failed" if terminal else "scheduled"
         row.error_message = str(exc)[:500]
+        # Exponential backoff — a failing platform waits (5/10/20 min) before
+        # the next retry instead of being re-hit every cron minute.
+        row.next_attempt_at = (
+            None if terminal
+            else datetime.now(UTC)
+            + timedelta(seconds=queue_service.backoff_seconds(row.attempt_count))
+        )
         await _log_event(
             session,
             scheduled_post_id=row.id,
             event_type="failed",
-            detail={"error": row.error_message},
+            detail={
+                "error": row.error_message,
+                "attempt": row.attempt_count,
+                "terminal": terminal,
+                "next_attempt_at": row.next_attempt_at.isoformat() if row.next_attempt_at else None,
+            },
         )
         asset.status = "failed"
+        if terminal and tenant is not None:
+            await queue_service.notify(
+                session, tenant=tenant, kind="publishing_failed", severity="warning",
+                title="Publishing failed",
+                body=f"A {row.platform} post failed after {row.attempt_count} attempts.",
+                source_id=row.id,
+            )
         await session.commit()
         return ScheduledPostResponse.model_validate(row)
 
@@ -354,6 +390,7 @@ async def publish_scheduled_post(
         session.add(social_asset)
         row.social_asset_id = social_asset.id
 
+    row.next_attempt_at = None
     await _log_event(
         session,
         scheduled_post_id=row.id,
@@ -363,10 +400,34 @@ async def publish_scheduled_post(
             "recommendation_id": str(row.recommendation_id) if row.recommendation_id else None,
         },
     )
+    if tenant is not None:
+        from aicmo.modules.publishing import queue_service
+
+        await queue_service.notify(
+            session, tenant=tenant, kind="publishing_complete",
+            title="Published", body=f"Your {row.platform} post is live.",
+            source_id=row.id,
+        )
     await session.commit()
     await session.refresh(row)
-    _ = tenant
     return ScheduledPostResponse.model_validate(row)
+
+
+def _due_filters(now: datetime) -> tuple:
+    """Rows the scheduler may auto-publish (Phase 6.4): status 'scheduled',
+    time reached, attempt budget left, retry-backoff window elapsed
+    (next_attempt_at), and NOT blocked by the approval gate. paused / cancelled
+    / pending-approval rows are excluded here (never by the caller)."""
+    from aicmo.modules.publishing.queue_service import PUBLISHABLE_APPROVALS
+
+    return (
+        ScheduledPost.publish_status == "scheduled",
+        ScheduledPost.scheduled_at <= now,
+        ScheduledPost.attempt_count < MAX_PUBLISH_ATTEMPTS,
+        (ScheduledPost.next_attempt_at.is_(None))
+        | (ScheduledPost.next_attempt_at <= now),
+        ScheduledPost.approval_status.in_(PUBLISHABLE_APPROVALS),
+    )
 
 
 async def publish_due_posts(
@@ -381,9 +442,7 @@ async def publish_due_posts(
         await session.execute(
             select(ScheduledPost).where(
                 ScheduledPost.brand_id == brand_id,
-                ScheduledPost.publish_status == "scheduled",
-                ScheduledPost.scheduled_at <= now,
-                ScheduledPost.attempt_count < MAX_PUBLISH_ATTEMPTS,
+                *_due_filters(now),
             )
             .order_by(ScheduledPost.scheduled_at)
             .limit(limit)
@@ -408,11 +467,7 @@ async def publish_all_due_posts(session: AsyncSession, *, limit: int = 100) -> i
     rows = (
         await session.execute(
             select(ScheduledPost)
-            .where(
-                ScheduledPost.publish_status == "scheduled",
-                ScheduledPost.scheduled_at <= now,
-                ScheduledPost.attempt_count < MAX_PUBLISH_ATTEMPTS,
-            )
+            .where(*_due_filters(now))
             .order_by(ScheduledPost.scheduled_at)
             .limit(limit)
         )

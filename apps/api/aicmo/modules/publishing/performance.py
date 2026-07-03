@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.modules.leads.models import Lead
 from aicmo.modules.publishing.models import ContentAsset, ScheduledPost
 from aicmo.modules.publishing.schemas import PublishPerformanceMetrics
-from aicmo.modules.social.models import PerformanceSignal, SocialAsset
+from aicmo.modules.social.models import PerformanceSignal
 
 
 async def build_asset_performance(
