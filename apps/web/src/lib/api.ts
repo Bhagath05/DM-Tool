@@ -18,8 +18,10 @@ import { dedupeRequest } from "./request-dedupe";
 import type {
   BrandAsset,
   CampaignBuildResponse,
+  CreativeBrief,
   DesignResponse,
   DesignSummary,
+  GenerateBriefPayload,
   GrowthObjective,
   NlEditResponse,
   ObjectiveKind,
@@ -2850,6 +2852,20 @@ export const api = {
       request<{ items: VideoExport[] }>(`/api/v1/creative/assets/${assetId}/exports`).then(
         (r) => r.items,
       ),
+
+    // Phase 6.3 — AI Creative Brief, grounded in real context.
+    brief: {
+      generate: (payload: GenerateBriefPayload) =>
+        request<CreativeBrief>("/api/v1/creative/brief", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      list: async (): Promise<CreativeBrief[]> => {
+        const res = await request<{ items: CreativeBrief[] }>("/api/v1/creative/briefs");
+        return res.items;
+      },
+      byId: (id: string) => request<CreativeBrief>(`/api/v1/creative/briefs/${id}`),
+    },
   },
 };
 

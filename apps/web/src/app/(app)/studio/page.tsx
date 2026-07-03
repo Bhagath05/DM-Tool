@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { CreativeBriefPanel } from "./_components/creative-brief-panel";
 import { DesignViewer } from "@/components/studio/design-viewer";
 import { EditorShell } from "@/components/studio/editor/editor-shell";
 import { NlEditPanel } from "@/components/studio/nl-edit-panel";
@@ -126,6 +127,11 @@ export default function StudioPage() {
       </header>
 
       <ObjectStorageNotice />
+
+      {/* Phase 6.3 — grounded creative brief (bridge from content → design). */}
+      <div className="mb-6">
+        <CreativeBriefPanel />
+      </div>
 
       {/* Campaign intake — the priority flow */}
       <Surface className="mb-6 p-4">

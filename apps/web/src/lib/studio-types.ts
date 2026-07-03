@@ -224,3 +224,41 @@ export interface NlEditResponse {
   created_design_ids: string[];
   notes?: string | null;
 }
+
+// ---------- Phase 6.3 — AI Creative Brief ----------
+
+/** The structured brief the LLM produces (persisted under `brief`). */
+export interface CreativeBriefDoc {
+  objective: string;
+  audience: string;
+  key_message: string;
+  tone: string;
+  visual_direction: string;
+  must_include: string[];
+  avoid: string[];
+  deliverables: string[];
+  confidence: number;
+  reason: string;
+}
+
+export interface CreativeBrief {
+  id: string;
+  title: string;
+  objective: string | null;
+  brief: CreativeBriefDoc;
+  /** Which real sources actually fed this brief (never fabricated). */
+  grounded_in: string[];
+  confidence: number;
+  reason: string | null;
+  campaign_id: string | null;
+  content_id: string | null;
+  strategy_id: string | null;
+  created_at: string;
+}
+
+export interface GenerateBriefPayload {
+  objective?: string;
+  campaign_id?: string;
+  content_id?: string;
+  strategy_id?: string;
+}
