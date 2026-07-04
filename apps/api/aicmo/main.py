@@ -344,6 +344,11 @@ from aicmo.modules.crm.assistant_router import router as crm_assistant_router  #
 
 app.include_router(crm_assistant_router, prefix="/api/v1")
 
+# Phase 6.5 Slice 6 — Executive CRM Dashboard (read-only aggregation, no new tables).
+from aicmo.modules.crm.dashboard_router import router as crm_dashboard_router  # noqa: E402
+
+app.include_router(crm_dashboard_router, prefix="/api/v1")
+
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.
 from aicmo.modules.creative.design.router import router as design_router  # noqa: E402
