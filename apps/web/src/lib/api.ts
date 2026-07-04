@@ -1458,6 +1458,107 @@ export interface QueueAnalytics {
   platform_health: PlatformHealth[];
 }
 
+// ---------- CRM (Phase 6.5) ----------
+
+export type CrmPipelineKind = "marketing" | "sales" | "enterprise" | "agency" | "custom";
+export type CrmDealStatus = "open" | "won" | "lost";
+export type CrmPriority = "low" | "medium" | "high";
+
+export interface CrmStage {
+  id: string;
+  name: string;
+  position: number;
+  probability: number;
+  is_won: boolean;
+  is_lost: boolean;
+}
+
+export interface CrmPipeline {
+  id: string;
+  name: string;
+  kind: string;
+  is_default: boolean;
+  archived: boolean;
+  created_at: string;
+  stages: CrmStage[];
+}
+
+export interface CrmDealNextAction {
+  recommendation: string;
+  reason: string;
+  confidence: number;
+  expected_result: string;
+  risk_score: number;
+  opportunity_score: number;
+}
+
+export interface CrmDeal {
+  id: string;
+  pipeline_id: string;
+  stage_id: string | null;
+  lead_id: string | null;
+  title: string;
+  company: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  value: number;
+  currency: string;
+  probability: number | null;
+  status: CrmDealStatus;
+  priority: CrmPriority;
+  expected_close_date: string | null;
+  owner_user_id: string | null;
+  source: string | null;
+  tags: string[];
+  products: unknown[];
+  competitors: string[];
+  lost_reason: string | null;
+  won_at: string | null;
+  lost_at: string | null;
+  ai_next_action: CrmDealNextAction | null;
+  ai_generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmDealCreate {
+  pipeline_id: string;
+  stage_id?: string | null;
+  lead_id?: string | null;
+  title: string;
+  company?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  value?: number;
+  currency?: string;
+  priority?: CrmPriority;
+  expected_close_date?: string | null;
+  source?: string | null;
+  tags?: string[];
+}
+
+export interface CrmStageBreakdown {
+  stage_id: string | null;
+  stage_name: string;
+  count: number;
+  value: number;
+}
+
+export interface CrmAnalytics {
+  pipeline_id: string | null;
+  open_deals: number;
+  won_deals: number;
+  lost_deals: number;
+  pipeline_value: number;
+  weighted_forecast: number;
+  won_value: number;
+  win_rate: number;
+  avg_deal_size: number;
+  conversion_rate: number;
+  by_stage: CrmStageBreakdown[];
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -2563,6 +2664,58 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ reason: reason ?? null }),
       }),
+  },
+  crm: {
+    pipelines: async (): Promise<CrmPipeline[]> => {
+      const r = await request<{ items: CrmPipeline[] }>("/api/v1/crm/pipelines");
+      return r.items;
+    },
+    createPipeline: (payload: { name: string; kind?: CrmPipelineKind }) =>
+      request<CrmPipeline>("/api/v1/crm/pipelines", {
+        method: "POST",
+        body: JSON.stringify({ ...payload, stages: [] }),
+      }),
+    analytics: (pipelineId?: string) =>
+      request<CrmAnalytics>(
+        `/api/v1/crm/analytics${pipelineId ? `?pipeline_id=${pipelineId}` : ""}`,
+      ),
+    deals: async (params: {
+      pipeline_id?: string;
+      status?: CrmDealStatus;
+      q?: string;
+      limit?: number;
+    } = {}): Promise<{ items: CrmDeal[]; total: number }> => {
+      const qs = new URLSearchParams();
+      if (params.pipeline_id) qs.set("pipeline_id", params.pipeline_id);
+      if (params.status) qs.set("status", params.status);
+      if (params.q) qs.set("q", params.q);
+      qs.set("limit", String(params.limit ?? 200));
+      return request<{ items: CrmDeal[]; total: number }>(`/api/v1/crm/deals?${qs}`);
+    },
+    createDeal: (payload: CrmDealCreate) =>
+      request<CrmDeal>("/api/v1/crm/deals", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateDeal: (id: string, patch: Partial<CrmDealCreate>) =>
+      request<CrmDeal>(`/api/v1/crm/deals/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    moveDeal: (id: string, stage_id: string, note?: string) =>
+      request<CrmDeal>(`/api/v1/crm/deals/${id}/move`, {
+        method: "POST",
+        body: JSON.stringify({ stage_id, note: note ?? null }),
+      }),
+    closeDeal: (id: string, status: "won" | "lost", lost_reason?: string) =>
+      request<CrmDeal>(`/api/v1/crm/deals/${id}/close`, {
+        method: "POST",
+        body: JSON.stringify({ status, lost_reason: lost_reason ?? null }),
+      }),
+    deleteDeal: (id: string) =>
+      request<null>(`/api/v1/crm/deals/${id}`, { method: "DELETE" }),
+    nextAction: (id: string) =>
+      request<CrmDeal>(`/api/v1/crm/deals/${id}/next-action`, { method: "POST" }),
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {

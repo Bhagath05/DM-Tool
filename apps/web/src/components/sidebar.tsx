@@ -35,6 +35,7 @@ import {
   Inbox,
   Image as ImageIcon,
   Linkedin,
+  Handshake,
   Megaphone,
   Send,
   Menu,
@@ -90,6 +91,7 @@ const PRIMARY_NAV: NavGroup[] = [
     defaultOpen: true,
     items: [
       { href: "/grow/leads", label: "Leads", icon: Inbox },
+      { href: "/crm", label: "CRM", icon: Handshake },
       { href: "/grow/opportunities", label: "Opportunities", icon: Compass },
       {
         href: "/grow/market-intelligence",

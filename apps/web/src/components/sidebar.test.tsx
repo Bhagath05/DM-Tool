@@ -48,6 +48,7 @@ import { Sidebar } from "./sidebar";
 const PRIMARY_LABELS = [
   "Today's Plan",
   "Leads",
+  "CRM",
   "Opportunities",
   "Market Intelligence",
   "Creative Studio",
@@ -67,6 +68,7 @@ const PRIMARY_LABELS = [
 const PRIMARY_HREFS = [
   "/today",
   "/grow/leads",
+  "/crm",
   "/grow/opportunities",
   "/grow/market-intelligence",
   "/studio",
