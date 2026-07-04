@@ -219,3 +219,59 @@ class DealContact(Base, TenantMixin):
     )
     role: Mapped[str | None] = mapped_column(String(48), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# =====================================================================
+#  Slice 3 — Tasks & Calendar
+# =====================================================================
+class Task(Base, TimestampMixin, TenantMixin):
+    """A CRM task / calendar event. Links (all nullable, SET NULL) to any of
+    lead / contact / company / deal / campaign — reuse, never a duplicate."""
+
+    __tablename__ = "crm_tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # call|meeting|demo|follow_up|email_reminder|internal|approval|custom
+    activity_type: Mapped[str] = mapped_column(String(20), server_default="follow_up", index=True)
+    # open|in_progress|completed|cancelled
+    status: Mapped[str] = mapped_column(String(16), server_default="open", index=True)
+    priority: Mapped[str] = mapped_column(String(8), server_default="medium")  # low|medium|high|urgent
+    owner_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    assignee_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    reminder_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # {freq: daily|weekly|monthly, interval: int, until: iso|null, count: int|null}
+    recurrence: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    recurrence_parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    calendar_event: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachments: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    tags: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    # Relationships (reuse existing tables).
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_companies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    deal_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_deals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("campaign_plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)  # manual|automation:<event>
+    ai_suggestion: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

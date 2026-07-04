@@ -147,3 +147,38 @@ async def company_summary(session: AsyncSession, company):
         max_tokens=650,
     )
     return result.data
+
+
+async def task_suggestion(session: AsyncSession, task):
+    """Grounded suggestion for a task — priority, due date, next step, risk —
+    from the task + its linked deal/contact/company real fields only."""
+    from aicmo.modules.crm.models import Company, Contact, Deal
+    from aicmo.modules.crm.tasks_schemas import TaskSuggestion
+
+    lines = [f"Task: {task.title}", f"Type: {task.activity_type}", f"Status: {task.status}",
+             f"Priority: {task.priority}"]
+    if task.due_at:
+        lines.append(f"Due: {task.due_at.isoformat()}")
+    if task.description:
+        lines.append(f"Description: {task.description[:200]}")
+    if task.deal_id:
+        deal = await session.get(Deal, task.deal_id)
+        if deal is not None and deal.brand_id == task.brand_id:
+            lines.append(f"Deal: {deal.title} — {deal.value} {deal.currency}, "
+                         f"status {deal.status}, prob {deal.probability}%")
+    if task.contact_id:
+        c = await session.get(Contact, task.contact_id)
+        if c is not None and c.brand_id == task.brand_id:
+            lines.append(f"Contact: {c.name}" + (f" ({c.title})" if c.title else ""))
+    if task.company_id:
+        co = await session.get(Company, task.company_id)
+        if co is not None and co.brand_id == task.brand_id:
+            lines.append(f"Company: {co.name}" + (f", {co.industry}" if co.industry else ""))
+
+    result = await get_llm_router().generate(
+        response_schema=TaskSuggestion, system=prompts.TASK_SUGGESTION_SYSTEM,
+        messages=[LLMMessage(role="user", content=prompts.build_task_suggestion_prompt(
+            context_lines=lines))],
+        max_tokens=600,
+    )
+    return result.data

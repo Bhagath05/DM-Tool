@@ -293,6 +293,15 @@ async def move_deal(
         deal_id=deal.id, from_stage_id=from_stage, to_stage_id=stage_id,
         from_status=from_status, to_status=deal.status, actor_user_id=tenant.user_id, note=note,
     ))
+    # Slice 3 automation — auto-draft a grounded follow-up (staged, atomic).
+    from aicmo.modules.crm import automation
+
+    if deal.status == "won":
+        automation.on_deal_won(session, tenant=tenant, deal=deal)
+    elif deal.status == "lost":
+        automation.on_deal_lost(session, tenant=tenant, deal=deal)
+    else:
+        automation.on_deal_moved(session, tenant=tenant, deal=deal, stage_name=stage.name)
     await _audit(session, tenant=tenant, action="crm.deal_moved", target_id=deal.id,
                  metadata={"to_stage": str(stage_id), "status": deal.status})
     await session.commit()
@@ -321,6 +330,11 @@ async def close_deal(
         from_status=from_status, to_status=close_status, actor_user_id=tenant.user_id,
         note=lost_reason,
     ))
+    from aicmo.modules.crm import automation
+
+    (automation.on_deal_won if close_status == "won" else automation.on_deal_lost)(
+        session, tenant=tenant, deal=deal
+    )
     await _audit(session, tenant=tenant, action="crm.deal_closed", target_id=deal.id,
                  metadata={"status": close_status})
     await session.commit()

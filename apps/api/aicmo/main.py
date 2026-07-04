@@ -326,6 +326,11 @@ from aicmo.modules.crm.entities_router import router as crm_entities_router  # n
 
 app.include_router(crm_entities_router, prefix="/api/v1")
 
+# Phase 6.5 Slice 3 — CRM tasks & calendar.
+from aicmo.modules.crm.tasks_router import router as crm_tasks_router  # noqa: E402
+
+app.include_router(crm_tasks_router, prefix="/api/v1")
+
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.
 from aicmo.modules.creative.design.router import router as design_router  # noqa: E402

@@ -233,6 +233,10 @@ async def create_contact(session: AsyncSession, *, tenant: TenantContext, payloa
         custom_fields=payload.custom_fields, notes=payload.notes,
     )
     session.add(row)
+    # Slice 3 automation — auto-draft an intro follow-up (staged, atomic).
+    from aicmo.modules.crm import automation
+
+    automation.on_contact_created(session, tenant=tenant, contact=row)
     await _audit(session, tenant=tenant, action="crm.contact_created", target_id=row.id,
                  metadata={"name": payload.name})
     await session.commit()

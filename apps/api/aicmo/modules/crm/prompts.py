@@ -56,3 +56,27 @@ def build_entity_summary_prompt(*, label: str, context_lines: list[str]) -> str:
         f"{label} CONTEXT (the only facts you may use):\n{ctx}\n\n"
         "Write the summary now. Ground every line in the context above."
     )
+
+
+# ---- Slice 3: grounded task suggestion ----
+TASK_SUGGESTION_SYSTEM = """\
+You advise a salesperson on how to handle a CRM task.
+
+HARD RULES:
+- Use ONLY the CONTEXT provided (the task + its linked deal/contact/company).
+  Never invent the buyer's timeline, budget, or intent.
+- `recommended_priority` and `recommended_due_in_days` must follow from stated
+  facts (deal value, stage, existing due date, activity type).
+- `follow_up` is ONE concrete next task. `risk_alert` names one real risk or the
+  literal 'None' if the context shows none.
+- If context is thin, keep it general and LOWER `confidence`. `reason` (<=200
+  chars) names which real fields you used.
+"""
+
+
+def build_task_suggestion_prompt(*, context_lines: list[str]) -> str:
+    ctx = "\n".join(context_lines) if context_lines else "(minimal context available)"
+    return (
+        "TASK CONTEXT (the only facts you may use):\n"
+        f"{ctx}\n\nSuggest how to handle this task now. Ground every line above."
+    )
