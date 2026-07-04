@@ -1740,6 +1740,96 @@ export interface CrmTaskCreate {
   tags?: string[];
 }
 
+// ---- CRM Slice 4: email platform ----
+
+export type CrmEmailCategory =
+  | "welcome" | "follow_up" | "proposal" | "reminder"
+  | "thank_you" | "meeting" | "renewal" | "custom";
+
+export interface CrmEmailTemplate {
+  id: string;
+  name: string;
+  category: CrmEmailCategory;
+  subject: string;
+  body: string;
+  variables: string[];
+  folder_id: string | null;
+  is_active: boolean;
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmEmailTemplateCreate {
+  name: string;
+  category?: CrmEmailCategory;
+  subject: string;
+  body: string;
+  variables?: string[];
+}
+
+export interface CrmEmailTemplateVersion {
+  id: string;
+  version_no: number;
+  subject: string;
+  body: string;
+  edit_summary: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface CrmEmailSequenceStep {
+  id: string;
+  position: number;
+  template_id: string | null;
+  delay_hours: number;
+  wait_for_open: boolean;
+  stop_on_reply: boolean;
+}
+
+export interface CrmEmailSequence {
+  id: string;
+  name: string;
+  description: string | null;
+  status: "draft" | "active" | "archived";
+  created_at: string;
+  steps: CrmEmailSequenceStep[];
+}
+
+export interface CrmEmail {
+  id: string;
+  to_email: string;
+  subject: string;
+  status: string;
+  provider: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  replied_at: string | null;
+  bounced_at: string | null;
+  unsubscribed_at: string | null;
+  open_count: number;
+  click_count: number;
+  contact_id: string | null;
+  deal_id: string | null;
+  created_at: string;
+}
+
+export interface CrmEmailStats {
+  sent: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  replied: number;
+  bounced: number;
+  unsubscribed: number;
+  open_rate: number;
+  click_rate: number;
+  reply_rate: number;
+  bounce_rate: number;
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -2994,6 +3084,50 @@ export const api = {
       }),
     suggestTask: (id: string) =>
       request<CrmTask>(`/api/v1/crm/tasks/${id}/suggest`, { method: "POST" }),
+
+    // ----- Slice 4: email platform -----
+    emailTemplates: async (params: { category?: string; q?: string } = {}): Promise<{ items: CrmEmailTemplate[]; total: number }> => {
+      const qs = new URLSearchParams();
+      if (params.category) qs.set("category", params.category);
+      if (params.q) qs.set("q", params.q);
+      return request<{ items: CrmEmailTemplate[]; total: number }>(`/api/v1/crm/email/templates?${qs}`);
+    },
+    createEmailTemplate: (payload: CrmEmailTemplateCreate) =>
+      request<CrmEmailTemplate>("/api/v1/crm/email/templates", { method: "POST", body: JSON.stringify(payload) }),
+    updateEmailTemplate: (id: string, patch: Partial<CrmEmailTemplateCreate> & { edit_summary?: string; is_active?: boolean }) =>
+      request<CrmEmailTemplate>(`/api/v1/crm/email/templates/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    deleteEmailTemplate: (id: string) =>
+      request<null>(`/api/v1/crm/email/templates/${id}`, { method: "DELETE" }),
+    renderEmailTemplate: (id: string, variables: Record<string, string>, contact_id?: string) =>
+      request<{ subject: string; body: string; unresolved: string[] }>(`/api/v1/crm/email/templates/${id}/render`, {
+        method: "POST", body: JSON.stringify({ variables, contact_id: contact_id ?? null }),
+      }),
+    emailTemplateVersions: async (id: string): Promise<CrmEmailTemplateVersion[]> => {
+      const r = await request<{ items: CrmEmailTemplateVersion[] }>(`/api/v1/crm/email/templates/${id}/versions`);
+      return r.items;
+    },
+    emailSequences: async (): Promise<CrmEmailSequence[]> => {
+      const r = await request<{ items: CrmEmailSequence[] }>("/api/v1/crm/email/sequences");
+      return r.items;
+    },
+    createEmailSequence: (payload: { name: string; description?: string; steps: { template_id?: string; delay_hours?: number; stop_on_reply?: boolean; wait_for_open?: boolean }[] }) =>
+      request<CrmEmailSequence>("/api/v1/crm/email/sequences", { method: "POST", body: JSON.stringify(payload) }),
+    updateEmailSequence: (id: string, patch: { status?: "draft" | "active" | "archived"; name?: string }) =>
+      request<CrmEmailSequence>(`/api/v1/crm/email/sequences/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    enrollInSequence: (sequenceId: string, contact_id?: string, to_email?: string) =>
+      request<unknown>(`/api/v1/crm/email/sequences/${sequenceId}/enroll`, {
+        method: "POST", body: JSON.stringify({ contact_id: contact_id ?? null, to_email: to_email ?? null }),
+      }),
+    runSequences: () => request<{ processed: number }>("/api/v1/crm/email/sequences/run", { method: "POST" }),
+    sendEmail: (payload: { to_email: string; subject: string; body: string; template_id?: string; contact_id?: string; deal_id?: string }) =>
+      request<CrmEmail>("/api/v1/crm/email/send", { method: "POST", body: JSON.stringify(payload) }),
+    emails: async (params: { contact_id?: string; deal_id?: string } = {}): Promise<{ items: CrmEmail[]; total: number }> => {
+      const qs = new URLSearchParams();
+      if (params.contact_id) qs.set("contact_id", params.contact_id);
+      if (params.deal_id) qs.set("deal_id", params.deal_id);
+      return request<{ items: CrmEmail[]; total: number }>(`/api/v1/crm/email/emails?${qs}`);
+    },
+    emailStats: () => request<CrmEmailStats>("/api/v1/crm/email/stats"),
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {
