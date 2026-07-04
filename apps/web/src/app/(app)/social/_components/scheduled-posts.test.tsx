@@ -43,6 +43,12 @@ const SCHEDULED: ScheduledPost = {
   published_at: null,
   error_message: null,
   attempt_count: 0,
+  next_attempt_at: null,
+  approval_status: "not_required",
+  approval_required: false,
+  reviewed_by_user_id: null,
+  approval_reason: null,
+  schedule_timezone: null,
   created_at: "2026-06-01T00:00:00Z",
   updated_at: "2026-06-01T00:00:00Z",
 };

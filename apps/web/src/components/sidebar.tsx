@@ -36,6 +36,7 @@ import {
   Image as ImageIcon,
   Linkedin,
   Megaphone,
+  Send,
   Menu,
   Radar,
   Settings as SettingsIcon,
@@ -107,6 +108,7 @@ const PRIMARY_NAV: NavGroup[] = [
       { href: "/create/linkedin", label: "LinkedIn Studio", icon: Linkedin },
       { href: "/create/ads", label: "Ads", icon: Megaphone },
       { href: "/create/creatives", label: "Creatives", icon: ImageIcon },
+      { href: "/publishing", label: "Publishing", icon: Send },
     ],
   },
   {

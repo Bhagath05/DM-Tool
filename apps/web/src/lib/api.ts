@@ -1397,7 +1397,21 @@ export type PublishPlatform =
   | "youtube"
   | "pinterest"
   | "google_business_profile";
-export type PublishStatus = "draft" | "scheduled" | "published" | "failed";
+export type PublishStatus =
+  | "draft"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "failed"
+  | "cancelled"
+  | "paused";
+
+export type ApprovalStatus =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "changes_requested";
 
 export interface ScheduledPost {
   id: string;
@@ -1410,8 +1424,38 @@ export interface ScheduledPost {
   published_at: string | null;
   error_message: string | null;
   attempt_count: number;
+  next_attempt_at: string | null;
+  approval_status: ApprovalStatus;
+  approval_required: boolean;
+  reviewed_by_user_id: string | null;
+  approval_reason: string | null;
+  schedule_timezone: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PlatformHealth {
+  platform: string;
+  published: number;
+  failed: number;
+  scheduled: number;
+  success_rate: number;
+}
+
+export interface QueueAnalytics {
+  published: number;
+  scheduled: number;
+  publishing: number;
+  failed: number;
+  cancelled: number;
+  paused: number;
+  approval_pending: number;
+  draft: number;
+  queue_length: number;
+  total_retries: number;
+  success_rate: number;
+  avg_publish_seconds: number | null;
+  platform_health: PlatformHealth[];
 }
 
 /** One entry in a scheduled post's audit trail. */
@@ -2489,6 +2533,36 @@ export const api = {
       );
       return r.items;
     },
+    // ----- Phase 6.4 enterprise queue ops -----
+    analytics: () => request<QueueAnalytics>("/api/v1/publishing/analytics"),
+    cancel: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/cancel`, { method: "POST" }),
+    pause: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/pause`, { method: "POST" }),
+    resume: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/resume`, { method: "POST" }),
+    reschedule: (id: string, scheduled_at: string, schedule_timezone?: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/reschedule`, {
+        method: "POST",
+        body: JSON.stringify({ scheduled_at, schedule_timezone: schedule_timezone ?? null }),
+      }),
+    submitForApproval: (id: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/submit`, { method: "POST" }),
+    approve: (id: string, reason?: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    reject: (id: string, reason?: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    requestChanges: (id: string, reason?: string) =>
+      request<ScheduledPost>(`/api/v1/publishing/posts/${id}/request-changes`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {

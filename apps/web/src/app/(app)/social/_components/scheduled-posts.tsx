@@ -294,8 +294,11 @@ const STATUS: Record<
 > = {
   draft: { label: "Draft", tone: "neutral", icon: Clock },
   scheduled: { label: "Scheduled", tone: "watch", icon: Clock },
+  publishing: { label: "Publishing", tone: "ai", icon: Clock },
   published: { label: "Published", tone: "good", icon: CheckCircle2 },
   failed: { label: "Failed", tone: "bad", icon: XCircle },
+  cancelled: { label: "Cancelled", tone: "muted", icon: XCircle },
+  paused: { label: "Paused", tone: "muted", icon: Clock },
 };
 
 const PLATFORM_LABEL: Record<string, string> = {
