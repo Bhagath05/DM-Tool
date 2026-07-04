@@ -1675,6 +1675,71 @@ export interface CrmContactDetail {
   deals: CrmDeal[];
 }
 
+// ---- CRM Slice 3: tasks & calendar ----
+
+export type CrmTaskStatus = "open" | "in_progress" | "completed" | "cancelled";
+export type CrmTaskPriority = "low" | "medium" | "high" | "urgent";
+export type CrmActivityType =
+  | "call" | "meeting" | "demo" | "follow_up"
+  | "email_reminder" | "internal" | "approval" | "custom";
+
+export interface CrmTaskSuggestion {
+  recommended_priority: CrmTaskPriority;
+  recommended_due_in_days: number;
+  follow_up: string;
+  risk_alert: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface CrmTask {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_type: CrmActivityType;
+  status: CrmTaskStatus;
+  priority: CrmTaskPriority;
+  owner_user_id: string | null;
+  assignee_user_id: string | null;
+  due_at: string | null;
+  reminder_at: string | null;
+  is_recurring: boolean;
+  recurrence: Record<string, unknown> | null;
+  recurrence_parent_id: string | null;
+  calendar_event: boolean;
+  estimated_minutes: number | null;
+  actual_minutes: number | null;
+  completed_at: string | null;
+  notes: string | null;
+  attachments: unknown[];
+  tags: string[];
+  lead_id: string | null;
+  contact_id: string | null;
+  company_id: string | null;
+  deal_id: string | null;
+  campaign_id: string | null;
+  source: string | null;
+  ai_suggestion: CrmTaskSuggestion | null;
+  ai_generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmTaskCreate {
+  title: string;
+  description?: string | null;
+  activity_type?: CrmActivityType;
+  priority?: CrmTaskPriority;
+  assignee_user_id?: string | null;
+  due_at?: string | null;
+  recurrence?: { freq: "daily" | "weekly" | "monthly"; interval?: number } | null;
+  deal_id?: string | null;
+  contact_id?: string | null;
+  company_id?: string | null;
+  lead_id?: string | null;
+  tags?: string[];
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -2891,6 +2956,44 @@ export const api = {
     },
     logActivity: (payload: CrmActivityCreate) =>
       request<CrmActivity>("/api/v1/crm/activities", { method: "POST", body: JSON.stringify(payload) }),
+
+    // ----- Slice 3: tasks & calendar -----
+    tasks: async (params: {
+      queue?: string;
+      status?: string;
+      activity_type?: string;
+      deal_id?: string;
+      contact_id?: string;
+      company_id?: string;
+      q?: string;
+      limit?: number;
+    } = {}): Promise<{ items: CrmTask[]; total: number }> => {
+      const qs = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v != null && v !== "") qs.set(k, String(v));
+      });
+      return request<{ items: CrmTask[]; total: number }>(`/api/v1/crm/tasks?${qs}`);
+    },
+    calendar: async (start: string, end: string): Promise<CrmTask[]> => {
+      const r = await request<{ items: CrmTask[] }>(
+        `/api/v1/crm/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+      );
+      return r.items;
+    },
+    createTask: (payload: CrmTaskCreate) =>
+      request<CrmTask>("/api/v1/crm/tasks", { method: "POST", body: JSON.stringify(payload) }),
+    task: (id: string) => request<CrmTask>(`/api/v1/crm/tasks/${id}`),
+    updateTask: (id: string, patch: Partial<CrmTaskCreate> & { status?: CrmTaskStatus }) =>
+      request<CrmTask>(`/api/v1/crm/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    deleteTask: (id: string) =>
+      request<null>(`/api/v1/crm/tasks/${id}`, { method: "DELETE" }),
+    completeTask: (id: string, actual_minutes?: number, notes?: string) =>
+      request<CrmTask>(`/api/v1/crm/tasks/${id}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ actual_minutes: actual_minutes ?? null, notes: notes ?? null }),
+      }),
+    suggestTask: (id: string) =>
+      request<CrmTask>(`/api/v1/crm/tasks/${id}/suggest`, { method: "POST" }),
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {

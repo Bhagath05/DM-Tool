@@ -29,6 +29,7 @@ import {
   BarChart3,
   ChevronDown,
   Clapperboard,
+  CheckSquare,
   Compass,
   Contact,
   FlaskConical,
@@ -94,6 +95,7 @@ const PRIMARY_NAV: NavGroup[] = [
       { href: "/grow/leads", label: "Leads", icon: Inbox },
       { href: "/crm", label: "CRM", icon: Handshake },
       { href: "/crm/contacts", label: "Contacts", icon: Contact },
+      { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
       { href: "/grow/opportunities", label: "Opportunities", icon: Compass },
       {
         href: "/grow/market-intelligence",
