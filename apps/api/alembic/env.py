@@ -76,6 +76,7 @@ from aicmo.modules.crm.email_models import (  # noqa: F401
     EmailTemplate,
     EmailTemplateVersion,
 )
+from aicmo.modules.crm.assistant_models import AIInsight  # noqa: F401
 from aicmo.modules.growth.models import (  # noqa: F401
     GrowthObjective,
     LayoutPrimitive,
