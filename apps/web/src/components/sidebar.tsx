@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Clapperboard,
   Compass,
+  Contact,
   FlaskConical,
   History,
   Inbox,
@@ -92,6 +93,7 @@ const PRIMARY_NAV: NavGroup[] = [
     items: [
       { href: "/grow/leads", label: "Leads", icon: Inbox },
       { href: "/crm", label: "CRM", icon: Handshake },
+      { href: "/crm/contacts", label: "Contacts", icon: Contact },
       { href: "/grow/opportunities", label: "Opportunities", icon: Compass },
       {
         href: "/grow/market-intelligence",

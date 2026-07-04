@@ -1559,6 +1559,122 @@ export interface CrmAnalytics {
   by_stage: CrmStageBreakdown[];
 }
 
+// ---- CRM Slice 2: companies, contacts, activities ----
+
+export interface CrmEntitySummary {
+  summary: string;
+  confidence: number;
+  reason: string;
+  talking_points?: string[];
+  opportunities?: string[];
+  risks?: string[];
+}
+
+export interface CrmCompany {
+  id: string;
+  name: string;
+  domain: string | null;
+  website: string | null;
+  industry: string | null;
+  annual_revenue: number | null;
+  employees: number | null;
+  tech_stack: string[];
+  social_links: Record<string, string>;
+  address: string | null;
+  timezone: string | null;
+  owner_user_id: string | null;
+  tags: string[];
+  custom_fields: Record<string, unknown>;
+  ai_summary: CrmEntitySummary | null;
+  ai_generated_at: string | null;
+  health_score: number | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmCompanyCreate {
+  name: string;
+  website?: string | null;
+  industry?: string | null;
+  annual_revenue?: number | null;
+  employees?: number | null;
+  tags?: string[];
+}
+
+export interface CrmContact {
+  id: string;
+  company_id: string | null;
+  lead_id: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  linkedin: string | null;
+  owner_user_id: string | null;
+  tags: string[];
+  custom_fields: Record<string, unknown>;
+  notes: string | null;
+  ai_summary: CrmEntitySummary | null;
+  ai_generated_at: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmContactCreate {
+  name: string;
+  company_id?: string | null;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  linkedin?: string | null;
+  tags?: string[];
+  notes?: string | null;
+}
+
+export interface CrmActivity {
+  id: string;
+  kind: "note" | "email" | "call" | "meeting" | "file" | "linkedin";
+  subject: string | null;
+  body: string | null;
+  contact_id: string | null;
+  company_id: string | null;
+  deal_id: string | null;
+  occurred_at: string;
+  actor_user_id: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CrmActivityCreate {
+  kind: CrmActivity["kind"];
+  subject?: string | null;
+  body?: string | null;
+  contact_id?: string | null;
+  company_id?: string | null;
+  deal_id?: string | null;
+}
+
+export interface CrmDuplicate {
+  id: string;
+  name: string;
+  reason: string;
+}
+
+export interface CrmCompanyDetail {
+  company: CrmCompany;
+  contacts: CrmContact[];
+  deals: CrmDeal[];
+  health_score: number | null;
+}
+
+export interface CrmContactDetail {
+  contact: CrmContact;
+  company: CrmCompany | null;
+  deals: CrmDeal[];
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -2716,6 +2832,65 @@ export const api = {
       request<null>(`/api/v1/crm/deals/${id}`, { method: "DELETE" }),
     nextAction: (id: string) =>
       request<CrmDeal>(`/api/v1/crm/deals/${id}/next-action`, { method: "POST" }),
+
+    // ----- Slice 2: companies -----
+    companies: async (params: { q?: string; limit?: number } = {}): Promise<{ items: CrmCompany[]; total: number }> => {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      qs.set("limit", String(params.limit ?? 100));
+      return request<{ items: CrmCompany[]; total: number }>(`/api/v1/crm/companies?${qs}`);
+    },
+    createCompany: (payload: CrmCompanyCreate) =>
+      request<CrmCompany>("/api/v1/crm/companies", { method: "POST", body: JSON.stringify(payload) }),
+    company: (id: string) => request<CrmCompanyDetail>(`/api/v1/crm/companies/${id}`),
+    updateCompany: (id: string, patch: Partial<CrmCompanyCreate>) =>
+      request<CrmCompany>(`/api/v1/crm/companies/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    deleteCompany: (id: string) =>
+      request<null>(`/api/v1/crm/companies/${id}`, { method: "DELETE" }),
+    companyDuplicates: (id: string) =>
+      request<{ items: CrmDuplicate[] }>(`/api/v1/crm/companies/${id}/duplicates`),
+    mergeCompany: (survivorId: string, duplicateId: string) =>
+      request<CrmCompany>(`/api/v1/crm/companies/${survivorId}/merge`, {
+        method: "POST", body: JSON.stringify({ duplicate_id: duplicateId }),
+      }),
+    companyHealth: (id: string) =>
+      request<CrmCompany>(`/api/v1/crm/companies/${id}/health`, { method: "POST" }),
+    companySummary: (id: string) =>
+      request<CrmCompany>(`/api/v1/crm/companies/${id}/summary`, { method: "POST" }),
+    companyActivities: async (id: string): Promise<CrmActivity[]> => {
+      const r = await request<{ items: CrmActivity[] }>(`/api/v1/crm/companies/${id}/activities`);
+      return r.items;
+    },
+
+    // ----- Slice 2: contacts -----
+    contacts: async (params: { q?: string; company_id?: string; limit?: number } = {}): Promise<{ items: CrmContact[]; total: number }> => {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.company_id) qs.set("company_id", params.company_id);
+      qs.set("limit", String(params.limit ?? 100));
+      return request<{ items: CrmContact[]; total: number }>(`/api/v1/crm/contacts?${qs}`);
+    },
+    createContact: (payload: CrmContactCreate) =>
+      request<CrmContact>("/api/v1/crm/contacts", { method: "POST", body: JSON.stringify(payload) }),
+    contact: (id: string) => request<CrmContactDetail>(`/api/v1/crm/contacts/${id}`),
+    updateContact: (id: string, patch: Partial<CrmContactCreate>) =>
+      request<CrmContact>(`/api/v1/crm/contacts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    deleteContact: (id: string) =>
+      request<null>(`/api/v1/crm/contacts/${id}`, { method: "DELETE" }),
+    contactDuplicates: (id: string) =>
+      request<{ items: CrmDuplicate[] }>(`/api/v1/crm/contacts/${id}/duplicates`),
+    mergeContact: (survivorId: string, duplicateId: string) =>
+      request<CrmContact>(`/api/v1/crm/contacts/${survivorId}/merge`, {
+        method: "POST", body: JSON.stringify({ duplicate_id: duplicateId }),
+      }),
+    contactSummary: (id: string) =>
+      request<CrmContact>(`/api/v1/crm/contacts/${id}/summary`, { method: "POST" }),
+    contactActivities: async (id: string): Promise<CrmActivity[]> => {
+      const r = await request<{ items: CrmActivity[] }>(`/api/v1/crm/contacts/${id}/activities`);
+      return r.items;
+    },
+    logActivity: (payload: CrmActivityCreate) =>
+      request<CrmActivity>("/api/v1/crm/activities", { method: "POST", body: JSON.stringify(payload) }),
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {
