@@ -316,6 +316,11 @@ from aicmo.modules.creative.brief_router import router as creative_brief_router 
 
 app.include_router(creative_brief_router, prefix="/api/v1")
 
+# Phase 6.5 — CRM core (pipelines, stages, deals + grounded AI next-action).
+from aicmo.modules.crm.router import router as crm_router  # noqa: E402
+
+app.include_router(crm_router, prefix="/api/v1")
+
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.
 from aicmo.modules.creative.design.router import router as design_router  # noqa: E402

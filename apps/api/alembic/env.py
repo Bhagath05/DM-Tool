@@ -56,6 +56,12 @@ from aicmo.modules.creative.models import (  # noqa: F401
     CreativeTemplate,
     CreativeVariant,
 )
+from aicmo.modules.crm.models import (  # noqa: F401
+    Deal,
+    DealStageEvent,
+    Pipeline,
+    PipelineStage,
+)
 from aicmo.modules.growth.models import (  # noqa: F401
     GrowthObjective,
     LayoutPrimitive,
