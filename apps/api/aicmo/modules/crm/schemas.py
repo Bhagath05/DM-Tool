@@ -74,6 +74,8 @@ class DealCreate(BaseModel):
     pipeline_id: uuid.UUID
     stage_id: uuid.UUID | None = None
     lead_id: uuid.UUID | None = None
+    company_id: uuid.UUID | None = None
+    primary_contact_id: uuid.UUID | None = None
     title: str = Field(min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     contact_name: str | None = Field(default=None, max_length=200)
@@ -92,6 +94,8 @@ class DealCreate(BaseModel):
 
 
 class DealUpdate(BaseModel):
+    company_id: uuid.UUID | None = None
+    primary_contact_id: uuid.UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     contact_name: str | None = Field(default=None, max_length=200)
@@ -126,6 +130,8 @@ class DealResponse(BaseModel):
     pipeline_id: uuid.UUID
     stage_id: uuid.UUID | None
     lead_id: uuid.UUID | None
+    company_id: uuid.UUID | None = None
+    primary_contact_id: uuid.UUID | None = None
     title: str
     company: str | None
     contact_name: str | None
@@ -203,3 +209,209 @@ class PipelineAnalytics(BaseModel):
     avg_deal_size: float           # avg won value
     conversion_rate: float         # won / total
     by_stage: list[StageBreakdown]
+
+
+# =====================================================================
+#  Slice 2 — Companies, Contacts, Activities
+# =====================================================================
+ActivityKind = Literal["note", "email", "call", "meeting", "file", "linkedin"]
+
+
+# ---- companies ----
+class CompanyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    website: str | None = Field(default=None, max_length=512)
+    industry: str | None = Field(default=None, max_length=120)
+    annual_revenue: float | None = Field(default=None, ge=0)
+    employees: int | None = Field(default=None, ge=0)
+    tech_stack: list[str] = Field(default_factory=list, max_length=100)
+    social_links: dict[str, str] = Field(default_factory=dict)
+    address: str | None = None
+    timezone: str | None = Field(default=None, max_length=48)
+    owner_user_id: str | None = Field(default=None, max_length=255)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class CompanyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    website: str | None = Field(default=None, max_length=512)
+    industry: str | None = Field(default=None, max_length=120)
+    annual_revenue: float | None = Field(default=None, ge=0)
+    employees: int | None = Field(default=None, ge=0)
+    tech_stack: list[str] | None = Field(default=None, max_length=100)
+    social_links: dict[str, str] | None = None
+    address: str | None = None
+    timezone: str | None = Field(default=None, max_length=48)
+    owner_user_id: str | None = Field(default=None, max_length=255)
+    tags: list[str] | None = Field(default=None, max_length=30)
+    custom_fields: dict[str, Any] | None = None
+    archived: bool | None = None
+
+
+class CompanyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    domain: str | None
+    website: str | None
+    industry: str | None
+    annual_revenue: float | None
+    employees: int | None
+    tech_stack: list[Any]
+    social_links: dict[str, Any]
+    address: str | None
+    timezone: str | None
+    owner_user_id: str | None
+    tags: list[Any]
+    custom_fields: dict[str, Any]
+    ai_summary: dict[str, Any] | None
+    ai_generated_at: datetime | None
+    health_score: int | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class CompanyList(BaseModel):
+    items: list[CompanyResponse]
+    total: int
+
+
+# ---- contacts ----
+class ContactCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    company_id: uuid.UUID | None = None
+    lead_id: uuid.UUID | None = None
+    title: str | None = Field(default=None, max_length=160)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=64)
+    linkedin: str | None = Field(default=None, max_length=512)
+    owner_user_id: str | None = Field(default=None, max_length=255)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
+
+
+class ContactUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    company_id: uuid.UUID | None = None
+    title: str | None = Field(default=None, max_length=160)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=64)
+    linkedin: str | None = Field(default=None, max_length=512)
+    owner_user_id: str | None = Field(default=None, max_length=255)
+    tags: list[str] | None = Field(default=None, max_length=30)
+    custom_fields: dict[str, Any] | None = None
+    notes: str | None = None
+    archived: bool | None = None
+
+
+class ContactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    company_id: uuid.UUID | None
+    lead_id: uuid.UUID | None
+    name: str
+    title: str | None
+    email: str | None
+    phone: str | None
+    linkedin: str | None
+    owner_user_id: str | None
+    tags: list[Any]
+    custom_fields: dict[str, Any]
+    notes: str | None
+    ai_summary: dict[str, Any] | None
+    ai_generated_at: datetime | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContactList(BaseModel):
+    items: list[ContactResponse]
+    total: int
+
+
+# ---- merge + duplicate detection ----
+class MergeRequest(BaseModel):
+    duplicate_id: uuid.UUID  # merged INTO the {contact,company} in the path
+
+
+class DuplicateMatch(BaseModel):
+    id: uuid.UUID
+    name: str
+    reason: str  # "same email" | "same domain" | "same name"
+
+
+class DuplicateList(BaseModel):
+    items: list[DuplicateMatch]
+
+
+# ---- activities (timeline) ----
+class ActivityCreate(BaseModel):
+    kind: ActivityKind
+    subject: str | None = Field(default=None, max_length=240)
+    body: str | None = None
+    contact_id: uuid.UUID | None = None
+    company_id: uuid.UUID | None = None
+    deal_id: uuid.UUID | None = None
+    occurred_at: datetime | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class ActivityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    subject: str | None
+    body: str | None
+    contact_id: uuid.UUID | None
+    company_id: uuid.UUID | None
+    deal_id: uuid.UUID | None
+    occurred_at: datetime
+    actor_user_id: str | None
+    meta: dict[str, Any]
+    created_at: datetime
+
+
+class ActivityList(BaseModel):
+    items: list[ActivityResponse]
+
+
+# ---- association (contact ↔ deal) ----
+class LinkContactRequest(BaseModel):
+    contact_id: uuid.UUID
+    role: str | None = Field(default=None, max_length=48)
+
+
+# ---- AI summaries (grounded) ----
+class ContactSummary(BaseModel):
+    summary: str = Field(description="Who this person is + where the relationship stands.")
+    talking_points: list[str] = Field(default_factory=list, max_length=8)
+    confidence: int = Field(ge=0, le=100)
+    reason: str = Field(max_length=200, description="What real data this drew on.")
+
+
+class CompanySummary(BaseModel):
+    summary: str
+    opportunities: list[str] = Field(default_factory=list, max_length=8)
+    risks: list[str] = Field(default_factory=list, max_length=8)
+    confidence: int = Field(ge=0, le=100)
+    reason: str = Field(max_length=200)
+
+
+class CompanyDetail(BaseModel):
+    company: CompanyResponse
+    contacts: list[ContactResponse]
+    deals: list[DealResponse]
+    health_score: int | None
+
+
+class ContactDetail(BaseModel):
+    contact: ContactResponse
+    company: CompanyResponse | None
+    deals: list[DealResponse]

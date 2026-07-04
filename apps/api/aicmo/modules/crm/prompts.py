@@ -35,3 +35,24 @@ def build_next_action_prompt(*, context_lines: list[str]) -> str:
         "Give the single best next action for this deal now. Ground every line in "
         "the context above."
     )
+
+
+# ---- Slice 2: contact / company summaries (grounded) ----
+ENTITY_SUMMARY_SYSTEM = """\
+You summarise a CRM record for a salesperson about to engage it.
+
+HARD RULES:
+- Use ONLY the CONTEXT provided. Never invent the person's role, the company's
+  revenue/tech, intent, or history that isn't stated.
+- If context is thin, keep it short and LOWER `confidence` — do not fabricate.
+- Talking points / opportunities / risks must each be grounded in a stated fact.
+- `reason` (<=200 chars) names which real fields you used.
+"""
+
+
+def build_entity_summary_prompt(*, label: str, context_lines: list[str]) -> str:
+    ctx = "\n".join(context_lines) if context_lines else "(minimal context available)"
+    return (
+        f"{label} CONTEXT (the only facts you may use):\n{ctx}\n\n"
+        "Write the summary now. Ground every line in the context above."
+    )

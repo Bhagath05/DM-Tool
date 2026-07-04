@@ -57,7 +57,11 @@ from aicmo.modules.creative.models import (  # noqa: F401
     CreativeVariant,
 )
 from aicmo.modules.crm.models import (  # noqa: F401
+    Activity,
+    Company,
+    Contact,
     Deal,
+    DealContact,
     DealStageEvent,
     Pipeline,
     PipelineStage,

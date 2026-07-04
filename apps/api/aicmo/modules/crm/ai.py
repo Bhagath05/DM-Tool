@@ -8,6 +8,7 @@ scores, cached onto the deal.
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.llm import get_llm_router
@@ -68,5 +69,81 @@ async def next_action(session: AsyncSession, deal: Deal) -> DealNextAction:
             )),
         ],
         max_tokens=700,
+    )
+    return result.data
+
+
+# ---- Slice 2: grounded contact / company summaries ----
+async def contact_summary(session: AsyncSession, contact):
+    from aicmo.modules.crm.models import Company, Deal, DealContact
+    from aicmo.modules.crm.schemas import ContactSummary
+
+    lines = [f"Name: {contact.name}"]
+    if contact.title:
+        lines.append(f"Title: {contact.title}")
+    if contact.email:
+        lines.append(f"Email: {contact.email}")
+    if contact.linkedin:
+        lines.append("Has LinkedIn on file")
+    if contact.notes:
+        lines.append(f"Notes: {contact.notes[:200]}")
+    if contact.tags:
+        lines.append(f"Tags: {', '.join(str(t) for t in contact.tags)}")
+    if contact.company_id:
+        company = await session.get(Company, contact.company_id)
+        if company is not None and company.brand_id == contact.brand_id:
+            lines.append(f"Company: {company.name}" + (f" ({company.industry})" if company.industry else ""))
+    deals = (await session.execute(
+        select(Deal).join(DealContact, DealContact.deal_id == Deal.id, isouter=True).where(
+            Deal.brand_id == contact.brand_id,
+            (Deal.primary_contact_id == contact.id) | (DealContact.contact_id == contact.id),
+        ).distinct()
+    )).scalars().all()
+    if deals:
+        lines.append(f"Involved in {len(deals)} deal(s); statuses: "
+                     + ", ".join(sorted({d.status for d in deals})))
+
+    result = await get_llm_router().generate(
+        response_schema=ContactSummary, system=prompts.ENTITY_SUMMARY_SYSTEM,
+        messages=[LLMMessage(role="user", content=prompts.build_entity_summary_prompt(
+            label="CONTACT", context_lines=lines))],
+        max_tokens=600,
+    )
+    return result.data
+
+
+async def company_summary(session: AsyncSession, company):
+    from aicmo.modules.crm.models import Contact, Deal
+    from aicmo.modules.crm.schemas import CompanySummary
+
+    lines = [f"Name: {company.name}"]
+    for label, val in (
+        ("Industry", company.industry), ("Website", company.website),
+        ("Employees", company.employees), ("Revenue", company.annual_revenue),
+        ("Location", company.address), ("Timezone", company.timezone),
+    ):
+        if val:
+            lines.append(f"{label}: {val}")
+    if company.tech_stack:
+        lines.append(f"Tech stack: {', '.join(str(t) for t in company.tech_stack)}")
+    contacts = (await session.execute(
+        select(Contact).where(Contact.brand_id == company.brand_id, Contact.company_id == company.id)
+    )).scalars().all()
+    if contacts:
+        lines.append(f"{len(contacts)} contact(s) on file")
+    deals = (await session.execute(
+        select(Deal).where(Deal.brand_id == company.brand_id, Deal.company_id == company.id)
+    )).scalars().all()
+    if deals:
+        won = sum(1 for d in deals if d.status == "won")
+        lost = sum(1 for d in deals if d.status == "lost")
+        open_ = sum(1 for d in deals if d.status == "open")
+        lines.append(f"Deals: {open_} open, {won} won, {lost} lost")
+
+    result = await get_llm_router().generate(
+        response_schema=CompanySummary, system=prompts.ENTITY_SUMMARY_SYSTEM,
+        messages=[LLMMessage(role="user", content=prompts.build_entity_summary_prompt(
+            label="COMPANY", context_lines=lines))],
+        max_tokens=650,
     )
     return result.data

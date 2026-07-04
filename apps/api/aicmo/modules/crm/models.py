@@ -74,6 +74,16 @@ class Deal(Base, TimestampMixin, TenantMixin):
     lead_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Slice 2 — structured associations (additive, nullable → backward compatible
+    # with Slice-1 deals that only had the embedded company/contact strings).
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_companies.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    primary_contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_contacts.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     title: Mapped[str] = mapped_column(String(200))
     company: Mapped[str | None] = mapped_column(String(200), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -114,4 +124,98 @@ class DealStageEvent(Base, TenantMixin):
     to_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
     actor_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# =====================================================================
+#  Slice 2 — Companies, Contacts, Activities (timeline)
+# =====================================================================
+class Company(Base, TimestampMixin, TenantMixin):
+    __tablename__ = "crm_companies"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    # Normalised website host — the duplicate-detection key.
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    annual_revenue: Mapped[float | None] = mapped_column(Numeric(16, 2), nullable=True)
+    employees: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tech_stack: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    social_links: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    owner_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    tags: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    ai_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    health_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, server_default="false", index=True)
+
+
+class Contact(Base, TimestampMixin, TenantMixin):
+    __tablename__ = "crm_contacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_companies.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    # Reuse the marketing lead as the origin record (no duplicate person).
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    linkedin: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    owner_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    tags: Mapped[list[Any]] = mapped_column(JSONB, server_default="[]")
+    custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, server_default="false", index=True)
+
+
+class Activity(Base, TenantMixin):
+    """The CRM timeline — one row per note / email / call / meeting / file /
+    linkedin touch, linkable to any of contact / company / deal."""
+
+    __tablename__ = "crm_activities"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16), index=True)  # note|email|call|meeting|file|linkedin
+    subject: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_contacts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_companies.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    deal_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_deals.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DealContact(Base, TenantMixin):
+    """Many contacts per deal (and one contact across many deals)."""
+
+    __tablename__ = "crm_deal_contacts"
+
+    deal_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_deals.id", ondelete="CASCADE"), primary_key=True
+    )
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("crm_contacts.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str | None] = mapped_column(String(48), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
