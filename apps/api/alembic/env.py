@@ -67,6 +67,15 @@ from aicmo.modules.crm.models import (  # noqa: F401
     PipelineStage,
     Task,
 )
+from aicmo.modules.crm.email_models import (  # noqa: F401
+    Email,
+    EmailEnrollment,
+    EmailFolder,
+    EmailSequence,
+    EmailSequenceStep,
+    EmailTemplate,
+    EmailTemplateVersion,
+)
 from aicmo.modules.growth.models import (  # noqa: F401
     GrowthObjective,
     LayoutPrimitive,

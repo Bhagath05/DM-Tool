@@ -144,6 +144,12 @@ class Settings(BaseSettings):
     operations_monitor_interval_seconds: int = Field(default=300)
     operations_tick_min_gap_seconds: int = Field(default=20)
 
+    # Phase 6.5 — CRM email platform. `email_provider` selects the send provider
+    # (empty/"stub" = record-only, no delivery). `email_webhook_secret` gates the
+    # provider event webhook (disabled until set). Neither fabricates delivery.
+    email_provider: str = Field(default="")
+    email_webhook_secret: str = Field(default="")
+
     # Phase 4.6 — the reasoning steps of the loop (Decision Engine + Learning
     # synthesis) cost LLM calls, so they're OFF by default. Cheap monitoring /
     # detection / scheduling always run; enable this to add the reasoning layer.

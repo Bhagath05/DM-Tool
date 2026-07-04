@@ -331,6 +331,14 @@ from aicmo.modules.crm.tasks_router import router as crm_tasks_router  # noqa: E
 
 app.include_router(crm_tasks_router, prefix="/api/v1")
 
+# Phase 6.5 Slice 4 — CRM email platform (authed) + public tracking (pixel/
+# click/unsubscribe/webhook, covered by the /public/ route-guard allowlist).
+from aicmo.modules.crm.email_public_router import router as crm_email_public_router  # noqa: E402
+from aicmo.modules.crm.email_router import router as crm_email_router  # noqa: E402
+
+app.include_router(crm_email_router, prefix="/api/v1")
+app.include_router(crm_email_public_router, prefix="/api/v1")
+
 # Creative Studio (CS1) — the outcome layer + editable design model. Both
 # flag-gated behind studio_enabled (409 when off), so they ship dark.
 from aicmo.modules.creative.design.router import router as design_router  # noqa: E402
