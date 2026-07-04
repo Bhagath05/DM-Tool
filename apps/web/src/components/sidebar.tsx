@@ -38,6 +38,7 @@ import {
   Image as ImageIcon,
   Linkedin,
   Handshake,
+  LayoutDashboard,
   Mail,
   Megaphone,
   Send,
@@ -95,6 +96,7 @@ const PRIMARY_NAV: NavGroup[] = [
     items: [
       { href: "/grow/leads", label: "Leads", icon: Inbox },
       { href: "/crm", label: "CRM", icon: Handshake },
+      { href: "/crm/dashboard", label: "Sales Dashboard", icon: LayoutDashboard },
       { href: "/crm/contacts", label: "Contacts", icon: Contact },
       { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
       { href: "/crm/email", label: "Email", icon: Mail },

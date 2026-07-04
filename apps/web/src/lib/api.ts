@@ -1857,6 +1857,87 @@ export interface CrmInsight {
   expires_at: string | null;
 }
 
+// ---- CRM Slice 6: executive dashboard ----
+
+export interface CrmExecKPIs {
+  total_leads: number;
+  qualified_leads: number;
+  active_opportunities: number;
+  won_deals: number;
+  lost_deals: number;
+  revenue: number;
+  pipeline_value: number;
+  avg_deal_size: number;
+  win_rate: number;
+  conversion_rate: number;
+  sales_velocity: number;
+  avg_sales_cycle_days: number | null;
+  lead_response_time_hours: number | null;
+  email_open_rate: number;
+  email_reply_rate: number;
+  meetings_completed: number;
+  tasks_completed: number;
+  follow_up_compliance: number | null;
+}
+
+export interface CrmStageFunnel {
+  stage_id: string | null;
+  stage_name: string;
+  count: number;
+  value: number;
+  avg_days_in_stage: number | null;
+}
+
+export interface CrmRepPerformance {
+  owner_user_id: string;
+  revenue: number;
+  won_deals: number;
+  open_deals: number;
+  pipeline_value: number;
+  win_rate: number;
+  activities: number;
+  meetings: number;
+  calls: number;
+  emails: number;
+  tasks_completed: number;
+}
+
+export interface CrmForecastPeriod {
+  period: string;
+  won_revenue: number;
+  deals: number;
+}
+
+export interface CrmExecutiveDashboard {
+  kpis: CrmExecKPIs;
+  pipeline: {
+    analytics: CrmAnalytics;
+    funnel: CrmStageFunnel[];
+    lost_reasons: { reason: string; count: number }[];
+    risk_distribution: { band: string; count: number; value: number }[];
+    stalled_deals: { id: string; title: string; value: number; days_inactive: number; owner_user_id: string | null }[];
+  };
+  reps: CrmRepPerformance[];
+  activity: {
+    calls: number;
+    meetings: number;
+    emails: number;
+    notes: number;
+    tasks_open: number;
+    tasks_completed: number;
+    follow_ups_due: number;
+  };
+  forecast: {
+    monthly: CrmForecastPeriod[];
+    quarterly: CrmForecastPeriod[];
+    pipeline_weighted_forecast: number;
+    open_pipeline_value: number;
+  };
+  ai_insights: CrmInsight[];
+  generated_at: string;
+  filters: Record<string, unknown>;
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -3168,6 +3249,20 @@ export const api = {
       if (params.subject_id) qs.set("subject_id", params.subject_id);
       const r = await request<{ items: CrmInsight[] }>(`/api/v1/crm/insights?${qs}`);
       return r.items;
+    },
+
+    // ----- Slice 6: executive dashboard -----
+    dashboard: (params: { pipeline_id?: string; owner_user_id?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.pipeline_id) qs.set("pipeline_id", params.pipeline_id);
+      if (params.owner_user_id) qs.set("owner_user_id", params.owner_user_id);
+      return request<CrmExecutiveDashboard>(`/api/v1/crm/dashboard?${qs}`);
+    },
+    dashboardExportUrl: (params: { pipeline_id?: string; owner_user_id?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.pipeline_id) qs.set("pipeline_id", params.pipeline_id);
+      if (params.owner_user_id) qs.set("owner_user_id", params.owner_user_id);
+      return `${API_URL}/api/v1/crm/dashboard/export?${qs}`;
     },
   },
   bundles: {
