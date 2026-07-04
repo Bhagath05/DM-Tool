@@ -29,6 +29,8 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { AIInsightPanel } from "../../_components/ai-insight";
+
 type Tab = "companies" | "contacts";
 
 function healthTone(score: number | null): "good" | "watch" | "bad" | "neutral" {
@@ -203,6 +205,9 @@ function DetailModal({
               ))}
             </Surface>
           )}
+
+          {/* AI Sales Assistant — grounded evidence-contract insight */}
+          <AIInsightPanel subjectType={isCompany ? "company" : "contact"} subjectId={id} />
 
           {/* Relationships */}
           <div className="grid gap-3 sm:grid-cols-2">

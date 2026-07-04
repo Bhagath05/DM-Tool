@@ -1830,6 +1830,33 @@ export interface CrmEmailStats {
   bounce_rate: number;
 }
 
+// ---- CRM Slice 5: AI Sales Assistant ----
+
+export type CrmInsightSubject = "lead" | "deal" | "contact" | "company" | "task" | "email";
+
+export interface CrmInsightEvidence {
+  source: string;
+  detail: string;
+}
+
+export interface CrmInsight {
+  id: string;
+  subject_type: string;
+  subject_id: string;
+  kind: string;
+  summary: string | null;
+  recommendation: string | null;
+  evidence: CrmInsightEvidence[];
+  reasoning: string | null;
+  confidence: number;
+  affected_records: string[];
+  expected_outcome: string | null;
+  insufficient_evidence: boolean;
+  model: string | null;
+  generated_at: string;
+  expires_at: string | null;
+}
+
 /** One entry in a scheduled post's audit trail. */
 export interface PublishEvent {
   id: string;
@@ -3128,6 +3155,20 @@ export const api = {
       return request<{ items: CrmEmail[]; total: number }>(`/api/v1/crm/email/emails?${qs}`);
     },
     emailStats: () => request<CrmEmailStats>("/api/v1/crm/email/stats"),
+
+    // ----- Slice 5: AI Sales Assistant -----
+    generateInsight: (subjectType: CrmInsightSubject, subjectId: string, opts: { kind?: string; force?: boolean } = {}) =>
+      request<CrmInsight>(`/api/v1/crm/insights/${subjectType}/${subjectId}`, {
+        method: "POST",
+        body: JSON.stringify({ kind: opts.kind ?? null, force: opts.force ?? false }),
+      }),
+    insights: async (params: { subject_type?: CrmInsightSubject; subject_id?: string } = {}): Promise<CrmInsight[]> => {
+      const qs = new URLSearchParams();
+      if (params.subject_type) qs.set("subject_type", params.subject_type);
+      if (params.subject_id) qs.set("subject_id", params.subject_id);
+      const r = await request<{ items: CrmInsight[] }>(`/api/v1/crm/insights?${qs}`);
+      return r.items;
+    },
   },
   bundles: {
     list: async (limit = 20): Promise<CampaignBundle[]> => {
