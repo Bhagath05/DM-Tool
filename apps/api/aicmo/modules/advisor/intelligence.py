@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
 
 import structlog
@@ -12,17 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.config import get_settings
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
-from aicmo.modules.advisor.signals import (
-    IntelligenceSignals,
-    gather_intelligence_signals,
-    has_minimum_evidence,
-    signals_to_prompt_block,
-)
+from aicmo.modules.advisor import service as advisor_service
 from aicmo.modules.advisor.dedupe import (
     fingerprint_for_hero,
     fingerprint_for_opportunity,
     recommendation_id_from_fingerprint,
 )
+from aicmo.modules.advisor.prompts import INTELLIGENCE_SYSTEM_PROMPT
 from aicmo.modules.advisor.schemas import (
     AdvisorEmptyPlan,
     DailyBrief,
@@ -31,8 +26,12 @@ from aicmo.modules.advisor.schemas import (
     IntelligenceRecommendation,
     IntelligenceReport,
 )
-from aicmo.modules.advisor.prompts import INTELLIGENCE_SYSTEM_PROMPT
-from aicmo.modules.advisor import service as advisor_service
+from aicmo.modules.advisor.signals import (
+    IntelligenceSignals,
+    gather_intelligence_signals,
+    has_minimum_evidence,
+    signals_to_prompt_block,
+)
 from aicmo.modules.analytics import service as analytics_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.opportunities.schemas import GeneratorHint
@@ -342,15 +341,15 @@ def _deterministic_report(
         hero_action = (
             f"{follow_up or f'Call {hot} hot lead(s) today'}. "
             f"Then repeat the proven '{success_title}' format while "
-            f"{brain.growth_goal or 'intake deadlines'} are active."
+            f"{brain.growth_goal or 'your current promotions'} are active."
         )
     elif hot > 0:
         hero_action = follow_up or f"Contact {hot} hot lead(s) before launching new campaigns."
     elif ig_reach and ig_reach > 3000:
+        _plat = brain.preferred_platforms[0] if brain.preferred_platforms else "Instagram"
         hero_action = (
-            "Publish a deadline-driven Instagram carousel targeting your top destination "
-            f"({', '.join(brain.preferred_platforms[:1]) or 'Instagram'}) — "
-            "historical saves outperform single-image posts."
+            f"Publish a {_plat} carousel aimed at {(brain.target_audience or 'your audience')[:80]} "
+            "— carousels earn more saves than single-image posts."
         )
     else:
         hero_action = "Publish and share your lead capture page to start converting local search interest."
@@ -373,33 +372,47 @@ def _deterministic_report(
                 "target": "content",
                 "format": "carousel",
                 "platform": "Instagram",
-                "goal": brain.growth_goal or "Drive qualified counselling bookings",
+                "goal": brain.growth_goal or "Grow your pipeline",
             }
         ),
     )
+
+    # Grounded in the real business profile — never a hardcoded example. Only
+    # claim a "winning" format when there is genuine content history; otherwise
+    # recommend creating the first post honestly.
+    _biz = brain.business_name or "your business"
+    _audience = (brain.target_audience or "your audience").strip()
+    _audience_short = _audience[:80] + ("…" if len(_audience) > 80 else "")
+    _platform = (brain.preferred_platforms[0] if brain.preferred_platforms else "Instagram")
+    _has_history = bool(success_title or winning_line)
 
     content_opps: list[IntelligenceOpportunity] = []
     if ctx.has_content_intel or ig_reach:
         content_opps.append(
             IntelligenceOpportunity(
                 kind="content",
-                headline="Repeat winning carousel format",
+                headline="Repeat your best carousel format" if _has_history else "Publish a value-packed carousel",
                 observation=what,
                 root_cause=why,
                 recommended_action=(
-                    "Create a UK/Canada intake checklist carousel using the hook pattern "
-                    "from your top-performing historical post."
+                    f"Create another {_platform} carousel using the hook from your "
+                    f"best-performing post, tailored to {_audience_short}."
+                    if _has_history
+                    else (
+                        f"Create a {_platform} carousel for {_biz} that gives {_audience_short} "
+                        "a quick, useful checklist or how-to they'll save and share."
+                    )
                 ),
-                expected_impact="Higher saves and counselling DMs based on prior +8 lead window.",
-                confidence=min(60, cap),
+                expected_impact="Higher saves and DMs from your target audience.",
+                confidence=min(60 if _has_history else 50, cap),
                 data_sources_used=data_sources[:5],
                 impact_category="lead",
                 generator_hint=_normalize_generator_hint(
                     {
                         "target": "content",
                         "format": "carousel",
-                        "platform": "Instagram",
-                        "goal": "UK intake checklist — drive counselling DMs",
+                        "platform": _platform,
+                        "goal": brain.growth_goal or "Grow reach and saves with your audience",
                     }
                 ),
             )
@@ -407,14 +420,14 @@ def _deterministic_report(
         content_opps.append(
             IntelligenceOpportunity(
                 kind="content",
-                headline="Canada PNP explainer reel",
+                headline="Post a short-form reel",
                 observation=what,
                 root_cause=why,
                 recommended_action=(
-                    "Produce a short reel comparing PNP vs Express Entry for 6.5 IELTS profiles — "
-                    "your second-highest reach format historically."
+                    f"Produce a short {_platform} reel showcasing {_biz} for {_audience_short} — "
+                    "short-form video is the fastest-growing format for reaching new prospects."
                 ),
-                expected_impact="Reach warm leads researching Canada pathways.",
+                expected_impact="Reach new prospects who don't follow you yet.",
                 confidence=min(55, cap),
                 data_sources_used=data_sources[:5],
                 impact_category="lead",
@@ -422,8 +435,8 @@ def _deterministic_report(
                     {
                         "target": "content",
                         "format": "reel",
-                        "platform": "Instagram",
-                        "goal": "Canada PNP vs Express Entry explainer",
+                        "platform": _platform,
+                        "goal": brain.growth_goal or "Reach new prospects with short-form video",
                     }
                 ),
             )
@@ -438,10 +451,10 @@ def _deterministic_report(
                 observation=what,
                 root_cause=why,
                 recommended_action=(
-                    "Run an Instagram lead ad promoting a free counselling slot, "
-                    "geo-targeted to Hyderabad, while GBP call clicks are active."
+                    f"Run a {_platform} lead ad with a clear offer for {_audience_short}, "
+                    f"geo-targeted to {brain.location or 'your area'}, while local intent is active."
                 ),
-                expected_impact="Convert hot pipeline and local search intent into booked sessions.",
+                expected_impact="Convert hot pipeline and local search intent into enquiries.",
                 confidence=min(58, cap),
                 data_sources_used=data_sources[:5],
                 impact_category="lead",
@@ -450,7 +463,7 @@ def _deterministic_report(
                         "target": "ad",
                         "format": "instagram_promo",
                         "objective": "leads",
-                        "goal": "Book free UK/Canada counselling session",
+                        "goal": brain.growth_goal or "Turn local intent into enquiries",
                     },
                     default_target="ad",
                 ),
