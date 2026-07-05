@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     api_env: Literal["development", "staging", "production"] = "development"
     api_log_level: str = "INFO"
     api_cors_origins: str = "http://localhost:3000"
+    # Vercel gives every deploy a fresh URL (dm-tool-<hash>-…​.vercel.app), so an
+    # exact allow-list can't keep up. This regex allows this project's Vercel
+    # origins (production + preview + per-deploy) in addition to `api_cors_origins`.
+    # Scoped to `dm-tool*.vercel.app` — never a blanket `*.vercel.app`. Override
+    # via API_CORS_ORIGIN_REGEX (empty string disables it).
+    api_cors_origin_regex: str = r"^https://dm-tool[a-z0-9-]*\.vercel\.app$"
 
     # Phase 5.1/5.9 — number of trusted reverse-proxy hops in front of the app.
     # The client IP is taken this many entries from the RIGHT of X-Forwarded-For
@@ -357,6 +363,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        return self.api_cors_origin_regex.strip() or None
 
     @property
     def media_persistence_available(self) -> bool:
