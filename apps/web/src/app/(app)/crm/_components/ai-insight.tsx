@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill, type PillTone } from "@/components/ui/status-pill";
 import { Surface } from "@/components/ui/surface";
 import { api, type CrmInsight, type CrmInsightSubject } from "@/lib/api";
+import { humanize } from "@/lib/crm-format";
 
 // Constitution confidence bands.
 function confidenceBand(c: number): { tone: PillTone; label: string } {
@@ -25,10 +26,6 @@ function confidenceBand(c: number): { tone: PillTone; label: string } {
   if (c >= 60) return { tone: "watch", label: "Medium confidence" };
   if (c >= 40) return { tone: "watch", label: "Low confidence" };
   return { tone: "muted", label: "Speculative" };
-}
-
-function humanize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 export function AIInsightPanel({

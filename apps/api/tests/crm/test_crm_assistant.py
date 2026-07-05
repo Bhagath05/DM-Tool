@@ -88,7 +88,7 @@ def _stubs(monkeypatch):
     async def _noop(*_a, **_k):
         return None
 
-    monkeypatch.setattr(svc.audit_service, "record", _noop)
+    monkeypatch.setattr(svc, "_audit", _noop)
     monkeypatch.setattr(svc.ai_audit, "record_ai_generation", _noop)
 
 

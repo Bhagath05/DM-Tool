@@ -74,7 +74,7 @@ def _stub_audit(monkeypatch):
     async def _noop(*_a, **_k):
         return None
 
-    monkeypatch.setattr(svc.audit_service, "record", _noop)
+    monkeypatch.setattr(svc, "_audit", _noop)
 
 
 def run(c):

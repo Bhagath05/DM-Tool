@@ -24,22 +24,13 @@ import {
   type CrmPipeline,
   type CrmPriority,
 } from "@/lib/api";
+import { money } from "@/lib/crm-format";
 
 const PRIORITY_TONE: Record<CrmPriority, PillTone> = {
   low: "muted",
   medium: "neutral",
   high: "watch",
 };
-
-function money(v: number, ccy = "USD"): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency", currency: ccy, maximumFractionDigits: 0,
-    }).format(v);
-  } catch {
-    return `${ccy} ${Math.round(v).toLocaleString()}`;
-  }
-}
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (

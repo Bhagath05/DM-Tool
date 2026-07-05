@@ -15,8 +15,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.modules.audit import service as audit_service
 from aicmo.modules.crm import ai
+from aicmo.modules.crm._shared import record_crm_audit as _audit
 from aicmo.modules.crm.models import (
     Deal,
     DealStageEvent,
@@ -45,12 +45,6 @@ _DEFAULT_STAGES = [
 ]
 
 
-async def _audit(session, *, tenant, action, target_id, metadata=None):
-    await audit_service.record(
-        session, organization_id=tenant.organization_id, actor_user_id=tenant.user_uuid,
-        action=action, brand_id=tenant.brand_id, target_type="crm", target_id=target_id,
-        metadata=metadata or {},
-    )
 
 
 # ---------------------------------------------------------------------

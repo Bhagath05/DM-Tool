@@ -21,8 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
 from aicmo.modules.ai_audit import service as ai_audit
-from aicmo.modules.audit import service as audit_service
 from aicmo.modules.crm import assistant_prompts as prompts
+from aicmo.modules.crm._shared import record_crm_audit as _audit
 from aicmo.modules.crm.assistant_models import AIInsight
 from aicmo.modules.crm.assistant_schemas import SalesInsight
 from aicmo.modules.crm.email_models import Email
@@ -283,12 +283,6 @@ async def generate(
     return row
 
 
-async def _audit(session, *, tenant, action, target_id, metadata=None):
-    await audit_service.record(
-        session, organization_id=tenant.organization_id, actor_user_id=tenant.user_uuid,
-        action=action, brand_id=tenant.brand_id, target_type="crm", target_id=target_id,
-        metadata=metadata or {},
-    )
 
 
 async def list_insights(

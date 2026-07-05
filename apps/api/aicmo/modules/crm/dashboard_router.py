@@ -10,8 +10,8 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
-from aicmo.modules.audit import service as audit_service
 from aicmo.modules.crm import dashboard_service as svc
+from aicmo.modules.crm._shared import record_crm_audit
 from aicmo.modules.crm.dashboard_schemas import ExecutiveDashboard
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
@@ -42,11 +42,7 @@ async def export_dashboard(
     dash = await svc.executive_dashboard(
         session, tenant=tenant, pipeline_id=pipeline_id, owner_user_id=owner_user_id
     )
-    await audit_service.record(
-        session, organization_id=tenant.organization_id, actor_user_id=tenant.user_uuid,
-        action="crm.dashboard_exported", brand_id=tenant.brand_id, target_type="crm",
-        metadata={"format": "csv"},
-    )
+    await record_crm_audit(session, tenant=tenant, action="crm.dashboard_exported", metadata={"format": "csv"})
     await session.commit()
     return Response(
         content=svc.to_csv(dash), media_type="text/csv",

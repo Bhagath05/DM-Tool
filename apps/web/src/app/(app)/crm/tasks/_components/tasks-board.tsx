@@ -34,6 +34,7 @@ import {
   type CrmTask,
   type CrmTaskPriority,
 } from "@/lib/api";
+import { humanize } from "@/lib/crm-format";
 import { cn } from "@/lib/utils";
 
 const QUEUES = ["today", "upcoming", "overdue", "mine", "completed", "all"] as const;
@@ -49,10 +50,6 @@ const PRIORITY_TONE: Record<CrmTaskPriority, PillTone> = {
 const TYPES: CrmActivityType[] = [
   "follow_up", "call", "meeting", "demo", "email_reminder", "internal", "approval", "custom",
 ];
-
-function humanize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
 
 function dueTone(task: CrmTask): PillTone {
   if (task.status === "completed") return "good";

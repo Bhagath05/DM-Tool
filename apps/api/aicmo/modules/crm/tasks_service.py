@@ -17,8 +17,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.modules.audit import service as audit_service
 from aicmo.modules.campaigns.models import CampaignPlan
+from aicmo.modules.crm._shared import record_crm_audit as _audit
 from aicmo.modules.crm.models import Company, Contact, Deal, Task
 from aicmo.modules.crm.tasks_schemas import TaskCreate, TaskUpdate
 from aicmo.modules.leads.models import Lead
@@ -27,12 +27,6 @@ from aicmo.tenancy.context import TenantContext
 _TERMINAL = ("completed", "cancelled")
 
 
-async def _audit(session, *, tenant, action, target_id, metadata=None):
-    await audit_service.record(
-        session, organization_id=tenant.organization_id, actor_user_id=tenant.user_uuid,
-        action=action, brand_id=tenant.brand_id, target_type="crm", target_id=target_id,
-        metadata=metadata or {},
-    )
 
 
 async def _validate_links(session: AsyncSession, *, tenant: TenantContext, links: dict) -> None:

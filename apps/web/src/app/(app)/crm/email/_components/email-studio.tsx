@@ -29,6 +29,7 @@ import {
   type CrmEmailStats,
   type CrmEmailTemplate,
 } from "@/lib/api";
+import { humanize, pct } from "@/lib/crm-format";
 import { cn } from "@/lib/utils";
 
 type Tab = "templates" | "sequences" | "tracking";
@@ -36,14 +37,6 @@ type Tab = "templates" | "sequences" | "tracking";
 const CATEGORIES: CrmEmailCategory[] = [
   "welcome", "follow_up", "proposal", "reminder", "thank_you", "meeting", "renewal", "custom",
 ];
-
-function humanize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function pct(v: number): string {
-  return `${Math.round(v * 100)}%`;
-}
 
 // ---------------------------------------------------------------- editor modal
 function TemplateEditor({

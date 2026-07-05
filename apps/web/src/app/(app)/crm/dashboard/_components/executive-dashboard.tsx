@@ -19,15 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill, type PillTone } from "@/components/ui/status-pill";
 import { Surface } from "@/components/ui/surface";
 import { api, type CrmExecutiveDashboard, type CrmPipeline } from "@/lib/api";
-
-function money(v: number): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
-  } catch {
-    return `$${Math.round(v).toLocaleString()}`;
-  }
-}
-const pct = (v: number) => `${Math.round(v * 100)}%`;
+import { money, pct } from "@/lib/crm-format";
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (

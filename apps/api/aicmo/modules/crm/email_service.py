@@ -18,8 +18,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 
-from aicmo.modules.audit import service as audit_service
 from aicmo.modules.crm import email_providers
+from aicmo.modules.crm._shared import record_crm_audit as _audit
 from aicmo.modules.crm.email_models import (
     Email,
     EmailEnrollment,
@@ -39,12 +39,6 @@ from aicmo.modules.crm.models import Activity, Contact
 _PLACEHOLDER = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
 
 
-async def _audit(session, *, tenant, action, target_id, metadata=None):
-    await audit_service.record(
-        session, organization_id=tenant.organization_id, actor_user_id=tenant.user_uuid,
-        action=action, brand_id=tenant.brand_id, target_type="crm", target_id=target_id,
-        metadata=metadata or {},
-    )
 
 
 # =====================================================================
