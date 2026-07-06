@@ -36,6 +36,7 @@ from aicmo.modules.crm.dashboard_schemas import (
 from aicmo.modules.crm.email_models import Email
 from aicmo.modules.crm.models import Activity, Deal, Task
 from aicmo.modules.leads.models import Lead
+from aicmo.security.csv_safety import csv_safe_row
 from aicmo.tenancy.context import TenantContext
 
 _QUALIFIED_LEAD_STATUSES = ("hot", "warm")  # this taxonomy has no "qualified" status
@@ -244,15 +245,16 @@ async def executive_dashboard(
 
 
 def to_csv(dash: ExecutiveDashboard) -> str:
-    """Executive summary CSV (KPIs + per-rep leaderboard)."""
+    """Executive summary CSV (KPIs + per-rep leaderboard). Rows are
+    formula-injection-safe (owner ids are user-controlled)."""
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Executive KPIs"])
     for k, v in dash.kpis.model_dump().items():
-        w.writerow([k, v])
+        w.writerow(csv_safe_row([k, v]))
     w.writerow([])
     w.writerow(["Rep", "Revenue", "Won", "Open", "Pipeline", "Win rate", "Meetings", "Calls", "Emails", "Tasks done"])
     for r in dash.reps:
-        w.writerow([r.owner_user_id, r.revenue, r.won_deals, r.open_deals, r.pipeline_value,
-                    r.win_rate, r.meetings, r.calls, r.emails, r.tasks_completed])
+        w.writerow(csv_safe_row([r.owner_user_id, r.revenue, r.won_deals, r.open_deals, r.pipeline_value,
+                    r.win_rate, r.meetings, r.calls, r.emails, r.tasks_completed]))
     return buf.getvalue()

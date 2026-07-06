@@ -35,8 +35,8 @@ from aicmo.modules.leads.schemas import (
 )
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.security import captcha, rate_limit
+from aicmo.security.csv_safety import csv_safe_row
 from aicmo.tenancy.context import TenantContext
-
 
 # ---------- public capture ----------
 
@@ -346,25 +346,28 @@ async def export_csv(
         ]
     )
     for r in rows:
+        # Formula-injection-safe: every field below is user/visitor-controlled.
         writer.writerow(
-            [
-                r.created_at.isoformat(),
-                r.email,
-                r.name or "",
-                r.phone or "",
-                r.company or "",
-                r.status,
-                ", ".join(r.tags or []),
-                r.source_asset_type or "",
-                r.source_asset_id or "",
-                r.utm_source or "",
-                r.utm_medium or "",
-                r.utm_campaign or "",
-                r.utm_content or "",
-                str(r.landing_page_id) if r.landing_page_id else "",
-                (r.message or "").replace("\n", " "),
-                (r.notes or "").replace("\n", " "),
-            ]
+            csv_safe_row(
+                [
+                    r.created_at.isoformat(),
+                    r.email,
+                    r.name or "",
+                    r.phone or "",
+                    r.company or "",
+                    r.status,
+                    ", ".join(r.tags or []),
+                    r.source_asset_type or "",
+                    r.source_asset_id or "",
+                    r.utm_source or "",
+                    r.utm_medium or "",
+                    r.utm_campaign or "",
+                    r.utm_content or "",
+                    str(r.landing_page_id) if r.landing_page_id else "",
+                    (r.message or "").replace("\n", " "),
+                    (r.notes or "").replace("\n", " "),
+                ]
+            )
         )
     return buf.getvalue()
 
