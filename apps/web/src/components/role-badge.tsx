@@ -12,6 +12,7 @@
  */
 
 import { useTenant } from "@/components/tenant-provider";
+import { displayRoleName } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 const ROLE_TONES: Record<string, string> = {
@@ -33,13 +34,13 @@ export function RoleBadge() {
   return (
     <span
       data-testid="role-badge"
-      title={sorted.length > 1 ? `Roles: ${sorted.join(", ")}` : undefined}
+      title={sorted.length > 1 ? `Roles: ${sorted.map(displayRoleName).join(", ")}` : undefined}
       className={cn(
-        "inline-flex h-6 items-center rounded-md border px-1.5 text-xs font-medium capitalize",
+        "inline-flex h-6 items-center rounded-md border px-1.5 text-xs font-medium",
         tone,
       )}
     >
-      {primary}
+      {displayRoleName(primary)}
       {sorted.length > 1 && (
         <span className="ml-0.5 opacity-60">+{sorted.length - 1}</span>
       )}

@@ -35,6 +35,18 @@ describe("RoleBadge", () => {
     expect(screen.getByTestId("role-badge")).toHaveTextContent(/admin/i);
   });
 
+  it("displays the internal 'owner' role as 'Admin', never 'Owner'", () => {
+    // Phase 6.6 — Owner is a DB-only concept; the UI must never show it.
+    render(
+      <StubTenantProvider value={makeTenantValue({ roleSlugs: ["owner"] })}>
+        <RoleBadge />
+      </StubTenantProvider>,
+    );
+    const badge = screen.getByTestId("role-badge");
+    expect(badge).toHaveTextContent("Admin");
+    expect(badge).not.toHaveTextContent(/owner/i);
+  });
+
   it("renders nothing while loading", () => {
     const { container } = render(
       <StubTenantProvider value={makeTenantValue({ status: "loading" })}>
@@ -63,9 +75,9 @@ describe("RoleBadge", () => {
     );
     // Sorted ascending → 'admin' wins primary.
     const badge = screen.getByTestId("role-badge");
-    expect(badge).toHaveTextContent(/admin/);
+    expect(badge).toHaveTextContent(/admin/i);
     expect(badge).toHaveTextContent(/\+1/);
-    expect(badge.title).toMatch(/admin.*editor/);
+    expect(badge.title).toMatch(/admin.*editor/i);
   });
 
   it("switches roles when the active membership changes (permission-aware)", () => {

@@ -27,6 +27,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DangerZone } from "./_components/danger-zone";
 import { useTenant } from "@/components/tenant-provider";
+import { displayRoleName } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -289,7 +290,7 @@ function WorkspaceCard({
       <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
         <Field label="Organization" value={tenant.activeOrg.name} />
         <Field label="Brand" value={tenant.activeBrand?.name ?? "—"} />
-        <Field label="Your role" value={cap(role)} />
+        <Field label="Your role" value={displayRoleName(role)} />
         <Field
           label="Member since"
           value={

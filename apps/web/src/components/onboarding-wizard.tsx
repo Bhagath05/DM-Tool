@@ -845,7 +845,7 @@ function Step5Review({ state }: { state: WizardState }) {
       <ReviewRow label="Platforms" value={platformsLabel} />
       <ReviewRow label="Tone" value={state.brand_tone || "—"} />
       <ReviewRow label="You are" value={personaLabel} />
-      <ReviewRow label="Your role" value="Owner" />
+      <ReviewRow label="Your role" value="Admin" />
     </div>
   );
 }
