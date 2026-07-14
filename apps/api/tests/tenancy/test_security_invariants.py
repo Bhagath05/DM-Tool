@@ -76,7 +76,7 @@ def _stub_session(**kw: Any):
                 ids = [self._only_brand_id] if self._only_brand_id else []
                 return _result(scalars_all=ids)
             if "permissions.slug" in sql:
-                return _result(scalars_all=list(self._permissions))
+                return _result(rows=[(slug, "allow") for slug in self._permissions])
             if "roles.slug" in sql:
                 return _result(scalars_all=list(self._role_slugs))
             return _result(scalar_one_or_none=None, scalars_all=[])
@@ -92,13 +92,14 @@ def _stub_session(**kw: Any):
     return S()
 
 
-def _result(*, scalar_one_or_none=None, scalars_all=None):
+def _result(*, scalar_one_or_none=None, scalars_all=None, rows=None):
     r = MagicMock()
     r.scalar_one_or_none.return_value = scalar_one_or_none
     r.scalars.return_value.all.return_value = scalars_all or []
     r.scalars.return_value.first.return_value = (
         scalars_all[0] if scalars_all else None
     )
+    r.all.return_value = rows or []
     return r
 
 

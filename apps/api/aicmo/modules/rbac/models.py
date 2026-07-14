@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -47,6 +48,9 @@ class Role(Base, TimestampMixin):
     is_system: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    # Phase 6.6 — role hierarchy (higher manages lower) + display colour.
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    color: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class Permission(Base):
@@ -86,3 +90,6 @@ class RolePermission(Base):
         ForeignKey("permissions.id", ondelete="CASCADE"),
         primary_key=True,
     )
+    # Phase 6.6 — 'allow' | 'deny'. INHERIT is the absence of a row. An explicit
+    # 'deny' on any of a member's roles overrides an 'allow' on another.
+    effect: Mapped[str] = mapped_column(String(8), default="allow", server_default="allow")

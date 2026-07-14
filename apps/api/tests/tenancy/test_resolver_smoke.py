@@ -156,9 +156,9 @@ class _StubAsyncSession:
             ids = [self._only_brand_id] if self._only_brand_id else []
             return _result(scalars_all=ids)
 
-        # permissions / role lookups
+        # permissions lookup — effect-aware (Phase 6.6): (slug, effect) rows.
         if "permissions.slug" in sql:
-            return _result(scalars_all=list(self._permissions))
+            return _result(rows=[(slug, "allow") for slug in self._permissions])
         if "roles.slug" in sql:
             return _result(scalars_all=list(self._role_slugs))
 
@@ -178,6 +178,7 @@ def _result(
     *,
     scalar_one_or_none: Any = None,
     scalars_all: list[Any] | None = None,
+    rows: list[Any] | None = None,
 ) -> Any:
     r = MagicMock()
     r.scalar_one_or_none.return_value = scalar_one_or_none
@@ -185,6 +186,8 @@ def _result(
     r.scalars.return_value.first.return_value = (
         scalars_all[0] if scalars_all else None
     )
+    # .all() on the result itself → tuple rows (e.g. effect-aware permission query)
+    r.all.return_value = rows or []
     return r
 
 
