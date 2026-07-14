@@ -85,6 +85,14 @@ class GenerationContext(BaseModel):
     monthly_budget_band: str | None = None
     primary_goal_text: str | None = None
 
+    # Brand Brain — brand identity (Phase 8). Every generator inherits these
+    # so copy + creative stay on-brand without the user restating them.
+    brand_colors: list[str] = Field(default_factory=list)
+    fonts: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    brand_rules: list[str] = Field(default_factory=list)
+    writing_style: str | None = None
+
     # Intelligence Engine (v2) highlights — collapsed to short strings the
     # LLM can pin its rationale to without re-reading the full analysis.
     current_state: str | None = None

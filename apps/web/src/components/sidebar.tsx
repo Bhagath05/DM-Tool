@@ -27,6 +27,7 @@
 
 import {
   BarChart3,
+  Brain,
   ChevronDown,
   Clapperboard,
   CheckSquare,
@@ -113,6 +114,7 @@ const PRIMARY_NAV: NavGroup[] = [
     label: "Create",
     defaultOpen: true,
     items: [
+      { href: "/brand-brain", label: "Brand Brain", icon: Brain },
       { href: "/studio", label: "Creative Studio", icon: Clapperboard },
       { href: "/create/social-posts", label: "Social Posts", icon: Sparkles },
       { href: "/create/linkedin", label: "LinkedIn Studio", icon: Linkedin },

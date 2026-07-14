@@ -70,6 +70,23 @@ class BusinessProfile(Base, TimestampMixin, TenantMixin):
     # idea | launching | growing | established | scaling
     growth_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
+    # ---- Phase 8 Brand Brain — structured brand identity ----
+    # The visual + verbal signature every AI generator inherits via the
+    # generation-context block. All backward-compatible (empty / NULL).
+    brand_colors: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    fonts: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    keywords: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    brand_rules: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    writing_style: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # ---- Persona segmentation ----
     # NOT an authorization role (those live in member_roles). A free hint
     # about WHO the user is so downstream copy + tutorials can adapt:

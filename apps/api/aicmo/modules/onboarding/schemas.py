@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from aicmo.security.prompt_safety import sanitize_prompt_input
 
-
 # ---------- LLM analysis result (also persisted to the profile row) ----------
 
 
@@ -140,6 +139,13 @@ class BusinessProfileBase(BaseModel):
     pricing: str | None = Field(default=None, max_length=1000)
     growth_stage: GrowthStage | None = None
 
+    # ---- Phase 8 Brand Brain — brand identity ----
+    brand_colors: list[str] = Field(default_factory=list, max_length=24)
+    fonts: list[str] = Field(default_factory=list, max_length=12)
+    keywords: list[str] = Field(default_factory=list, max_length=60)
+    brand_rules: list[str] = Field(default_factory=list, max_length=40)
+    writing_style: str | None = Field(default=None, max_length=2000)
+
 
 class BusinessProfileCreate(BusinessProfileBase):
     """Onboarding/replace payload. Trust upgrade T3 — strict input
@@ -215,6 +221,12 @@ class BusinessProfileUpdate(BaseModel):
     services: list[str] | None = Field(default=None, max_length=50)
     unique_selling_points: list[str] | None = Field(default=None, max_length=20)
     pricing: str | None = Field(default=None, max_length=1000)
+    # ---- Phase 8 Brand Brain — brand identity ----
+    brand_colors: list[str] | None = Field(default=None, max_length=24)
+    fonts: list[str] | None = Field(default=None, max_length=12)
+    keywords: list[str] | None = Field(default=None, max_length=60)
+    brand_rules: list[str] | None = Field(default=None, max_length=40)
+    writing_style: str | None = Field(default=None, max_length=2000)
     growth_stage: GrowthStage | None = None
 
     # Same trust gates on partial updates — but only when the user sent

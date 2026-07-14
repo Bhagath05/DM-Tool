@@ -249,6 +249,18 @@ export interface BusinessProfile {
   current_monthly_leads_band: string | null;
   monthly_budget_band: string | null;
   primary_goal_text: string | null;
+  // Phase 3.1 business understanding.
+  products: string[];
+  services: string[];
+  unique_selling_points: string[];
+  pricing: string | null;
+  growth_stage: string | null;
+  // Phase 8 Brand Brain — brand identity.
+  brand_colors: string[];
+  fonts: string[];
+  keywords: string[];
+  brand_rules: string[];
+  writing_style: string | null;
   analysis_status: "pending" | "completed" | "failed";
   analysis: BusinessAnalysis | null;
   analysis_error: string | null;
@@ -270,6 +282,16 @@ export interface BusinessProfileSubmitPayload {
   current_monthly_leads_band?: string;
   monthly_budget_band?: string;
   primary_goal_text?: string;
+  // Phase 3.1 + Phase 8 Brand Brain — optional, backend defaults to empty.
+  products?: string[];
+  services?: string[];
+  unique_selling_points?: string[];
+  pricing?: string;
+  brand_colors?: string[];
+  fonts?: string[];
+  keywords?: string[];
+  brand_rules?: string[];
+  writing_style?: string;
 }
 
 // ---------- Trends ----------

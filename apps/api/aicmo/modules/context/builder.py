@@ -221,6 +221,11 @@ async def build_generation_context(
         current_monthly_leads_band=profile.current_monthly_leads_band,
         monthly_budget_band=profile.monthly_budget_band,
         primary_goal_text=profile.primary_goal_text,
+        brand_colors=list(profile.brand_colors or []),
+        fonts=list(profile.fonts or []),
+        keywords=list(profile.keywords or []),
+        brand_rules=list(profile.brand_rules or []),
+        writing_style=profile.writing_style,
         current_state=current_state,
         desired_future_state=desired_future_state,
         growth_bottlenecks=growth_bottlenecks,
@@ -301,6 +306,17 @@ def render_context_block(ctx: GenerationContext) -> str:
         else "(none yet — generate more pieces and run the Learning Lab)"
     )
 
+    # Brand Brain — the visual + verbal signature every generation inherits.
+    colors = ", ".join(ctx.brand_colors) or "(not set)"
+    fonts = ", ".join(ctx.fonts) or "(not set)"
+    keywords = ", ".join(ctx.keywords[:12]) or "(none)"
+    writing_style = ctx.writing_style or "(follow brand tone)"
+    brand_rules_block = (
+        "\n".join(f"- {r}" for r in ctx.brand_rules)
+        if ctx.brand_rules
+        else "(none set)"
+    )
+
     return f"""# Business context (inherited — do not re-ask)
 Name: {ctx.business_name}
 Industry: {ctx.industry}
@@ -308,6 +324,14 @@ Location: {location}
 Audience: {ctx.target_audience}
 Brand tone: {ctx.brand_tone}
 Preferred platforms: {platforms}
+
+# Brand identity (the Brand Brain — keep every asset on-brand)
+Brand colours: {colors}
+Fonts: {fonts}
+Writing style: {writing_style}
+Keywords to weave in: {keywords}
+Brand rules (MUST follow):
+{brand_rules_block}
 
 # Stage + resources
 Current monthly leads/customers: {leads_band}
@@ -338,4 +362,5 @@ Best-converting lead page: {page_block}
 # Inheritance rule for this generation
 You already know everything above. Do NOT re-ask. Reference these facts \
 when they're relevant; ignore them when they aren't. Stay consistent with \
-the established brand tone, platforms, and growth phase."""
+the established brand tone, colours, fonts, writing style, and platforms, \
+and NEVER violate a brand rule listed above."""
