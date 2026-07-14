@@ -18,7 +18,9 @@ import {
   KeyRound,
   type LucideIcon,
   Plug,
+  ScrollText,
   ShieldCheck,
+  UsersRound,
   Users2,
 } from "lucide-react";
 
@@ -43,10 +45,22 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
     description: "Members, roles, invitations.",
   },
   {
+    href: "/settings/members",
+    label: "Members",
+    icon: UsersRound,
+    description: "Roster, roles, invitations, access.",
+  },
+  {
     href: "/settings/roles",
     label: "Roles",
     icon: KeyRound,
     description: "Roles, permissions, hierarchy.",
+  },
+  {
+    href: "/settings/audit",
+    label: "Audit log",
+    icon: ScrollText,
+    description: "Every administrative change.",
   },
   {
     href: "/settings/billing",

@@ -283,6 +283,46 @@ async def revoke_invite(
     return _to_invite_read(row, now=now)
 
 
+async def resend_invite(
+    session: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    ttl_days: int = DEFAULT_INVITE_TTL_DAYS,
+) -> InviteCreateResponse:
+    """Reissue a pending invite: mint a fresh token (invalidating the old
+    link) and extend the expiry. Only pending invites can be resent —
+    accepted / revoked / expired ones are terminal. Returns the new
+    accept URL (one-time), same as create."""
+    row = await session.get(OrganizationInvite, invite_id)
+    if row is None or row.organization_id != organization_id:
+        raise InviteNotFound()
+    if row.status != "pending":
+        raise InviteAlreadyConsumed(row.status)
+
+    raw_token = generate_token()
+    now = datetime.now(timezone.utc)
+    row.token_hash = hash_token(raw_token)
+    row.expires_at = now + timedelta(days=ttl_days)
+    row.updated_at = now
+    await session.flush()
+
+    await audit_service.record(
+        session,
+        organization_id=organization_id,
+        actor_user_id=actor_user_id,
+        action="member.invite_resent",
+        target_type="invite",
+        target_id=row.id,
+        after={"expires_at": row.expires_at.isoformat()},
+    )
+    return InviteCreateResponse(
+        invite=_to_invite_read(row, now=now),
+        accept_url=build_accept_url(raw_token),
+    )
+
+
 # ---------------------------------------------------------------------
 #  Preview + accept
 # ---------------------------------------------------------------------

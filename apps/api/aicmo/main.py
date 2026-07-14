@@ -14,6 +14,7 @@ from aicmo.db.session import dispose_engine
 from aicmo.modules.ads.router import router as ads_router
 from aicmo.modules.advisor.router import router as advisor_router
 from aicmo.modules.analytics.router import router as analytics_router
+from aicmo.modules.audit.router import router as audit_router
 from aicmo.modules.autonomy.router import router as autonomy_router
 from aicmo.modules.billing.router import (
     public_router as billing_public_router,
@@ -368,6 +369,7 @@ if settings.api_env != "production":
     from aicmo.observability.router import router as debug_router
     app.include_router(debug_router, prefix="/api/v1")
 app.include_router(rbac_org_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
 # Public surfaces — unauthenticated. Mounted under /api/v1 alongside auth'd
 # routes to keep CORS and rate-limit policy consistent.
 app.include_router(landing_pages_public_router, prefix="/api/v1")

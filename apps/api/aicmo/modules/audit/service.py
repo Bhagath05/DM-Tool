@@ -13,11 +13,15 @@ Write semantics:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import structlog
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.audit.models import AuditEvent
+from aicmo.modules.audit.schemas import AuditEventRead
+from aicmo.modules.users.models import User
 
 log = structlog.get_logger()
 
@@ -68,3 +72,89 @@ async def record(
             error=str(e),
             organization_id=str(organization_id),
         )
+
+
+# ---------------------------------------------------------------------
+#  Read (org-wide audit log — Phase 6.6 Slice 4)
+# ---------------------------------------------------------------------
+
+
+async def list_events(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    actions: list[str] | None = None,
+    actor_user_id: uuid.UUID | None = None,
+    target_type: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    search: str | None = None,
+    limit: int = 200,
+) -> list[AuditEventRead]:
+    """Org-scoped audit trail, newest first, with the actor's email/name
+    joined in. All filters are optional and AND-combined. `search` is a
+    case-insensitive match over action + actor email + target type.
+
+    Read-only — never writes. Callers gate this behind `organization.manage`.
+    """
+    stmt = (
+        select(AuditEvent, User)
+        .join(User, User.id == AuditEvent.actor_user_id, isouter=True)
+        .where(AuditEvent.organization_id == organization_id)
+    )
+    if actions:
+        stmt = stmt.where(AuditEvent.action.in_(actions))
+    if actor_user_id is not None:
+        stmt = stmt.where(AuditEvent.actor_user_id == actor_user_id)
+    if target_type:
+        stmt = stmt.where(AuditEvent.target_type == target_type)
+    if since is not None:
+        stmt = stmt.where(AuditEvent.occurred_at >= since)
+    if until is not None:
+        stmt = stmt.where(AuditEvent.occurred_at <= until)
+    if search:
+        like = f"%{search.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(AuditEvent.action).like(like),
+                func.lower(AuditEvent.target_type).like(like),
+                func.lower(User.email).like(like),
+            )
+        )
+    stmt = stmt.order_by(AuditEvent.occurred_at.desc()).limit(min(max(limit, 1), 1000))
+
+    rows = (await session.execute(stmt)).all()
+    return [
+        AuditEventRead(
+            id=evt.id,
+            action=evt.action,
+            actor_user_id=evt.actor_user_id,
+            actor_email=user.email if user else None,
+            actor_name=(user.display_name if user else None),
+            target_type=evt.target_type,
+            target_id=evt.target_id,
+            brand_id=evt.brand_id,
+            before=evt.before,
+            after=evt.after,
+            occurred_at=evt.occurred_at,
+        )
+        for evt, user in rows
+    ]
+
+
+async def distinct_actions(session: AsyncSession, *, organization_id: uuid.UUID) -> list[str]:
+    """Every action slug present in this org's log — powers the UI's
+    action filter dropdown without a hardcoded list."""
+    rows = (
+        (
+            await session.execute(
+                select(AuditEvent.action)
+                .where(AuditEvent.organization_id == organization_id)
+                .distinct()
+                .order_by(AuditEvent.action)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)

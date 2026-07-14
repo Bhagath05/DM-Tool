@@ -25,7 +25,7 @@ from typing import Iterable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.audit import service as audit_service
@@ -47,7 +47,10 @@ from aicmo.modules.orgs.schemas import (
 from aicmo.modules.rbac.models import Role
 from aicmo.modules.users.models import User
 from aicmo.tenancy.exceptions import NotAuthorized
-from aicmo.tenancy.permissions import compute_role_slugs_for_member
+from aicmo.tenancy.permissions import (
+    compute_permissions_for_member,
+    compute_role_slugs_for_member,
+)
 
 log = structlog.get_logger()
 
@@ -750,14 +753,24 @@ async def purge_organization(
 
 
 async def list_members(
-    session: AsyncSession, *, org_id: uuid.UUID
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    include_inactive: bool = False,
 ) -> list[MemberResponse]:
+    """Roster for the org. Default: active members only (backward
+    compatible). `include_inactive=True` also returns suspended members
+    so the enterprise Members page can offer reactivate — 'removed'
+    members are always excluded (they've left)."""
+    from aicmo.modules.security.models import UserSession
+
+    allowed_statuses = ["active", "suspended"] if include_inactive else ["active"]
     stmt = (
         select(OrganizationMember, User)
         .join(User, User.id == OrganizationMember.user_id)
         .where(
             OrganizationMember.organization_id == org_id,
-            OrganizationMember.status == "active",
+            OrganizationMember.status.in_(allowed_statuses),
         )
         .order_by(OrganizationMember.joined_at)
     )
@@ -765,6 +778,17 @@ async def list_members(
     out: list[MemberResponse] = []
     for m, u in rows:
         roles = await compute_role_slugs_for_member(session, m.id)
+        last_seen = (
+            await session.execute(
+                select(UserSession.last_seen_at)
+                .where(
+                    UserSession.user_id == u.id,
+                    UserSession.revoked_at.is_(None),
+                )
+                .order_by(UserSession.last_seen_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
         out.append(
             MemberResponse(
                 id=m.id,
@@ -776,6 +800,8 @@ async def list_members(
                 last_active_brand_id=m.last_active_brand_id,
                 joined_at=m.joined_at,
                 status=m.status,
+                last_active_at=last_seen,
+                is_owner="owner" in roles,
             )
         )
     return out
@@ -826,6 +852,58 @@ async def _count_owners(
     return int((await session.execute(stmt)).scalar_one() or 0)
 
 
+# ---------------------------------------------------------------------
+#  Phase 6.6 Slice 4 — team-management (Admin) safety + escalation guards
+# ---------------------------------------------------------------------
+
+_MANAGE_PERM = "team.manage"
+
+
+async def _member_can_manage_team(
+    session: AsyncSession, member_id: uuid.UUID
+) -> bool:
+    perms = await compute_permissions_for_member(session, member_id)
+    return _MANAGE_PERM in perms
+
+
+async def _count_team_managers(
+    session: AsyncSession, org_id: uuid.UUID
+) -> int:
+    """Active members who can manage the team (hold `team.manage` after
+    ALLOW/DENY resolution). The 'last Admin' floor is defined against this
+    — it's what actually keeps a workspace administrable."""
+    members = (
+        (
+            await session.execute(
+                select(OrganizationMember.id).where(
+                    OrganizationMember.organization_id == org_id,
+                    OrganizationMember.status == "active",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    count = 0
+    for mid in members:
+        if await _member_can_manage_team(session, mid):
+            count += 1
+    return count
+
+
+async def _max_role_priority(
+    session: AsyncSession, member_id: uuid.UUID
+) -> int:
+    """Highest `roles.priority` the member holds. Used to stop a manager
+    from granting a role that outranks their own (privilege escalation)."""
+    stmt = (
+        select(func.max(Role.priority))
+        .join(MemberRole, MemberRole.role_id == Role.id)
+        .where(MemberRole.member_id == member_id)
+    )
+    return int((await session.execute(stmt)).scalar_one() or 0)
+
+
 async def assign_role(
     session: AsyncSession,
     *,
@@ -843,6 +921,7 @@ async def assign_role(
     - Admins cannot modify the org owner's roles.
     """
     member = await get_member(session, org_id=org_id, member_id=member_id)
+    _ = member  # validated for 404; not otherwise used
     role = await _load_system_or_org_role(
         session, org_id=org_id, role_slug=role_slug
     )
@@ -854,6 +933,15 @@ async def assign_role(
         raise NotAuthorized(action="member.assign_owner", role="admin")
     if target_is_owner and not actor_is_owner:
         raise NotAuthorized(action="member.modify_owner", role="admin")
+
+    # Privilege-escalation floor: a non-owner may not grant a role that
+    # outranks their own highest role. Owners bypass (they're the top).
+    if not actor_is_owner:
+        actor_max = await _max_role_priority(session, actor_member_id)
+        if (role.priority or 0) > actor_max:
+            raise NotAuthorized(
+                action="member.assign_higher_role", role="admin"
+            )
 
     # Idempotent
     existing = (
@@ -946,8 +1034,25 @@ async def remove_role(
             "Member must hold at least one role. Assign another role first.",
         )
 
+    # Last-Admin floor: capture whether this removal orphans team
+    # management. `get_db` discards the flush on the raise below (no
+    # commit), so nothing is persisted.
+    had_manage = await _member_can_manage_team(session, member_id)
+    managers_before = (
+        await _count_team_managers(session, org_id) if had_manage else 0
+    )
+
     await session.delete(existing)
     await session.flush()
+
+    if had_manage and managers_before <= 1:
+        if not await _member_can_manage_team(session, member_id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Cannot remove the last member who can manage the team. "
+                "Grant another member an admin role first.",
+            )
+
     await audit_service.record(
         session,
         organization_id=org_id,
@@ -1024,6 +1129,15 @@ async def remove_member(
             status.HTTP_409_CONFLICT, "Owner cannot self-remove."
         )
 
+    # Last-Admin floor — never strand a workspace with nobody who can
+    # manage the team (belt-and-suspenders alongside the last-owner rule).
+    if await _member_can_manage_team(session, member_id):
+        if await _count_team_managers(session, org_id) <= 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Cannot remove the last member who can manage the team.",
+            )
+
     member.status = "removed"
     # Decrement org member_count for fast UI.
     org = await session.get(Organization, org_id)
@@ -1037,6 +1151,87 @@ async def remove_member(
         action="member.removed",
         target_type="member",
         target_id=member_id,
+    )
+
+
+async def set_member_status(
+    session: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    actor_member_id: uuid.UUID,
+    org_id: uuid.UUID,
+    member_id: uuid.UUID,
+    active: bool,
+) -> MemberResponse:
+    """Deactivate (suspend) or reactivate a member.
+
+    A suspended member keeps their roles + history but can't act until
+    reactivated. Guards mirror removal: the owner can't be deactivated,
+    you can't deactivate yourself, and you can't suspend the last member
+    who can manage the team.
+    """
+    member = await get_member_any_status(session, org_id=org_id, member_id=member_id)
+    new_status = "active" if active else "suspended"
+    if member.status == new_status:
+        return await _member_response(session, member)
+
+    if not active:
+        if await _is_owner(session, member_id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Cannot deactivate the org owner.",
+            )
+        if actor_member_id == member_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "You cannot deactivate yourself."
+            )
+        if await _member_can_manage_team(session, member_id):
+            if await _count_team_managers(session, org_id) <= 1:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Cannot deactivate the last member who can manage the team.",
+                )
+
+    member.status = new_status
+    await session.flush()
+    await audit_service.record(
+        session,
+        organization_id=org_id,
+        actor_user_id=actor_user_id,
+        action="member.reactivated" if active else "member.deactivated",
+        target_type="member",
+        target_id=member_id,
+    )
+    return await _member_response(session, member)
+
+
+async def get_member_any_status(
+    session: AsyncSession, *, org_id: uuid.UUID, member_id: uuid.UUID
+) -> OrganizationMember:
+    """Like `get_member` but accepts active OR suspended (not removed) —
+    needed to reactivate a suspended member."""
+    row = await session.get(OrganizationMember, member_id)
+    if row is None or row.organization_id != org_id or row.status == "removed":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+    return row
+
+
+async def _member_response(
+    session: AsyncSession, member: OrganizationMember
+) -> MemberResponse:
+    user = await session.get(User, member.user_id)
+    roles = await compute_role_slugs_for_member(session, member.id)
+    return MemberResponse(
+        id=member.id,
+        user_id=member.user_id,
+        email=user.email if user else "",
+        display_name=user.display_name if user else None,
+        avatar_url=user.avatar_url if user else None,
+        role_slugs=sorted(roles),
+        last_active_brand_id=member.last_active_brand_id,
+        joined_at=member.joined_at,
+        status=member.status,
+        is_owner="owner" in roles,
     )
 
 

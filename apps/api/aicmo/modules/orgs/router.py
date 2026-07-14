@@ -13,6 +13,7 @@ from aicmo.modules.orgs import service
 from aicmo.modules.orgs.schemas import (
     MemberAssignRole,
     MemberList,
+    MemberResponse,
     MemberRoleUpdate,
     OnboardingWorkspacePayload,
     OnboardingWorkspaceResult,
@@ -268,14 +269,65 @@ async def purge_one(
 @router.get("/{org_id}/members", response_model=MemberList)
 async def list_org_members(
     org_id: uuid.UUID,
+    include_inactive: bool = False,
     tenant: TenantContext = Depends(
         require_permission("team.manage", brand_optional=True)
     ),
     session: AsyncSession = Depends(get_db),
 ) -> MemberList:
     _ensure_active_tenant(tenant, org_id)
-    items = await service.list_members(session, org_id=org_id)
+    items = await service.list_members(
+        session, org_id=org_id, include_inactive=include_inactive
+    )
     return MemberList(items=items)
+
+
+@router.post(
+    "/{org_id}/members/{member_id}/deactivate", response_model=MemberResponse
+)
+async def deactivate_org_member(
+    org_id: uuid.UUID,
+    member_id: uuid.UUID,
+    tenant: TenantContext = Depends(
+        require_permission("team.manage", brand_optional=True)
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> MemberResponse:
+    _ensure_active_tenant(tenant, org_id)
+    result = await service.set_member_status(
+        session,
+        actor_user_id=tenant.user_uuid,
+        actor_member_id=tenant.member_id,
+        org_id=org_id,
+        member_id=member_id,
+        active=False,
+    )
+    await session.commit()
+    return result
+
+
+@router.post(
+    "/{org_id}/members/{member_id}/reactivate", response_model=MemberResponse
+)
+async def reactivate_org_member(
+    org_id: uuid.UUID,
+    member_id: uuid.UUID,
+    tenant: TenantContext = Depends(
+        require_permission("team.manage", brand_optional=True)
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> MemberResponse:
+    _ensure_active_tenant(tenant, org_id)
+    result = await service.set_member_status(
+        session,
+        actor_user_id=tenant.user_uuid,
+        actor_member_id=tenant.member_id,
+        org_id=org_id,
+        member_id=member_id,
+        active=True,
+    )
+    await session.commit()
+    return result
 
 
 @router.put("/{org_id}/members/{member_id}/roles")

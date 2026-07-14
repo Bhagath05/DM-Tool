@@ -172,6 +172,36 @@ async def get_invites(
 
 
 @router.post(
+    "/invites/{invite_id}/resend",
+    response_model=InviteCreateResponse,
+    summary="Reissue a pending invite — new token + extended expiry",
+)
+async def resend_invite_endpoint(
+    invite_id: uuid.UUID = Path(...),
+    tenant: TenantContext = Depends(_RequireTeamManage),
+    session: AsyncSession = Depends(get_db),
+) -> InviteCreateResponse:
+    try:
+        result = await service.resend_invite(
+            session,
+            actor_user_id=tenant.user_uuid,
+            organization_id=tenant.organization_id,
+            invite_id=invite_id,
+        )
+        await session.commit()
+        return result
+    except service.InviteNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found"
+        )
+    except service.InviteAlreadyConsumed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot resend invite — already {exc.current_status}.",
+        )
+
+
+@router.post(
     "/invites/{invite_id}/revoke",
     response_model=InviteRead,
     summary="Revoke a pending invite",

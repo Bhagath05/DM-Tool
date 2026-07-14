@@ -2450,11 +2450,22 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+    /** GET /team/invites — list invites; pass true to include terminal history. */
+    listInvites: (includeTerminal = false) =>
+      request<{ invites: InviteRead[] }>(
+        `/api/v1/team/invites${includeTerminal ? "?include_terminal=true" : ""}`,
+      ),
     /** POST /team/invites/{id}/revoke — cancel a pending invite. */
     revokeInvite: (inviteId: string) =>
       request<InviteRead>(`/api/v1/team/invites/${inviteId}/revoke`, {
         method: "POST",
       }),
+    /** POST /team/invites/{id}/resend — new token + extended expiry. */
+    resendInvite: (inviteId: string) =>
+      request<InviteCreateResponse>(
+        `/api/v1/team/invites/${inviteId}/resend`,
+        { method: "POST" },
+      ),
     /** GET /invites/{token} — public preview of an invite (acceptance page). */
     previewInvite: (token: string) =>
       request<InvitePreview>(`/api/v1/invites/${encodeURIComponent(token)}`),
@@ -3369,9 +3380,12 @@ export const api = {
       request<{ status: string }>(`/api/v1/orgs/${orgId}/purge`, {
         method: "POST",
       }),
-    /** Roster for the active org — used by the role Members tab. */
-    members: (orgId: string) =>
-      request<{ items: OrgMember[] }>(`/api/v1/orgs/${orgId}/members`),
+    /** Roster for the active org. `includeInactive` also returns suspended
+     *  members (for the enterprise Members page). */
+    members: (orgId: string, includeInactive = false) =>
+      request<{ items: OrgMember[] }>(
+        `/api/v1/orgs/${orgId}/members${includeInactive ? "?include_inactive=true" : ""}`,
+      ),
     assignMemberRole: (orgId: string, memberId: string, roleSlug: string) =>
       request<{ role_slugs: string[] }>(
         `/api/v1/orgs/${orgId}/members/${memberId}/roles`,
@@ -3382,6 +3396,41 @@ export const api = {
         `/api/v1/orgs/${orgId}/members/${memberId}/roles/${roleSlug}`,
         { method: "DELETE" },
       ),
+    deactivateMember: (orgId: string, memberId: string) =>
+      request<OrgMember>(
+        `/api/v1/orgs/${orgId}/members/${memberId}/deactivate`,
+        { method: "POST" },
+      ),
+    reactivateMember: (orgId: string, memberId: string) =>
+      request<OrgMember>(
+        `/api/v1/orgs/${orgId}/members/${memberId}/reactivate`,
+        { method: "POST" },
+      ),
+    removeMember: (orgId: string, memberId: string) =>
+      request<{ status: string }>(
+        `/api/v1/orgs/${orgId}/members/${memberId}`,
+        { method: "DELETE" },
+      ),
+  },
+  /**
+   * Phase 6.6 Slice 4 — org-wide audit log. Read-only; gated on
+   * `organization.manage` server-side. Powers the Settings · Audit page.
+   */
+  audit: {
+    list: (orgId: string, query: AuditQuery = {}) => {
+      const p = new URLSearchParams();
+      for (const a of query.action ?? []) p.append("action", a);
+      if (query.actor_user_id) p.set("actor_user_id", query.actor_user_id);
+      if (query.target_type) p.set("target_type", query.target_type);
+      if (query.since) p.set("since", query.since);
+      if (query.until) p.set("until", query.until);
+      if (query.search) p.set("search", query.search);
+      if (query.limit) p.set("limit", String(query.limit));
+      const qs = p.toString();
+      return request<AuditEventList>(
+        `/api/v1/orgs/${orgId}/audit${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
   /**
    * Phase 6.6 — Enterprise Role Management.
@@ -3908,6 +3957,40 @@ export interface OrgMember {
   last_active_brand_id: string | null;
   joined_at: string;
   status: string;
+  last_active_at: string | null;
+  is_owner: boolean;
+}
+
+/** One row in the org-wide audit log (GET /orgs/{id}/audit). */
+export interface AuditEvent {
+  id: string;
+  action: string;
+  actor_user_id: string;
+  actor_email: string | null;
+  actor_name: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  brand_id: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  occurred_at: string;
+}
+
+export interface AuditEventList {
+  items: AuditEvent[];
+  /** Distinct action slugs present in this org's log — for the filter UI. */
+  actions: string[];
+}
+
+/** Filters for the org audit log. All optional. */
+export interface AuditQuery {
+  action?: string[];
+  actor_user_id?: string;
+  target_type?: string;
+  since?: string;
+  until?: string;
+  search?: string;
+  limit?: number;
 }
 
 // ---- LinkedIn Poster Studio ----

@@ -177,6 +177,9 @@ class MemberResponse(BaseModel):
     last_active_brand_id: uuid.UUID | None
     joined_at: datetime
     status: str
+    # Phase 6.6 Slice 4 — enterprise member management columns.
+    last_active_at: datetime | None = None
+    is_owner: bool = False
 
 
 class MemberList(BaseModel):
