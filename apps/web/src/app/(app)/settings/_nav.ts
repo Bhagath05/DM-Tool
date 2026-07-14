@@ -15,6 +15,7 @@ import {
   Building2,
   CreditCard,
   Gauge,
+  KeyRound,
   type LucideIcon,
   Plug,
   ShieldCheck,
@@ -40,6 +41,12 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
     label: "Team",
     icon: Users2,
     description: "Members, roles, invitations.",
+  },
+  {
+    href: "/settings/roles",
+    label: "Roles",
+    icon: KeyRound,
+    description: "Roles, permissions, hierarchy.",
   },
   {
     href: "/settings/billing",

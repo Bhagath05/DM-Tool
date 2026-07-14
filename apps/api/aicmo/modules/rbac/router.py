@@ -25,8 +25,11 @@ from aicmo.modules.rbac import service
 from aicmo.modules.rbac.schemas import (
     MemberPermissionsResponse,
     PermissionList,
+    RoleAuditList,
     RoleCreate,
+    RoleDuplicate,
     RoleList,
+    RoleReorder,
     RoleResponse,
     RoleUpdate,
 )
@@ -71,6 +74,25 @@ async def list_org_roles(
     return RoleList(items=items)
 
 
+@org_router.post("/{org_id}/roles/reorder", response_model=RoleList)
+async def reorder_org_roles(
+    org_id: uuid.UUID,
+    payload: RoleReorder,
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
+    session: AsyncSession = Depends(get_db),
+) -> RoleList:
+    """Persist a drag-to-reorder gesture (custom roles only)."""
+    _ensure_org_match(tenant, org_id)
+    items = await service.reorder_roles(
+        session,
+        actor_user_id=tenant.user_uuid,
+        organization_id=org_id,
+        payload=payload,
+    )
+    await session.commit()
+    return RoleList(items=items)
+
+
 @org_router.get("/{org_id}/roles/{role_id}", response_model=RoleResponse)
 async def get_org_role(
     org_id: uuid.UUID,
@@ -79,9 +101,7 @@ async def get_org_role(
     session: AsyncSession = Depends(get_db),
 ) -> RoleResponse:
     _ensure_org_match(tenant, org_id)
-    return await service.get_role(
-        session, organization_id=org_id, role_id=role_id
-    )
+    return await service.get_role(session, organization_id=org_id, role_id=role_id)
 
 
 @org_router.post(
@@ -92,9 +112,7 @@ async def get_org_role(
 async def create_org_role(
     org_id: uuid.UUID,
     payload: RoleCreate,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> RoleResponse:
     _ensure_org_match(tenant, org_id)
@@ -108,16 +126,12 @@ async def create_org_role(
     return result
 
 
-@org_router.patch(
-    "/{org_id}/roles/{role_id}", response_model=RoleResponse
-)
+@org_router.patch("/{org_id}/roles/{role_id}", response_model=RoleResponse)
 async def update_org_role(
     org_id: uuid.UUID,
     role_id: uuid.UUID,
     payload: RoleUpdate,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> RoleResponse:
     _ensure_org_match(tenant, org_id)
@@ -132,15 +146,11 @@ async def update_org_role(
     return result
 
 
-@org_router.delete(
-    "/{org_id}/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@org_router.delete("/{org_id}/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_org_role(
     org_id: uuid.UUID,
     role_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> None:
     _ensure_org_match(tenant, org_id)
@@ -153,6 +163,52 @@ async def delete_org_role(
     await session.commit()
 
 
+@org_router.post(
+    "/{org_id}/roles/{role_id}/duplicate",
+    response_model=RoleResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def duplicate_org_role(
+    org_id: uuid.UUID,
+    role_id: uuid.UUID,
+    payload: RoleDuplicate,
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
+    session: AsyncSession = Depends(get_db),
+) -> RoleResponse:
+    """Clone a role (system or custom) into a new custom role."""
+    _ensure_org_match(tenant, org_id)
+    result = await service.duplicate_role(
+        session,
+        actor_user_id=tenant.user_uuid,
+        organization_id=org_id,
+        source_role_id=role_id,
+        payload=payload,
+    )
+    await session.commit()
+    return result
+
+
+@org_router.get("/{org_id}/roles/{role_id}/audit", response_model=RoleAuditList)
+async def role_audit(
+    org_id: uuid.UUID,
+    role_id: uuid.UUID,
+    limit: int = 100,
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
+    session: AsyncSession = Depends(get_db),
+) -> RoleAuditList:
+    """Role-scoped audit trail for the editor's Audit tab."""
+    _ensure_org_match(tenant, org_id)
+    role = await service.get_role(session, organization_id=org_id, role_id=role_id)
+    items = await service.list_role_audit(
+        session,
+        organization_id=org_id,
+        role_id=role_id,
+        role_slug=role.slug,
+        limit=min(max(limit, 1), 500),
+    )
+    return RoleAuditList(items=items)
+
+
 @org_router.get(
     "/{org_id}/members/{member_id}/permissions",
     response_model=MemberPermissionsResponse,
@@ -160,18 +216,14 @@ async def delete_org_role(
 async def member_permissions(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> MemberPermissionsResponse:
     """Resolved permission lookup. Useful for the role-editor UI ("what
     can this person actually do?") + for support debugging."""
     _ensure_org_match(tenant, org_id)
     # Confirm member belongs to this org
-    await orgs_service.get_member(
-        session, org_id=org_id, member_id=member_id
-    )
+    await orgs_service.get_member(session, org_id=org_id, member_id=member_id)
     roles = await compute_role_slugs_for_member(session, member_id)
     perms = await compute_permissions_for_member(session, member_id)
     return MemberPermissionsResponse(

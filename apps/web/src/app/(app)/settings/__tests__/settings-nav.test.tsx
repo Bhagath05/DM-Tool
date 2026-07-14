@@ -2,7 +2,7 @@
  * Phase 10.1 — Settings shell test.
  *
  * Pins the contract of the settings sub-nav:
- *   - All 7 routes appear.
+ *   - All 8 routes appear.
  *   - Active route gets the active-state styling (background swap).
  *   - The settings-nav data-testid is stable for downstream tests
  *     that need to assert on navigation.
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("Settings layout", () => {
-  it("renders all 7 sub-nav items in the correct order", () => {
+  it("renders all 8 sub-nav items in the correct order", () => {
     render(
       <SettingsLayout>
         <div>page body</div>
@@ -39,6 +39,7 @@ describe("Settings layout", () => {
     expect(SETTINGS_NAV.map((i) => i.label)).toEqual([
       "Organization",
       "Team",
+      "Roles",
       "Billing",
       "Integrations",
       "Notifications",

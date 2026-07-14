@@ -3369,6 +3369,71 @@ export const api = {
       request<{ status: string }>(`/api/v1/orgs/${orgId}/purge`, {
         method: "POST",
       }),
+    /** Roster for the active org — used by the role Members tab. */
+    members: (orgId: string) =>
+      request<{ items: OrgMember[] }>(`/api/v1/orgs/${orgId}/members`),
+    assignMemberRole: (orgId: string, memberId: string, roleSlug: string) =>
+      request<{ role_slugs: string[] }>(
+        `/api/v1/orgs/${orgId}/members/${memberId}/roles`,
+        { method: "POST", body: JSON.stringify({ role_slug: roleSlug }) },
+      ),
+    removeMemberRole: (orgId: string, memberId: string, roleSlug: string) =>
+      request<{ role_slugs: string[] }>(
+        `/api/v1/orgs/${orgId}/members/${memberId}/roles/${roleSlug}`,
+        { method: "DELETE" },
+      ),
+  },
+  /**
+   * Phase 6.6 — Enterprise Role Management.
+   *
+   * Roles + the permission catalog + the role-scoped audit trail. All
+   * role writes gate on `team.manage` server-side. `permissions()` is the
+   * catalog every editor renders against — never hardcode permission
+   * slugs in the UI; group by the `category` field the backend returns.
+   */
+  rbac: {
+    permissions: () =>
+      request<{ items: RbacPermission[] }>("/api/v1/rbac/permissions"),
+    listRoles: (orgId: string) =>
+      request<{ items: RbacRole[] }>(`/api/v1/orgs/${orgId}/roles`),
+    getRole: (orgId: string, roleId: string) =>
+      request<RbacRole>(`/api/v1/orgs/${orgId}/roles/${roleId}`),
+    createRole: (orgId: string, payload: RoleWritePayload) =>
+      request<RbacRole>(`/api/v1/orgs/${orgId}/roles`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateRole: (
+      orgId: string,
+      roleId: string,
+      payload: Partial<RoleWritePayload>,
+    ) =>
+      request<RbacRole>(`/api/v1/orgs/${orgId}/roles/${roleId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
+    deleteRole: (orgId: string, roleId: string) =>
+      request<void>(`/api/v1/orgs/${orgId}/roles/${roleId}`, {
+        method: "DELETE",
+      }),
+    reorderRoles: (orgId: string, items: RoleReorderItem[]) =>
+      request<{ items: RbacRole[] }>(`/api/v1/orgs/${orgId}/roles/reorder`, {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      }),
+    duplicateRole: (
+      orgId: string,
+      roleId: string,
+      payload: { slug: string; name: string },
+    ) =>
+      request<RbacRole>(`/api/v1/orgs/${orgId}/roles/${roleId}/duplicate`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    roleAudit: (orgId: string, roleId: string) =>
+      request<{ items: RoleAuditEvent[] }>(
+        `/api/v1/orgs/${orgId}/roles/${roleId}/audit`,
+      ),
   },
   /**
    * LinkedIn Poster Studio — topic → branded announcement poster (image)
@@ -3770,6 +3835,79 @@ export interface OrganizationResetResult {
   tables_cleared: number;
   rows_deleted: number;
   details: Record<string, number>;
+}
+
+// ---- Phase 6.6 — Enterprise Role Management ----
+
+/** One entry in the permission catalog (GET /rbac/permissions). */
+export interface RbacPermission {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  category: string;
+}
+
+/**
+ * A role with its embedded grants. `permission_slugs` is the ALLOW set,
+ * `deny_slugs` the explicit-DENY set; a permission in neither is INHERIT.
+ */
+export interface RbacRole {
+  id: string;
+  organization_id: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+  priority: number;
+  color: string | null;
+  permission_slugs: string[];
+  deny_slugs: string[];
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create/update payload for a role. All fields optional on PATCH. */
+export interface RoleWritePayload {
+  slug: string;
+  name: string;
+  description?: string | null;
+  priority?: number;
+  color?: string | null;
+  permission_slugs?: string[];
+  deny_slugs?: string[];
+}
+
+export interface RoleReorderItem {
+  role_id: string;
+  priority: number;
+}
+
+/** One role-scoped audit row (GET /orgs/{id}/roles/{id}/audit). */
+export interface RoleAuditEvent {
+  id: string;
+  action: string;
+  actor_user_id: string;
+  actor_email: string | null;
+  actor_name: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  summary: string | null;
+  occurred_at: string;
+}
+
+/** A member of the active org (GET /orgs/{id}/members). */
+export interface OrgMember {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role_slugs: string[];
+  last_active_brand_id: string | null;
+  joined_at: string;
+  status: string;
 }
 
 // ---- LinkedIn Poster Studio ----
