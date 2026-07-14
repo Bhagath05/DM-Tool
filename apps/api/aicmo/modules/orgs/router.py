@@ -399,6 +399,30 @@ async def remove_member_role(
     return {"role_slugs": roles}
 
 
+@router.post("/{org_id}/members/{member_id}/transfer-ownership")
+async def transfer_org_ownership(
+    org_id: uuid.UUID,
+    member_id: uuid.UUID,
+    tenant: TenantContext = Depends(
+        require_permission("organization.manage", brand_optional=True)
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Transfer the workspace Owner role to another member. Owner-only —
+    enforced in the service (the current owner is the only one who can
+    hand it off)."""
+    _ensure_active_tenant(tenant, org_id)
+    await service.transfer_ownership(
+        session,
+        actor_user_id=tenant.user_uuid,
+        actor_member_id=tenant.member_id,
+        org_id=org_id,
+        new_owner_member_id=member_id,
+    )
+    await session.commit()
+    return {"status": "transferred"}
+
+
 @router.delete("/{org_id}/members/{member_id}")
 async def remove_org_member(
     org_id: uuid.UUID,

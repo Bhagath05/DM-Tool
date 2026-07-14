@@ -204,6 +204,80 @@ async def test_cannot_deactivate_self(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.status_code == 409
 
 
+# ---------------------------------------------------------------------
+#  Ownership transfer
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_only_owner_can_transfer_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _is_owner(session, mid):
+        return False  # actor is NOT the owner
+
+    monkeypatch.setattr(service, "_is_owner", _is_owner)
+
+    with pytest.raises(NotAuthorized):
+        await service.transfer_ownership(
+            _Session(),
+            actor_user_id=uuid.uuid4(),
+            actor_member_id=uuid.uuid4(),
+            org_id=uuid.uuid4(),
+            new_owner_member_id=uuid.uuid4(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_cannot_transfer_ownership_to_self(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    me = uuid.uuid4()
+
+    async def _is_owner(session, mid):
+        return True
+
+    monkeypatch.setattr(service, "_is_owner", _is_owner)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.transfer_ownership(
+            _Session(),
+            actor_user_id=uuid.uuid4(),
+            actor_member_id=me,
+            org_id=uuid.uuid4(),
+            new_owner_member_id=me,
+        )
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_transfer_to_existing_owner_is_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _is_owner(session, mid):
+        return True  # both actor and target already own
+
+    async def _get_member(session, *, org_id, member_id):
+        return _member(id=member_id)
+
+    async def _boom(session, *, org_id, role_slug):
+        raise RuntimeError("should not load roles for a no-op transfer")
+
+    monkeypatch.setattr(service, "_is_owner", _is_owner)
+    monkeypatch.setattr(service, "get_member", _get_member)
+    monkeypatch.setattr(service, "_load_system_or_org_role", _boom)
+
+    # Returns cleanly without mutating anything.
+    result = await service.transfer_ownership(
+        _Session(),
+        actor_user_id=uuid.uuid4(),
+        actor_member_id=uuid.uuid4(),
+        org_id=uuid.uuid4(),
+        new_owner_member_id=uuid.uuid4(),
+    )
+    assert result is None
+
+
 @pytest.mark.asyncio
 async def test_cannot_deactivate_last_manager(
     monkeypatch: pytest.MonkeyPatch,

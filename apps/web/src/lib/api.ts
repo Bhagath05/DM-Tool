@@ -3411,6 +3411,12 @@ export const api = {
         `/api/v1/orgs/${orgId}/members/${memberId}`,
         { method: "DELETE" },
       ),
+    /** Hand the workspace Owner role to another member. Owner-only. */
+    transferOwnership: (orgId: string, memberId: string) =>
+      request<{ status: string }>(
+        `/api/v1/orgs/${orgId}/members/${memberId}/transfer-ownership`,
+        { method: "POST" },
+      ),
   },
   /**
    * Phase 6.6 Slice 4 — org-wide audit log. Read-only; gated on

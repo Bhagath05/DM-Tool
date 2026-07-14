@@ -13,6 +13,7 @@
 
 import {
   ChevronDown,
+  Crown,
   Power,
   Search,
   Trash2,
@@ -43,6 +44,7 @@ export default function MembersSettingsPage() {
   const tenant = useTenant();
   const orgId = tenant.activeOrg?.id ?? null;
   const canManage = tenant.can("team.manage");
+  const iAmOwner = tenant.roleSlugs.includes("owner");
   const myUserId = tenant.user?.id ?? null;
 
   const [members, setMembers] = useState<OrgMember[] | null>(null);
@@ -55,6 +57,7 @@ export default function MembersSettingsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [bulkRole, setBulkRole] = useState("");
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -193,7 +196,33 @@ export default function MembersSettingsPage() {
           <span className="text-sm font-medium text-ai-soft-foreground">
             {selected.size} selected
           </span>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <select
+              value={bulkRole}
+              onChange={(e) => setBulkRole(e.target.value)}
+              aria-label="Role to assign"
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-sm"
+            >
+              <option value="">Assign role…</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.slug}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy === "bulk" || !bulkRole}
+              onClick={() =>
+                runBulk((oid, mid) =>
+                  api.orgs.assignMemberRole(oid, mid, bulkRole),
+                )
+              }
+            >
+              Assign
+            </Button>
+            <span aria-hidden className="h-5 w-px bg-ai-border" />
             <Button
               size="sm"
               variant="outline"
@@ -329,6 +358,7 @@ export default function MembersSettingsPage() {
                         member={m}
                         roles={roles}
                         isSelf={isSelf}
+                        iAmOwner={iAmOwner}
                         busy={busy}
                         onAct={act}
                       />
@@ -353,6 +383,7 @@ function MemberManage({
   member,
   roles,
   isSelf,
+  iAmOwner,
   busy,
   onAct,
 }: {
@@ -360,9 +391,11 @@ function MemberManage({
   member: OrgMember;
   roles: RbacRole[];
   isSelf: boolean;
+  iAmOwner: boolean;
   busy: string | null;
   onAct: (fn: () => Promise<unknown>, key: string) => Promise<void>;
 }) {
+  const [confirmTransfer, setConfirmTransfer] = useState(false);
   const has = (slug: string) => member.role_slugs.includes(slug);
   const toggleRole = (slug: string) =>
     onAct(
@@ -450,6 +483,59 @@ function MemberManage({
           Remove
         </Button>
       </div>
+
+      {/* Ownership transfer — only the current owner sees this. */}
+      {iAmOwner && !isSelf && member.status === "active" && (
+        <div className="rounded-lg border border-watch-border bg-watch-soft/40 px-3 py-2.5">
+          {confirmTransfer ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="flex-1 text-xs text-foreground">
+                Make {member.display_name ?? member.email} the owner? You'll
+                stay on as an Admin. This can only be undone by the new owner.
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmTransfer(false)}
+                disabled={busy === `owner:${member.id}`}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() =>
+                  onAct(async () => {
+                    await api.orgs.transferOwnership(orgId, member.id);
+                    setConfirmTransfer(false);
+                  }, `owner:${member.id}`)
+                }
+                disabled={busy === `owner:${member.id}`}
+              >
+                <Crown className="mr-1.5 h-3.5 w-3.5" />
+                Confirm transfer
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Transfer ownership</p>
+                <p className="text-xs text-muted-foreground">
+                  Hand this workspace to another member.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmTransfer(true)}
+                data-testid={`transfer-owner-${member.id}`}
+              >
+                <Crown className="mr-1.5 h-3.5 w-3.5" />
+                Make owner
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

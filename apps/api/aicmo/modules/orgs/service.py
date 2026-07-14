@@ -1205,6 +1205,92 @@ async def set_member_status(
     return await _member_response(session, member)
 
 
+async def transfer_ownership(
+    session: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    actor_member_id: uuid.UUID,
+    org_id: uuid.UUID,
+    new_owner_member_id: uuid.UUID,
+) -> None:
+    """Hand the workspace Owner role to another active member.
+
+    Only the current owner may do this. The flow is ordered so the org is
+    never left ownerless: the new owner is granted first, `owner_user_id`
+    is repointed, the outgoing owner is kept on as an Admin (never
+    stranded), and only then is their Owner role revoked — at which point
+    two owners exist momentarily, so the last-owner guard is satisfied.
+    """
+    if not await _is_owner(session, actor_member_id):
+        raise NotAuthorized(action="member.transfer_ownership", role="admin")
+    if new_owner_member_id == actor_member_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "You already own this workspace."
+        )
+    new_owner = await get_member(
+        session, org_id=org_id, member_id=new_owner_member_id
+    )
+    if await _is_owner(session, new_owner_member_id):
+        return  # already the owner — nothing to do
+
+    owner_role = await _load_system_or_org_role(
+        session, org_id=org_id, role_slug="owner"
+    )
+    admin_role = await _load_system_or_org_role(
+        session, org_id=org_id, role_slug="admin"
+    )
+
+    async def _has_role(member_id: uuid.UUID, role_id: uuid.UUID) -> object | None:
+        return (
+            await session.execute(
+                select(MemberRole).where(
+                    MemberRole.member_id == member_id,
+                    MemberRole.role_id == role_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    # 1) Grant Owner to the incoming owner.
+    if await _has_role(new_owner_member_id, owner_role.id) is None:
+        session.add(
+            MemberRole(
+                member_id=new_owner_member_id,
+                role_id=owner_role.id,
+                assigned_by_user_id=actor_user_id,
+            )
+        )
+    # 2) Repoint the org's canonical owner.
+    org = await session.get(Organization, org_id)
+    if org is not None:
+        org.owner_user_id = new_owner.user_id
+    await session.flush()
+
+    # 3) Keep the outgoing owner on as an Admin so they aren't stranded.
+    if await _has_role(actor_member_id, admin_role.id) is None:
+        session.add(
+            MemberRole(
+                member_id=actor_member_id,
+                role_id=admin_role.id,
+                assigned_by_user_id=actor_user_id,
+            )
+        )
+    # 4) Revoke Owner from the outgoing owner (two owners exist now → safe).
+    old = await _has_role(actor_member_id, owner_role.id)
+    if old is not None:
+        await session.delete(old)
+    await session.flush()
+
+    await audit_service.record(
+        session,
+        organization_id=org_id,
+        actor_user_id=actor_user_id,
+        action="member.ownership_transferred",
+        target_type="member",
+        target_id=new_owner_member_id,
+        after={"new_owner_user_id": str(new_owner.user_id)},
+    )
+
+
 async def get_member_any_status(
     session: AsyncSession, *, org_id: uuid.UUID, member_id: uuid.UUID
 ) -> OrganizationMember:
