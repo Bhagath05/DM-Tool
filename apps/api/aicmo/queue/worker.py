@@ -35,7 +35,7 @@ async def startup(ctx: dict) -> None:
         from aicmo.observability.sentry import init_sentry
 
         init_sentry()
-    except Exception:  # noqa: BLE001 — never block worker boot on telemetry
+    except Exception:
         pass
 
 
@@ -46,14 +46,15 @@ async def shutdown(ctx: dict) -> None:
 # Central job registry. Every feature module that adds a `tasks.py`
 # appends its `@tenant_job`-decorated functions here so the worker
 # discovers them. Phase 0 ships only the reference job.
-from aicmo.queue.reference import echo_tenant_job  # noqa: E402
-from aicmo.modules.video.tasks import generate_video_stub, render_design_video  # noqa: E402
 from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
+from aicmo.modules.operations.tasks import operations_cycle_cron  # noqa: E402
 from aicmo.modules.publishing.tasks import (  # noqa: E402
     publish_due_cron,
     publish_due_scheduled_posts,
 )
+from aicmo.modules.video.tasks import generate_video_stub, render_design_video  # noqa: E402
 from aicmo.observability.health import monitor_system_cron  # noqa: E402
+from aicmo.queue.reference import echo_tenant_job  # noqa: E402
 
 ALL_JOBS: list = [
     echo_tenant_job,
@@ -68,6 +69,16 @@ ALL_JOBS: list = [
 CRON_JOBS: list = [
     cron(publish_due_cron, second=0, run_at_startup=False),
     cron(monitor_system_cron, second=0, run_at_startup=False),
+    # Phase 8 — the AI employee's daily shift. Once a day at the configured
+    # hour; reuses run_operations_cycle (same function /operations/tick calls).
+    # Guarded by an emergency stop + the existing master switches.
+    cron(
+        operations_cycle_cron,
+        hour=_settings.operations_daily_cron_hour,
+        minute=0,
+        second=0,
+        run_at_startup=False,
+    ),
 ]
 
 

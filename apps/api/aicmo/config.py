@@ -160,6 +160,22 @@ class Settings(BaseSettings):
     # synthesis) cost LLM calls, so they're OFF by default. Cheap monitoring /
     # detection / scheduling always run; enable this to add the reasoning layer.
     # Cooldowns bound how often each engine runs per brand (cost control).
+    # --- Phase 8: daily autonomous execution guardrails (Priority 3) ---
+    #   The cycle runs once a day on the existing Arq worker. These are the
+    #   ceilings the owner set; they are read by the cron + pipeline, and every
+    #   one can be overridden per-environment without a deploy.
+    #
+    #   NOTE: `operations_pipeline_enabled` + `autonomy_execution_enabled` both
+    #   default OFF. Until they are switched on the daily cycle only observes
+    #   and detects — it never reasons, spends, or executes. Turning them on is
+    #   a deliberate, billable decision.
+    operations_daily_cron_enabled: bool = Field(default=True)
+    operations_daily_cron_hour: int = Field(default=8, ge=0, le=23)
+    operations_emergency_stop: bool = Field(default=False)
+    operations_daily_budget_usd: float = Field(default=1.0, ge=0)
+    operations_max_tasks_per_cycle: int = Field(default=10, ge=0)
+    operations_max_reasoning_tasks: int = Field(default=5, ge=0)
+    operations_max_content_tasks: int = Field(default=5, ge=0)
     operations_pipeline_enabled: bool = Field(default=False)
     operations_decision_cooldown_seconds: int = Field(default=21600)   # 6h
     operations_learning_cooldown_seconds: int = Field(default=86400)   # 24h
