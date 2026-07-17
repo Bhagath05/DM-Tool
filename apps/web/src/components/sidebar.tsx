@@ -88,6 +88,7 @@ const PRIMARY_NAV: NavGroup[] = [
     defaultOpen: true,
     items: [
       { href: "/today", label: "Today's Plan", icon: Sun },
+      { href: "/ai-employee", label: "Your AI Marketer", icon: Brain },
     ],
   },
   {

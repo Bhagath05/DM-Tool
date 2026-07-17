@@ -47,6 +47,7 @@ import { Sidebar } from "./sidebar";
 
 const PRIMARY_LABELS = [
   "Today's Plan",
+  "Your AI Marketer",
   "Leads",
   "CRM",
   "Sales Dashboard",
@@ -72,6 +73,7 @@ const PRIMARY_LABELS = [
 // facing destinations excluding the settings rail.
 const PRIMARY_HREFS = [
   "/today",
+  "/ai-employee",
   "/grow/leads",
   "/crm",
   "/crm/dashboard",

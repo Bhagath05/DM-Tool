@@ -294,6 +294,109 @@ export interface BusinessProfileSubmitPayload {
   writing_style?: string;
 }
 
+// ---------- AI Employee — existing engines, previously unexposed ----------
+// These endpoints all shipped server-side with no frontend client. The types
+// mirror the backend schemas exactly; the workspace only composes them.
+
+export interface PlannedTask {
+  title: string;
+  category: string;
+  why: string;
+  priority: "high" | "medium" | "low" | string;
+  effort: string;
+  suggested_action: string;
+}
+
+export interface DailyPlanResponse {
+  plan: { summary: string; focus: string; tasks: PlannedTask[] };
+  grounded_in_strategy: boolean;
+}
+
+export interface LifecycleStage {
+  key: string;
+  label: string;
+  status: string;
+  reason: string;
+  action: string | null;
+  link: string;
+  requires_approval: boolean;
+  auto_eligible: boolean;
+  policy_mode: string | null;
+  blocked_by: string | null;
+}
+
+export interface OrchestratorPlan {
+  summary: string;
+  current_stage: string;
+  next_action: {
+    stage: string;
+    action: string;
+    why: string;
+    link: string;
+    requires_approval: boolean;
+    auto_eligible: boolean;
+  } | null;
+  stages: LifecycleStage[];
+  blocked_on: string | null;
+  pending_approvals: string[];
+  autonomy_note: string;
+  generated_at: string;
+}
+
+export interface WorkItem {
+  id: string;
+  kind: string;
+  action_type: string;
+  title: string;
+  description: string;
+  /** The AI's plain-language "why I queued this". */
+  rationale: string;
+  source_kind: string;
+  priority: string;
+  requires_approval: boolean;
+  auto_eligible: boolean;
+  policy_mode: string | null;
+  status: string;
+  scheduled_for: string | null;
+  created_at: string;
+}
+
+export interface WorkList {
+  items: WorkItem[];
+  awaiting_approval: number;
+}
+
+export interface OpsNotification {
+  id: string;
+  category: string;
+  kind: string;
+  severity: string;
+  title: string;
+  body: string;
+  link: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export interface Decision {
+  decision: string;
+  reasoning: string;
+  evidence: string[];
+  expected_impact: string;
+  confidence: number;
+  urgency: string;
+  recommended_action: string;
+  alternative_actions: string[];
+  risks: string[];
+  business_objective: string;
+  affected_channels: string[];
+}
+
+export interface DecisionReportResponse {
+  report: { decisions: Decision[]; data_sufficiency: string };
+  signals: Record<string, unknown>;
+}
+
 // ---------- AI Marketing Health ----------
 
 /** One plain-language health score. Carries the full constitution contract:
@@ -2938,6 +3041,41 @@ export const api = {
         `opportunities:center:${getActiveTenantHeaders().organization_id}:${getActiveTenantHeaders().brand_id}`,
         () => request<OpportunityCenterReport>("/api/v1/opportunities"),
         60_000,
+      ),
+  },
+  /**
+   * AI Employee engines. All of these shipped server-side long ago with no
+   * frontend client — these methods only expose them. No logic lives here.
+   */
+  planner: {
+    /** GET /planner/today — today's grounded task plan (plans only). */
+    today: () => request<DailyPlanResponse>("/api/v1/planner/today"),
+  },
+  orchestrator: {
+    /** GET /orchestrator/plan — the coordinated next-action plan. */
+    plan: () => request<OrchestratorPlan>("/api/v1/orchestrator/plan"),
+  },
+  decisions: {
+    /** GET /decisions — evidence-grounded decisions for this brand. */
+    get: () => request<DecisionReportResponse>("/api/v1/decisions"),
+  },
+  operations: {
+    /** GET /operations/work — the AI's queued work (policy-gated). */
+    work: () => request<WorkList>("/api/v1/operations/work"),
+    /** PATCH /operations/work/{id} — approve or dismiss queued work. */
+    updateWork: (workId: string, status: "approved" | "dismissed") =>
+      request<WorkItem>(`/api/v1/operations/work/${workId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
+    notifications: () =>
+      request<{ items: OpsNotification[]; unread: number }>(
+        "/api/v1/operations/notifications",
+      ),
+    markRead: (id: string) =>
+      request<OpsNotification>(
+        `/api/v1/operations/notifications/${id}/read`,
+        { method: "POST" },
       ),
   },
   advisor: {
