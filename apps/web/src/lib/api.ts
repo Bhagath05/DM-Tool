@@ -294,6 +294,71 @@ export interface BusinessProfileSubmitPayload {
   writing_style?: string;
 }
 
+// ---------- Intelligent Onboarding — AI discovery ----------
+
+/** The AI's proposed Brand Brain, shown for review + editing before it's applied. */
+export interface DiscoveryDraft {
+  business_description: string;
+  products: string[];
+  services: string[];
+  target_audience: string;
+  unique_selling_points: string[];
+  competitors: string[];
+  brand_tone: string;
+  writing_style: string;
+  keywords: string[];
+  brand_colors: string[];
+  fonts: string[];
+  brand_rules: string[];
+  goals: string[];
+  summary: string;
+  content_opportunities: string[];
+  marketing_opportunities: string[];
+  seo_opportunities: string[];
+  brand_completeness_score: number;
+  content_readiness_score: number;
+  advertising_readiness_score: number;
+  seo_readiness_score: number;
+}
+
+/** Real progress marker advanced by the backend runner (never a fake timer). */
+export type DiscoveryStage =
+  | "queued"
+  | "reading"
+  | "understanding"
+  | "building"
+  | "done";
+
+export interface DiscoveryRun {
+  id: string;
+  source: "website" | "scratch";
+  url: string | null;
+  business_name: string;
+  industry: string | null;
+  status: "pending" | "running" | "completed" | "failed";
+  stage: DiscoveryStage;
+  draft: DiscoveryDraft | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StartWebsiteDiscoveryPayload {
+  business_name: string;
+  website_url: string;
+  industry: string;
+}
+
+export interface StartScratchDiscoveryPayload {
+  business_name: string;
+  what_you_sell: string;
+  who_to_reach: string;
+  what_makes_different?: string;
+  style: string;
+  main_goal: string;
+  industry?: string;
+}
+
 // ---------- Trends ----------
 
 /**
@@ -2770,6 +2835,37 @@ export const api = {
     retryAnalysis: () =>
       request<BusinessProfile>("/api/v1/business/profile/retry-analysis", {
         method: "POST",
+      }),
+  },
+  /**
+   * Intelligent Onboarding — the AI reads a real website (or six answers)
+   * and proposes a Brand Brain the user reviews before it's applied.
+   * Start returns immediately (202); poll `get` for real stage progress.
+   */
+  discovery: {
+    startWebsite: (payload: StartWebsiteDiscoveryPayload) =>
+      request<{ id: string; status: string }>("/api/v1/discovery/website", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    startScratch: (payload: StartScratchDiscoveryPayload) =>
+      request<{ id: string; status: string }>("/api/v1/discovery/scratch", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    get: (id: string) => request<DiscoveryRun>(`/api/v1/discovery/${id}`),
+    apply: (
+      id: string,
+      payload: {
+        draft: DiscoveryDraft;
+        business_name?: string;
+        industry?: string;
+        website?: string;
+      },
+    ) =>
+      request<BusinessProfile>(`/api/v1/discovery/${id}/apply`, {
+        method: "POST",
+        body: JSON.stringify(payload),
       }),
   },
   coach: {

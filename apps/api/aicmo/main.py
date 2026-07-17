@@ -33,6 +33,7 @@ from aicmo.modules.content.router import router as content_router
 from aicmo.modules.context.router import router as context_router
 from aicmo.modules.creative.storage.base import MediaPersistenceUnavailable
 from aicmo.modules.decision_engine.router import router as decision_engine_router
+from aicmo.modules.discovery.router import router as discovery_router
 from aicmo.modules.insights.router import router as insights_router
 from aicmo.modules.integrations.router import (
     public_router as integrations_public_router,
@@ -247,6 +248,7 @@ async def readyz() -> JSONResponse:
 
 
 app.include_router(onboarding_router, prefix="/api/v1")
+app.include_router(discovery_router, prefix="/api/v1")
 app.include_router(trends_router, prefix="/api/v1")
 # Phase 6.2B — ops routes (literal paths) BEFORE the base router so
 # /content/folders + /content/search aren't captured as /content/{content_id}.
