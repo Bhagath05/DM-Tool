@@ -81,6 +81,7 @@ import {
 } from "@/lib/intelligence-adapter";
 import { cn } from "@/lib/utils";
 
+import { MarketingHealthCard } from "./marketing-health";
 import { PriorityRow } from "../../leads/_components/intelligence-card";
 import {
   OpportunityCard,
@@ -288,6 +289,9 @@ function ReadyView({
 
       {/* SECTION 1 — Hero AI recommendation */}
       <HeroSection hero={hero} quickGen={heroQuickGen} />
+
+      {/* SECTION 1b — How your marketing is doing (real, data-derived scores) */}
+      <MarketingHealthCard />
 
       {/* SECTION 2 — Customers to contact */}
       <ContactLeadsSection

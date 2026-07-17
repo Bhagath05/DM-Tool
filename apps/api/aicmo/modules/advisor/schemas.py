@@ -244,3 +244,29 @@ class AgentReport(BaseModel):
     period_start: str
     period_end: str
     generated_at: str
+
+
+# ---------------------------------------------------------------------
+#  AI Marketing Health (Phase 8 — the AI headquarters scores)
+# ---------------------------------------------------------------------
+
+
+class HealthScore(BaseModel):
+    """One plain-language health score. Carries the full constitution
+    contract: what it means, why it matters, and what to do next."""
+
+    key: str
+    label: str
+    score: int = Field(ge=0, le=100)
+    status: Literal["good", "watch", "bad"]
+    explanation: str
+    why: str
+    recommendation: str
+
+
+class MarketingHealthResponse(BaseModel):
+    overall: int = Field(ge=0, le=100)
+    overall_status: Literal["good", "watch", "bad"]
+    headline: str
+    focus_key: str = Field(description="Key of the weakest score — what to fix first.")
+    scores: list[HealthScore] = Field(default_factory=list)

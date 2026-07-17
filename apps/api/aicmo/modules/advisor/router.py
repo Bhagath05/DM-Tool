@@ -10,14 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.cache.redis_cache import cache_get, cache_set
 from aicmo.config import get_settings
 from aicmo.db.session import get_db
+from aicmo.modules.advisor import service
 from aicmo.modules.advisor.agent import generate_agent_report
 from aicmo.modules.advisor.brain import brain_completeness, load_business_brain
 from aicmo.modules.advisor.effectiveness import list_effectiveness
 from aicmo.modules.advisor.execute import execute_recommendation
+from aicmo.modules.advisor.health import compute_health
 from aicmo.modules.advisor.intelligence import compose_intelligence
 from aicmo.modules.advisor.readiness import assess_readiness
 from aicmo.modules.advisor.schemas import (
     AdvisorHistoryList,
+    AdvisorReadinessResponse,
+    AdvisorRecommendationResponse,
     AgentReport,
     AgentReportType,
     BusinessBrainResponse,
@@ -26,18 +30,16 @@ from aicmo.modules.advisor.schemas import (
     EffectivenessResponse,
     ExecuteRecommendationRequest,
     ExecuteRecommendationResponse,
-    AdvisorReadinessResponse,
-    AdvisorRecommendationResponse,
     IntelligenceReport,
+    MarketingHealthResponse,
     UpdateRecommendationStatusRequest,
 )
-from aicmo.modules.publishing.schemas import (
-    ScheduleFromRecommendationRequest,
-    ScheduledPostResponse,
-)
-from aicmo.modules.advisor import service
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse, BusinessProfileUpdate
+from aicmo.modules.publishing.schemas import (
+    ScheduledPostResponse,
+    ScheduleFromRecommendationRequest,
+)
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
 
@@ -83,6 +85,29 @@ async def get_readiness(
         suggested_setup_steps=steps,
         signal_count=0,
     )
+
+
+@router.get("/health", response_model=MarketingHealthResponse)
+async def get_marketing_health(
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> MarketingHealthResponse:
+    """Plain-language marketing health for the AI headquarters. Computed
+    from this brand's real rows — no LLM call, so it renders instantly and
+    can't invent a number."""
+    profile_row = await onboarding_service.get_profile_or_none(
+        session, tenant.brand_id
+    )
+    if profile_row is None:
+        return MarketingHealthResponse(
+            overall=0,
+            overall_status="bad",
+            headline="Tell us about your business and we'll get started.",
+            focus_key="brand",
+            scores=[],
+        )
+    profile = BusinessProfileResponse.model_validate(profile_row)
+    return await compute_health(session, profile=profile)
 
 
 @router.get("/history", response_model=AdvisorHistoryList)

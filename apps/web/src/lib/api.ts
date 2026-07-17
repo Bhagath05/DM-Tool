@@ -294,6 +294,29 @@ export interface BusinessProfileSubmitPayload {
   writing_style?: string;
 }
 
+// ---------- AI Marketing Health ----------
+
+/** One plain-language health score. Carries the full constitution contract:
+ *  what it means, why it matters, and what to do next. */
+export interface HealthScore {
+  key: string;
+  label: string;
+  score: number;
+  status: "good" | "watch" | "bad";
+  explanation: string;
+  why: string;
+  recommendation: string;
+}
+
+export interface MarketingHealth {
+  overall: number;
+  overall_status: "good" | "watch" | "bad";
+  headline: string;
+  /** Key of the weakest score — what to fix first. */
+  focus_key: string;
+  scores: HealthScore[];
+}
+
 // ---------- Intelligent Onboarding — AI discovery ----------
 
 /** The AI's proposed Brand Brain, shown for review + editing before it's applied. */
@@ -2918,6 +2941,8 @@ export const api = {
       ),
   },
   advisor: {
+    /** Plain-language marketing health, computed from real data (no LLM). */
+    health: () => request<MarketingHealth>("/api/v1/advisor/health"),
     history: () =>
       request<{ items: AdvisorHistoryItem[] }>("/api/v1/advisor/history").then(
         (r) => r.items,
