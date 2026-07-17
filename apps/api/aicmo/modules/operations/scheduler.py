@@ -185,8 +185,21 @@ async def persist_drafts(
     from aicmo.config import get_settings
     from aicmo.modules.autonomy import service as autonomy_service
 
+    settings = get_settings()
     config = await autonomy_service.get_or_default(session, brand_id=brand_id)
-    exec_enabled = get_settings().autonomy_execution_enabled
+    exec_enabled = settings.autonomy_execution_enabled
+
+    # Guardrail (Phase 8, Priority 3): never queue more than the owner's
+    # max-tasks-per-cycle ceiling. Highest priority first so the most valuable
+    # work survives the cap; the rest is held for the next cycle and the owner
+    # is told what's waiting.
+    max_tasks = settings.operations_max_tasks_per_cycle
+    _rank = {"high": 0, "medium": 1, "low": 2}
+    drafts = sorted(drafts, key=lambda d: _rank.get(d.priority, 3))
+    held_back = 0
+    if max_tasks >= 0 and len(drafts) > max_tasks:
+        held_back = len(drafts) - max_tasks
+        drafts = drafts[:max_tasks]
 
     existing = await _open_dedupe_keys(session, brand_id=brand_id)
     created = 0
@@ -220,4 +233,36 @@ async def persist_drafts(
         ))
         existing.add(dedupe)
         created += 1
+
+    # Told-you-what-remains: when the cap held work back, leave the owner a
+    # plain-language note rather than silently dropping it. `_emit` is sync,
+    # dedupes on the day so we don't repeat it, and falls back to a valid
+    # category on its own.
+    if held_back > 0:
+        try:
+            from aicmo.modules.operations import notifier
+
+            note_now = datetime.now(UTC)
+            day = note_now.date().isoformat()
+            notifier._emit(
+                session,
+                organization_id=organization_id,
+                brand_id=brand_id,
+                category="operations",
+                kind="work_deferred",
+                title="A few more ideas are waiting for tomorrow",
+                body=(
+                    f"I prepared the {created} most important thing"
+                    f"{'' if created == 1 else 's'} for you today and saved "
+                    f"{held_back} more idea{'' if held_back == 1 else 's'} for "
+                    "the next round, so I don't overwhelm you."
+                ),
+                severity="info",
+                link="/ai-employee",
+                dedupe_key=f"{brand_id}:work_deferred:{day}",
+                now=note_now,
+            )
+        except Exception as e:
+            log.warning("ops.scheduler.defer_note_failed", error=str(e)[:120])
+
     return created

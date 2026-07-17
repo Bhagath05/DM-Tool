@@ -119,7 +119,7 @@ async def test_schedule_work_gates_everything_by_default(monkeypatch):
     )
     monkeypatch.setattr(
         "aicmo.config.get_settings",
-        lambda: SimpleNamespace(autonomy_execution_enabled=False),
+        lambda: SimpleNamespace(autonomy_execution_enabled=False, operations_max_tasks_per_cycle=100),
     )
     session = _FakeSession(events=[_event("no_recent_leads")], goals=[])
     created = await scheduler.schedule_work(
@@ -142,7 +142,7 @@ async def test_schedule_work_auto_eligible_queues_when_policy_and_master_allow(m
     )
     monkeypatch.setattr(
         "aicmo.config.get_settings",
-        lambda: SimpleNamespace(autonomy_execution_enabled=True),
+        lambda: SimpleNamespace(autonomy_execution_enabled=True, operations_max_tasks_per_cycle=100),
     )
     session = _FakeSession(events=[_event("no_recent_leads")], goals=[])
     await scheduler.schedule_work(
@@ -161,7 +161,7 @@ async def test_schedule_work_dedupes_against_open(monkeypatch):
     )
     monkeypatch.setattr(
         "aicmo.config.get_settings",
-        lambda: SimpleNamespace(autonomy_execution_enabled=False),
+        lambda: SimpleNamespace(autonomy_execution_enabled=False, operations_max_tasks_per_cycle=100),
     )
     ev = _event("no_recent_leads")
     brand = uuid.uuid4()
@@ -172,3 +172,105 @@ async def test_schedule_work_dedupes_against_open(monkeypatch):
     )
     assert created == 0  # already open → not re-created
     assert session.added == []
+
+
+# ---------------------------------------------------------------------
+#  Phase 8 Priority 3 — max-tasks-per-cycle guardrail
+# ---------------------------------------------------------------------
+
+
+def _draft(priority: str, i: int):
+    from aicmo.modules.operations.scheduler import WorkDraft
+
+    return WorkDraft(
+        kind=f"k{i}",
+        action_type="ai_recommendation",
+        title=f"Task {i}",
+        description="",
+        rationale="",
+        priority=priority,
+        source_kind="test",
+        source_id=uuid.uuid4(),
+    )
+
+
+class _CapSession:
+    """persist_drafts issues one query (_open_dedupe_keys) then session.add()s."""
+
+    def __init__(self):
+        self.added = []
+
+    async def execute(self, *a, **k):
+        return _FakeResult([])  # no open dedupe keys
+
+    def add(self, obj):
+        self.added.append(obj)
+
+
+@pytest.mark.asyncio
+async def test_max_tasks_cap_holds_back_extra_work_and_notifies(monkeypatch):
+    monkeypatch.setattr(
+        "aicmo.modules.autonomy.service.get_or_default",
+        AsyncMock(return_value=AutonomyPolicyConfig()),
+    )
+    monkeypatch.setattr(
+        "aicmo.config.get_settings",
+        lambda: SimpleNamespace(
+            autonomy_execution_enabled=False, operations_max_tasks_per_cycle=3
+        ),
+    )
+    # 5 drafts, cap = 3 → 3 work items + 1 "work_deferred" notification.
+    drafts = [_draft("low", i) for i in range(5)]
+    session = _CapSession()
+    created = await scheduler.persist_drafts(
+        session, organization_id=uuid.uuid4(), brand_id=uuid.uuid4(), drafts=drafts
+    )
+    assert created == 3, created
+    kinds = [type(o).__name__ for o in session.added]
+    # 3 ScheduledWork + 1 OperationsNotification (the "waiting for tomorrow" note).
+    assert kinds.count("OperationsNotification") == 1, kinds
+    assert kinds.count("ScheduledWork") == 3, kinds
+
+
+@pytest.mark.asyncio
+async def test_max_tasks_cap_keeps_highest_priority_first(monkeypatch):
+    monkeypatch.setattr(
+        "aicmo.modules.autonomy.service.get_or_default",
+        AsyncMock(return_value=AutonomyPolicyConfig()),
+    )
+    monkeypatch.setattr(
+        "aicmo.config.get_settings",
+        lambda: SimpleNamespace(
+            autonomy_execution_enabled=False, operations_max_tasks_per_cycle=1
+        ),
+    )
+    # A low then a high → the single surviving item must be the high one.
+    drafts = [_draft("low", 0), _draft("high", 1)]
+    session = _CapSession()
+    created = await scheduler.persist_drafts(
+        session, organization_id=uuid.uuid4(), brand_id=uuid.uuid4(), drafts=drafts
+    )
+    assert created == 1
+    work = next(o for o in session.added if type(o).__name__ == "ScheduledWork")
+    assert work.priority == "high", "cap must keep the most valuable work"
+
+
+@pytest.mark.asyncio
+async def test_under_cap_emits_no_deferral_note(monkeypatch):
+    monkeypatch.setattr(
+        "aicmo.modules.autonomy.service.get_or_default",
+        AsyncMock(return_value=AutonomyPolicyConfig()),
+    )
+    monkeypatch.setattr(
+        "aicmo.config.get_settings",
+        lambda: SimpleNamespace(
+            autonomy_execution_enabled=False, operations_max_tasks_per_cycle=10
+        ),
+    )
+    drafts = [_draft("medium", i) for i in range(2)]
+    session = _CapSession()
+    await scheduler.persist_drafts(
+        session, organization_id=uuid.uuid4(), brand_id=uuid.uuid4(), drafts=drafts
+    )
+    kinds = [type(o).__name__ for o in session.added]
+    assert "OperationsNotification" not in kinds, "no note when nothing was held back"
