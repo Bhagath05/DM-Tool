@@ -153,7 +153,10 @@ class Settings(BaseSettings):
     # Phase 6.5 — CRM email platform. `email_provider` selects the send provider
     # (empty/"stub" = record-only, no delivery). `email_webhook_secret` gates the
     # provider event webhook (disabled until set). Neither fabricates delivery.
+    #   email_provider="resend" + email_api_key + email_from → real delivery.
     email_provider: str = Field(default="")
+    email_api_key: str = Field(default="")
+    email_from: str = Field(default="")  # verified sender, e.g. "DM Tool <hi@x.com>"
     email_webhook_secret: str = Field(default="")
 
     # Phase 4.6 — the reasoning steps of the loop (Decision Engine + Learning
