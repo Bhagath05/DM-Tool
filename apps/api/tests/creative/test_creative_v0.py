@@ -100,6 +100,8 @@ def test_boot_guard_requires_secrets_when_video_live(monkeypatch):
         ip_hash_pepper="x" * 32, media_signing_secret="y" * 32,
         sentry_dsn="https://k@o.ingest.sentry.io/1",
         anthropic_api_key="sk-ant-real", llm_default_provider="anthropic",
+        integration_token_key="a-real-fernet-key-44chars-xxxxxxxxxxxxxxxxxx=",
+        redis_url="redis://red-real:6379/0",  # prod Redis (boot guard rejects localhost)
         video_enabled=True, video_default_provider="veo3",  # but no vertex creds
     )
     with pytest.raises(SystemExit) as exc:

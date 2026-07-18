@@ -10,6 +10,21 @@
 # DATABASE_URL is injected by Render as `postgresql://…` (driver-less). The
 # config layer (aicmo/config.py::_force_async_psycopg3_driver) rewrites it to
 # `postgresql+psycopg://…` automatically — no manual URL editing required.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# GOING TO PRODUCTION — checklist (the app REFUSES to boot if any is missing;
+# see aicmo/config.py::validate_production_secrets):
+#   1. API_ENV=production   (removes debug router; enables prod Sentry env)
+#   2. AUTH_MODE=clerk       + CLERK_SECRET_KEY / CLERK_JWT_ISSUER /
+#      CLERK_JWKS_URL / CLERK_JWT_AUDIENCE  (real authentication)
+#   3. REDIS_URL             must be the managed Redis (NOT localhost — the
+#      boot guard rejects localhost in production; worker/queue depend on it)
+#   4. SENTRY_DSN, IP_HASH_PEPPER, MEDIA_SIGNING_SECRET, INTEGRATION_TOKEN_KEY
+#   5. The default LLM provider key (ANTHROPIC_API_KEY by default)
+#   6. MEDIA_BACKEND=r2/s3 + S3_BUCKET + creds  (durable generated media)
+# Deploying FROM this blueprint wires DATABASE_URL + REDIS_URL automatically
+# via fromDatabase/fromService — a manually-created service does not.
+# ─────────────────────────────────────────────────────────────────────────
 
 databases:
   - name: dm-tool-db
@@ -87,6 +102,22 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      # ---- Durable storage (Priority 6) ----
+      # Generated media survives deploys only on an object store. Render's
+      # disk is ephemeral + not shared between web/worker, so with the
+      # `local` default in production `media_persistence_available` disables
+      # image/export generation. Set MEDIA_BACKEND=r2/s3 + the creds below to
+      # turn durable media ON. R2: MEDIA_BACKEND=r2 + S3_ENDPOINT_URL.
+      - key: MEDIA_BACKEND
+        value: local            # set to "s3" or "r2" for production media
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false             # Cloudflare R2 / MinIO endpoint (blank for AWS)
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
 
   # -------------------------------------------------------------------
   # Arq background worker — publish scheduler, system monitor, all jobs.
@@ -113,5 +144,31 @@ services:
         value: "true"
       - key: PYTHONUNBUFFERED
         value: "1"
+      # The worker runs the same jobs the API enqueues — content/media
+      # generation, publishing, the daily operations cycle — so it needs the
+      # same secrets, not just Anthropic. Missing keys here mean jobs fail at
+      # run time (not boot), which is exactly the kind of silent gap the
+      # stabilization pass is closing.
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: INTEGRATION_TOKEN_KEY
+        sync: false
+      - key: MEDIA_SIGNING_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      # Durable media for worker-generated assets (must match the API's).
+      - key: MEDIA_BACKEND
+        value: local
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
         sync: false

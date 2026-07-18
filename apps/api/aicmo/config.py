@@ -441,6 +441,21 @@ def validate_production_secrets(settings: "Settings") -> None:
             "demo/hybrid expose unsigned access paths."
         )
 
+    # Redis is a HARD production dependency: the Arq worker, the job queue,
+    # and the response cache all use it. A missing REDIS_URL silently falls
+    # back to the localhost default — so the queue is dead and every
+    # scheduled/background job never runs, with no error at request time.
+    # Turn that silent failure into a loud boot failure. (P-stab: this is the
+    # exact misconfiguration the stabilization audit found in the wild.)
+    redis = (settings.redis_url or "").strip()
+    if not redis or "localhost" in redis or "127.0.0.1" in redis or "::1" in redis:
+        errors.append(
+            "REDIS_URL is missing or points at localhost. Production needs a "
+            "real Redis instance — the background worker, job queue and cache "
+            "all depend on it (set REDIS_URL to the managed Redis connection "
+            "string)."
+        )
+
     # Required secret bundles in prod. Each tuple is (env_name, value).
     required = [
         ("CLERK_SECRET_KEY", settings.clerk_secret_key),
