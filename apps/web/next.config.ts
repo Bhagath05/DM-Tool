@@ -23,16 +23,23 @@ const isProd = process.env.NODE_ENV === "production";
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const clerkHosts =
   "https://*.clerk.accounts.dev https://*.clerk.com https://img.clerk.com";
+// Clerk's bot-protection CAPTCHA on <SignUp>/<SignIn> is Cloudflare Turnstile,
+// which loads its script + challenge iframe from challenges.cloudflare.com.
+// Omitting it makes the enforced prod CSP block the widget, surfacing Clerk's
+// "The CAPTCHA failed to load" error and preventing sign-up. Required in
+// script-src (widget JS), frame-src (challenge iframe) and connect-src
+// (verification/telemetry) per Clerk's CSP guidance.
+const turnstileHost = "https://challenges.cloudflare.com";
 const sentryHosts = "https://*.sentry.io https://*.ingest.sentry.io";
 
 const csp = [
   `default-src 'self'`,
-  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"} ${clerkHosts}`,
+  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"} ${clerkHosts} ${turnstileHost}`,
   `style-src 'self' 'unsafe-inline'`,
   `img-src 'self' data: blob: https: ${clerkHosts}`,
   `font-src 'self' data:`,
-  `connect-src 'self' ${apiOrigin} ${clerkHosts} ${sentryHosts} wss://*.clerk.accounts.dev`,
-  `frame-src 'self' ${clerkHosts}`,
+  `connect-src 'self' ${apiOrigin} ${clerkHosts} ${turnstileHost} ${sentryHosts} wss://*.clerk.accounts.dev`,
+  `frame-src 'self' ${clerkHosts} ${turnstileHost}`,
   `worker-src 'self' blob:`,
   `object-src 'none'`,
   `base-uri 'self'`,
