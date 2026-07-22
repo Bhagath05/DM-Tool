@@ -6,6 +6,18 @@
 > ordered — not built. Implementation begins only after the V1.0 Launch
 > Checklist reaches production-ready and the release is signed off.
 
+## Confirmed V2 execution order (release owner, locked)
+Begin immediately after V1.0 is production-ready + verified, in this order:
+1. **Production Integrations Platform** — see `V2_INTEGRATIONS_PLATFORM.md`
+   (feeds unified data to everything below).
+2. **Creative Intelligence Engine** — this document (the 17 engines).
+3. **AI Ad Studio** — creative → ad-unit generation on top of #2.
+4. **Autonomous Campaign Engine** — closes the loop into the `operations`
+   autonomy pipeline.
+Principle for all four: **think in AI Engines, not features.** The intelligence
+layer is the product; models are swappable execution engines (provider
+Protocol + router). No shortcuts, no duplicate implementations, no vendor lock.
+
 ## Thesis
 The moat is the **Creative Intelligence Layer**, not any AI model. Nano Banana,
 Veo 3, Seedance, GPT, Claude, Gemini and their successors are **interchangeable
