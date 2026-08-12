@@ -57,12 +57,16 @@ async def check_redis() -> dict:
 
 async def check_queue() -> dict:
     """Job queue: look for the Arq worker heartbeat key. The worker writes
-    `arq:health-check` every `health_check_interval`; its absence means no
-    worker is consuming jobs."""
+    `<queue_name>:health-check` every `health_check_interval`; its absence
+    means no worker is consuming jobs. The key is derived from arq's own
+    constants so it can never drift from what the worker actually writes
+    (the worker uses arq's default queue name)."""
+    from arq.constants import default_queue_name, health_check_key_suffix
+
     client = None
     try:
         client = await _redis_client()
-        val = await client.get("arq:health-check")
+        val = await client.get(default_queue_name + health_check_key_suffix)
         return {
             "ok": val is not None,
             "detail": "worker heartbeat present" if val else "no recent worker heartbeat",
