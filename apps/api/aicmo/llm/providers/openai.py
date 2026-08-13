@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 from typing import Any, TypeVar, cast
 
-from openai import AsyncOpenAI
+from openai import NOT_GIVEN, AsyncOpenAI
 from pydantic import BaseModel
 
 from aicmo.config import get_settings
@@ -111,6 +111,14 @@ def _prepare_schema(model: type[BaseModel]) -> dict:
     return _strict_schema(inlined)
 
 
+def _model_requires_default_temperature(model: str) -> bool:
+    """GPT-5.x rejects a custom `temperature` (only the default value of 1 is
+    supported) and returns 400 `unsupported_value`. For those models the
+    sampling temperature must be omitted so the API applies its default; other
+    OpenAI chat models still accept a caller-supplied temperature."""
+    return model.lower().startswith("gpt-5")
+
+
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
@@ -139,13 +147,16 @@ class OpenAIProvider(LLMProvider):
 
         schema = _prepare_schema(response_schema)
 
-        # GPT-5.x chat completions reject `max_tokens`; use the current
-        # `max_completion_tokens` wire param. The provider API still accepts
-        # `max_tokens` for caller/abstraction compatibility.
+        # GPT-5.x chat completions reject `max_tokens` (use `max_completion_tokens`)
+        # and reject a custom `temperature` (only the default is allowed) — omit it
+        # via NOT_GIVEN for those models so the API applies its default. The provider
+        # signature is unchanged, so other providers/models keep the caller's values.
         resp = await self._client.chat.completions.create(
             model=model,
             messages=openai_messages,  # type: ignore[arg-type]
-            temperature=temperature,
+            temperature=(
+                NOT_GIVEN if _model_requires_default_temperature(model) else temperature
+            ),
             max_completion_tokens=max_tokens,
             response_format={
                 "type": "json_schema",
