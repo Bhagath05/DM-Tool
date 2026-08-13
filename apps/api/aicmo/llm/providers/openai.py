@@ -139,11 +139,14 @@ class OpenAIProvider(LLMProvider):
 
         schema = _prepare_schema(response_schema)
 
+        # GPT-5.x chat completions reject `max_tokens`; use the current
+        # `max_completion_tokens` wire param. The provider API still accepts
+        # `max_tokens` for caller/abstraction compatibility.
         resp = await self._client.chat.completions.create(
             model=model,
             messages=openai_messages,  # type: ignore[arg-type]
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
