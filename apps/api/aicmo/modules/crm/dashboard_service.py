@@ -207,13 +207,17 @@ async def _activity(session, *, tenant) -> ActivityCounts:
 
 async def _forecast(session, *, tenant, pa, deal_conds) -> Forecast:
     async def _by(trunc):
+        # One expression object → one bound param, reused in SELECT/GROUP BY/ORDER BY.
+        # Rebuilding func.date_trunc(trunc, ...) per clause emits distinct binds, which
+        # Postgres won't match across GROUP BY (raises GroupingError on won_at).
+        bucket = func.date_trunc(trunc, Deal.won_at)
         rows = (await session.execute(
-            select(func.to_char(func.date_trunc(trunc, Deal.won_at),
+            select(func.to_char(bucket,
                                 "YYYY-MM" if trunc == "month" else "YYYY-\"Q\"Q"),
                    func.coalesce(func.sum(Deal.value), 0), func.count())
             .where(*deal_conds, Deal.status == "won", Deal.won_at.isnot(None))
-            .group_by(func.date_trunc(trunc, Deal.won_at))
-            .order_by(func.date_trunc(trunc, Deal.won_at).desc()).limit(6)
+            .group_by(bucket)
+            .order_by(bucket.desc()).limit(6)
         )).all()
         return [ForecastPeriod(period=p, won_revenue=round(float(v), 2), deals=int(c)) for p, v, c in rows]
 

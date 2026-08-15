@@ -6,9 +6,12 @@ the insight filtering, and the pure helpers."""
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+
+from sqlalchemy.dialects import postgresql
 
 from aicmo.modules.crm import dashboard_service as svc
 from aicmo.modules.crm.dashboard_schemas import (
@@ -138,3 +141,34 @@ def test_to_csv_contains_kpis_and_rep_leaderboard():
 def test_deal_model_importable_for_conds():
     # guards against a refactor dropping the Deal import the conds rely on
     assert Deal.__tablename__ == "crm_deals"
+
+
+def test_forecast_query_reuses_one_date_trunc_bind_param():
+    """Postgres GroupingError regression (crm/dashboard 500).
+
+    `_forecast._by` buckets won deals by date_trunc(unit, won_at). If the
+    date_trunc expression is rebuilt per clause, SQLAlchemy emits *distinct*
+    bound params, and Postgres refuses to match SELECT to GROUP BY:
+    'column crm_deals.won_at must appear in the GROUP BY clause'. The fix reuses
+    ONE expression object, so the same bind param renders in SELECT/GROUP BY/
+    ORDER BY. This asserts that at the compiled-SQL level (Postgres dialect) —
+    the SQLite test DB would not catch it. Captures the *actual* statement the
+    service builds via a stub session (no DB round-trip)."""
+    captured: list = []
+
+    class _CapturingSession:
+        async def execute(self, stmt):
+            captured.append(stmt)
+            return SimpleNamespace(all=lambda: [])
+
+    run(svc._forecast(_CapturingSession(), tenant=_TENANT, pa=_pa(), deal_conds=[]))
+
+    assert len(captured) == 2  # monthly + quarterly
+    for stmt in captured:
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        binds = re.findall(r"date_trunc\(\s*(%\(\w+\)s|\$\d+|:\w+|\?)", sql)
+        assert len(binds) >= 2, f"date_trunc must appear in SELECT and GROUP BY:\n{sql}"
+        assert len(set(binds)) == 1, (
+            "date_trunc must reuse ONE bind param across SELECT/GROUP BY/ORDER BY "
+            f"(Postgres GroupingError otherwise); got {sorted(set(binds))}:\n{sql}"
+        )
