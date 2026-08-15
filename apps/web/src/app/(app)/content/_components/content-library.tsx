@@ -144,7 +144,7 @@ export function ContentLibrary() {
       const rows = await api.content.list({
         content_type: typeFilter || undefined,
         saved_only: savedOnly || undefined,
-        limit: 200,
+        limit: 100,
       });
       setItems(rows);
     } catch (e) {
