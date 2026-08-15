@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# The CTA length the brief contract targets. OpenAI structured outputs ignore
+# string maxLength, so an over-length CTA is fitted to this deterministically
+# (see MarketingCreativeBrief._fit_cta_to_max) rather than failing validation.
+_CTA_MAX_LEN = 80
 
 
 class MarketingCreativeBrief(BaseModel):
@@ -30,7 +35,7 @@ class MarketingCreativeBrief(BaseModel):
     )
     cta: str = Field(
         min_length=2,
-        max_length=80,
+        max_length=_CTA_MAX_LEN,
         description="Primary call to action — verb-led, landing-page aligned.",
     )
     visual_direction: str = Field(
@@ -43,6 +48,25 @@ class MarketingCreativeBrief(BaseModel):
         max_length=64,
         description="Target platform and placement, e.g. 'Instagram feed 4:5'.",
     )
+
+    @field_validator("cta", mode="before")
+    @classmethod
+    def _fit_cta_to_max(cls, v: object) -> object:
+        """Fit an over-length CTA to the brief contract instead of failing.
+
+        OpenAI structured outputs ignore string maxLength, so GPT can return a
+        CTA longer than `_CTA_MAX_LEN`. Trim to <=80 at a word boundary so the
+        brief stays valid without cutting mid-word. The published post CTA
+        (`SocialPostFull.cta`) is a separate, unconstrained field and is
+        untouched."""
+        if not isinstance(v, str) or len(v) <= _CTA_MAX_LEN:
+            return v
+        head = v[:_CTA_MAX_LEN].rstrip()
+        boundary = head.rfind(" ")
+        if boundary >= 60:  # keep a clean word boundary unless it over-trims
+            head = head[:boundary]
+        # Strip trailing ASCII + unicode dash punctuation after the cut.
+        return head.rstrip(" ,.;:!-").rstrip("\u2013\u2014")
 
 
 CREATIVE_BRIEF_INSTRUCTION = """\
