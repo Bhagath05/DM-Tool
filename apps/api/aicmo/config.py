@@ -237,8 +237,11 @@ class Settings(BaseSettings):
     clerk_jwt_issuer: str = Field(default="")
     clerk_jwks_url: str = Field(default="")
     clerk_secret_key: str = Field(default="")
-    # When set, JWT verification enforces `aud` matches this value.
-    # Required in production by validate_production_secrets().
+    # Optional. When set, JWT verification enforces `aud` matches this value.
+    # Left empty (default), aud-verification stays OFF — standard Clerk session
+    # tokens carry no `aud`, so requiring it would reject every valid token.
+    # NOT required by validate_production_secrets(); issuer + signature + expiry
+    # are always enforced regardless.
     clerk_jwt_audience: str = Field(default="")
 
     anthropic_api_key: str = Field(default="")
@@ -464,7 +467,9 @@ def validate_production_secrets(settings: "Settings") -> None:
         ("CLERK_SECRET_KEY", settings.clerk_secret_key),
         ("CLERK_JWT_ISSUER", settings.clerk_jwt_issuer),
         ("CLERK_JWKS_URL", settings.clerk_jwks_url),
-        ("CLERK_JWT_AUDIENCE", settings.clerk_jwt_audience),
+        # CLERK_JWT_AUDIENCE is intentionally NOT here: standard Clerk session
+        # tokens carry no `aud`, so requiring it would reject every valid token.
+        # It stays opt-in (verified only when configured — see clerk.py).
         ("IP_HASH_PEPPER", settings.ip_hash_pepper),
         ("MEDIA_SIGNING_SECRET", settings.media_signing_secret),
         ("SENTRY_DSN", settings.sentry_dsn),
@@ -533,6 +538,58 @@ def validate_production_secrets(settings: "Settings") -> None:
             "FATAL: production environment has missing or placeholder secrets. "
             "Refusing to start.\n  - " + bullets +
             "\n\nSee docs/security/SECRETS.md for the rotation runbook."
+        )
+
+
+def validate_worker_secrets(settings: "Settings") -> None:
+    """Fail closed at worker startup in production if the secrets the WORKER
+    actually uses are missing.
+
+    The worker serves no HTTP auth, so it needs neither CLERK_* nor
+    IP_HASH_PEPPER (those gate the API's auth + lead-capture paths). It DOES
+    need: the Redis broker, the DB, the OAuth-token encryption key (publishing
+    jobs decrypt provider tokens), the media-signing secret (jobs mint signed
+    media URLs), and the default LLM provider's key (advisor/operations/video
+    jobs). No-op outside production. Raises with variable NAMES only — never
+    values, connection strings, tokens, or keys.
+    """
+    if settings.api_env != "production":
+        return
+
+    missing: list[str] = []
+
+    redis = (settings.redis_url or "").strip()
+    if not redis or "localhost" in redis or "127.0.0.1" in redis or "::1" in redis:
+        missing.append("REDIS_URL")
+
+    db = (settings.database_url or "").strip()
+    if not db or "localhost" in db or "127.0.0.1" in db or "::1" in db:
+        missing.append("DATABASE_URL")
+
+    for name, value in (
+        ("INTEGRATION_TOKEN_KEY", settings.integration_token_key),
+        ("MEDIA_SIGNING_SECRET", settings.media_signing_secret),
+    ):
+        if _looks_like_placeholder(value):
+            missing.append(name)
+
+    # The default LLM provider's key — whichever provider is selected.
+    provider_keys = {
+        "anthropic": ("ANTHROPIC_API_KEY", settings.anthropic_api_key),
+        "openai": ("OPENAI_API_KEY", settings.openai_api_key),
+        "google": ("GOOGLE_API_KEY", settings.google_api_key),
+    }
+    default_name, default_value = provider_keys[settings.llm_default_provider]
+    if _looks_like_placeholder(default_value):
+        missing.append(default_name)
+
+    if missing:
+        # Names only — never the values.
+        raise SystemExit(
+            "FATAL: dm-tool-worker is missing required production configuration: "
+            + ", ".join(missing)
+            + ". Refusing to start — background jobs would fail at runtime. Set "
+            "these on the worker service. (Variable names only; no values logged.)"
         )
 
 

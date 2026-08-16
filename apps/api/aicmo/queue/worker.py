@@ -9,9 +9,14 @@ from __future__ import annotations
 from arq import cron
 from arq.connections import RedisSettings
 
-from aicmo.config import get_settings
+from aicmo.config import get_settings, validate_worker_secrets
 
 _settings = get_settings()
+# Fail closed BEFORE arq registers/processes any job: in production a missing
+# broker / DB / token-encryption / media-signing / default-LLM key would
+# otherwise surface only when a job runs. No-op in dev/staging. Names-only
+# errors — never secret values.
+validate_worker_secrets(_settings)
 
 
 def _redis_settings_from_url(url: str) -> RedisSettings:

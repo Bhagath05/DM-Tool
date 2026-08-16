@@ -42,11 +42,11 @@ Legend: **R** = required in production · **P** = required only when its feature
 
 | Variable | Where | Req | Notes |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | Render | R | Default provider (Claude). Without it, AI features fall back to deterministic output. |
-| `OPENAI_API_KEY` | Render | P | Image generation + OpenAI TTS. Without it, image render errors/stubs. |
-| `GOOGLE_API_KEY` | Render | O | Alternate LLM provider. |
-| `LLM_DEFAULT_PROVIDER` | Render | O | `anthropic` default. |
-| `LLM_DEFAULT_MODEL` | Render | O | `claude-sonnet-4-6` default. |
+| `OPENAI_API_KEY` | Render | R | Key for the default provider (`LLM_DEFAULT_PROVIDER=openai`). `validate_production_secrets()` requires the configured default provider's key. Also used for image generation + OpenAI TTS. |
+| `ANTHROPIC_API_KEY` | Render | O | Alternate LLM provider. Required only if `LLM_DEFAULT_PROVIDER=anthropic`. |
+| `GOOGLE_API_KEY` | Render | O | Alternate LLM provider. Required only if `LLM_DEFAULT_PROVIDER=google`. |
+| `LLM_DEFAULT_PROVIDER` | Render | O | `openai` default (code). |
+| `LLM_DEFAULT_MODEL` | Render | O | Set per deployment; production uses `gpt-5.6`. |
 
 ## Security / lead capture
 

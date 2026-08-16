@@ -224,3 +224,58 @@ class TestBackwardsCompat:
         """Anything that still imports the old name keeps working."""
         clerk = _reload_clerk_with(monkeypatch, AUTH_MODE="demo")
         assert clerk.assert_clerk_for_non_dev is clerk.assert_auth_config_valid
+
+
+# ---------------------------------------------------------------------
+#  CLERK_JWT_AUDIENCE — opt-in aud verification (issuer/signature/expiry
+#  are ALWAYS enforced regardless)
+# ---------------------------------------------------------------------
+
+
+class TestAudienceVerification:
+    def test_configured_audience_enables_aud_verification(self, monkeypatch):
+        """When CLERK_JWT_AUDIENCE is set, the JWT `aud` claim is verified."""
+        clerk = _reload_clerk_with(
+            monkeypatch,
+            AUTH_MODE="clerk",
+            CLERK_JWT_ISSUER="https://real.clerk.dev",
+            CLERK_JWKS_URL="https://real.clerk.dev/.well-known/jwks.json",
+            CLERK_JWT_AUDIENCE="my-prod-aud",
+        )
+        captured: dict = {}
+
+        def _fake_decode(token, key, **kwargs):
+            captured.update(kwargs)
+            return {"sub": "u"}
+
+        monkeypatch.setattr(clerk.jwt, "decode", _fake_decode)
+        clerk._verify_token("tok", {"keys": []})
+        assert captured["audience"] == "my-prod-aud"
+        assert captured["options"]["verify_aud"] is True
+        # Never weakened:
+        assert captured["options"]["verify_iss"] is True
+        assert captured["options"]["verify_exp"] is True
+
+    def test_empty_audience_disables_aud_but_keeps_iss_and_exp(self, monkeypatch):
+        """Empty CLERK_JWT_AUDIENCE → aud verification OFF (standard Clerk
+        tokens have no aud), but issuer + expiry remain enforced."""
+        clerk = _reload_clerk_with(
+            monkeypatch,
+            AUTH_MODE="clerk",
+            CLERK_JWT_ISSUER="https://real.clerk.dev",
+            CLERK_JWKS_URL="https://real.clerk.dev/.well-known/jwks.json",
+            CLERK_JWT_AUDIENCE="",
+        )
+        captured: dict = {}
+
+        def _fake_decode(token, key, **kwargs):
+            captured.update(kwargs)
+            return {"sub": "u"}
+
+        monkeypatch.setattr(clerk.jwt, "decode", _fake_decode)
+        clerk._verify_token("tok", {"keys": []})
+        assert captured["audience"] is None
+        assert captured["options"]["verify_aud"] is False
+        assert captured["options"]["verify_iss"] is True
+        assert captured["options"]["verify_exp"] is True
+        assert captured["options"]["verify_nbf"] is True
