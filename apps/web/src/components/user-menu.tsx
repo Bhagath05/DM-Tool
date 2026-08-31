@@ -28,7 +28,10 @@ export function UserMenu() {
   return (
     <>
       <SignedIn>
-        <UserButton afterSignOutUrl="/" />
+        {/* Logout must return to the dedicated login page, never the public
+            landing. Honoured by Clerk in every mode where <UserButton>
+            renders (clerk + hybrid). */}
+        <UserButton afterSignOutUrl="/sign-in" />
       </SignedIn>
       <SignedOut>
         {/* Anonymous on hybrid: still the demo experience — no sign-in
