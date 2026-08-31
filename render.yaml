@@ -69,12 +69,15 @@ services:
       # CORS — the Vercel frontend origin(s), comma-separated.
       - key: API_CORS_ORIGINS
         value: https://dm-tool-web.vercel.app
-      # Demo posture (boots without Clerk/secret bundle). For real auth set
-      # API_ENV=production + AUTH_MODE=clerk + the secret bundle below.
+      # Strict Clerk auth posture: every API request requires a valid Clerk
+      # JWT (require_user is strict; no anonymous demo-user). The Clerk secret
+      # bundle is set in the Render dashboard (sync:false, below). API_ENV
+      # stays 'staging' — real auth WITHOUT the additional production
+      # hardening + full secret bundle that API_ENV=production would require.
       - key: API_ENV
         value: staging
       - key: AUTH_MODE
-        value: demo
+        value: clerk
       - key: PYTHONUNBUFFERED
         value: "1"
       # ---- Secrets (set in the Render dashboard; never commit) ----
