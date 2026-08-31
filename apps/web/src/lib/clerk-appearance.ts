@@ -15,7 +15,17 @@
 export const clerkAppearance = {
   variables: {
     colorPrimary: "var(--color-primary)",
+    // Text ON the primary button. Clerk defaults this to white, which is
+    // invisible in dark mode where --color-primary is near-white. Map it to
+    // the token that is ALWAYS the primary's contrasting colour so the
+    // primary button label is readable in both light and dark themes.
+    colorTextOnPrimaryBackground: "var(--color-primary-foreground)",
     colorText: "var(--color-foreground)",
+    // Base for Clerk's generated neutral shades (secondary/social button text,
+    // borders, dividers). Clerk defaults it to black, so in dark mode those
+    // shades come out as low-opacity BLACK — invisible on the dark panel (e.g.
+    // "Continue with Google"). Drive them from the theme foreground instead.
+    colorNeutral: "var(--color-foreground)",
     colorTextSecondary: "var(--color-muted-foreground)",
     colorBackground: "var(--color-card)",
     colorInputBackground: "var(--color-background)",
