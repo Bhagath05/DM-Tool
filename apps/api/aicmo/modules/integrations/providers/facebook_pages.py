@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -15,6 +14,8 @@ from aicmo.config import get_settings
 from aicmo.modules.integrations.http_retry import with_retry
 from aicmo.modules.integrations.providers.base import (
     AccountInfo,
+    ContentMetricResult,
+    ContentRef,
     IntegrationProvider,
     OAuthTokens,
     SyncResult,
@@ -50,18 +51,14 @@ class FacebookPagesProvider(IntegrationProvider):
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._client_id = (
-            getattr(settings, "fb_client_id", "") or settings.ig_client_id or ""
-        )
+        self._client_id = getattr(settings, "fb_client_id", "") or settings.ig_client_id or ""
         self._client_secret = (
             getattr(settings, "fb_client_secret", "") or settings.ig_client_secret or ""
         )
 
     def _credentials_configured(self) -> bool:
         return bool(
-            self._client_id
-            and self._client_secret
-            and not self._client_id.endswith("replace_me")
+            self._client_id and self._client_secret and not self._client_id.endswith("replace_me")
         )
 
     def info(self):
@@ -138,6 +135,78 @@ class FacebookPagesProvider(IntegrationProvider):
             external_account_name=page_name or "Facebook Page",
             scopes_granted=list(self.scopes),
         )
+
+    content_metrics_supported = True
+
+    async def fetch_content_metrics(
+        self,
+        *,
+        access_token: str,
+        external_account_id: str | None,
+        posts: list[ContentRef],
+    ) -> list[ContentMetricResult]:
+        """Per-post impressions/reach + like/comment/share counts via the Graph
+        API. Collects only fields the post returns; per-post errors are isolated."""
+        token = access_token
+        if external_account_id:
+            try:
+                token = await get_page_access_token(access_token, external_account_id)
+            except Exception:
+                token = access_token  # fall back to the user token
+        results: list[ContentMetricResult] = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for p in posts:
+                pid = p.platform_post_id
+                if not pid:
+                    continue
+                try:
+                    resp = await with_retry(
+                        lambda pid=pid: client.get(
+                            f"{_GRAPH_BASE}/{pid}",
+                            params={
+                                "fields": (
+                                    "likes.summary(true),comments.summary(true),shares,"
+                                    "insights.metric(post_impressions,post_impressions_unique)"
+                                )
+                            },
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                    )
+                except Exception:
+                    continue
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                metrics: dict[str, float] = {}
+                likes = (data.get("likes") or {}).get("summary", {}).get("total_count")
+                if likes is not None:
+                    metrics["likes"] = float(likes)
+                comments = (data.get("comments") or {}).get("summary", {}).get("total_count")
+                if comments is not None:
+                    metrics["comments_count"] = float(comments)
+                shares = (data.get("shares") or {}).get("count")
+                if shares is not None:
+                    metrics["shares"] = float(shares)
+                for row in (data.get("insights") or {}).get("data") or []:
+                    vals = row.get("values") or []
+                    val = vals[0].get("value") if vals else None
+                    if val is None:
+                        continue
+                    if row.get("name") == "post_impressions":
+                        metrics["impressions"] = float(val)
+                    elif row.get("name") == "post_impressions_unique":
+                        metrics["reach"] = float(val)
+                if not metrics:
+                    continue
+                results.append(
+                    ContentMetricResult(
+                        platform_post_id=pid,
+                        asset_type=p.asset_type,
+                        metrics=metrics,
+                        raw={"source": "graph_api"},
+                    )
+                )
+        return results
 
     async def sync(
         self,

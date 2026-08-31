@@ -31,14 +31,10 @@ class SocialConnection(Base, TimestampMixin, TenantMixin):
 
     __tablename__ = "social_connections"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "platform", name="uq_social_connection_user_platform"
-        ),
+        UniqueConstraint("user_id", "platform", name="uq_social_connection_user_platform"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[str] = mapped_column(String(255), index=True)
     platform: Mapped[str] = mapped_column(
         String(32), index=True
@@ -49,26 +45,18 @@ class SocialConnection(Base, TimestampMixin, TenantMixin):
     # holds a plaintext token. Roundtrip pinned by tests/social/test_token_crypto.py.
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Free-form per-platform metadata: handles, IDs, account types, etc.
-    metadata_json: Mapped[dict] = mapped_column(
-        JSONB, default=dict, server_default="{}"
-    )
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
     # How we got the data:
     #   "oauth" → real Graph/LinkedIn/etc connection
     #   "manual_import" → user pasted JSON, no live token (testable today)
-    source: Mapped[str] = mapped_column(
-        String(16), default="oauth", server_default="oauth"
-    )
+    source: Mapped[str] = mapped_column(String(16), default="oauth", server_default="oauth")
 
     # Last successful sync, for the dashboard's "refreshed N min ago" badge.
-    last_synced_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SocialAsset(Base, TimestampMixin, TenantMixin):
@@ -88,14 +76,26 @@ class SocialAsset(Base, TimestampMixin, TenantMixin):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[str] = mapped_column(String(255), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(
+    # Nullable since Phase 5: integration providers (FB/YouTube/LinkedIn/
+    # Pinterest) connect via `integration_connection`, not `social_connections`,
+    # so their per-content rows have no social connection to point at.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("social_connections.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
+    )
+    # Phase 5 — which integration provider produced a provider-collected row
+    # (NULL for Instagram/social rows, which are identified by `platform`).
+    provider_slug: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Phase 5 — connection reference for provider-collected rows. SET NULL on
+    # delete so the historical asset + its signals outlive a disconnect.
+    integration_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("integration_connection.id", ondelete="SET NULL"),
+        nullable=True,
     )
     platform: Mapped[str] = mapped_column(String(32), index=True)
 
@@ -107,9 +107,7 @@ class SocialAsset(Base, TimestampMixin, TenantMixin):
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
-    hashtags: Mapped[list] = mapped_column(
-        JSONB, default=list, server_default="[]"
-    )
+    hashtags: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
 
     posted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
@@ -117,9 +115,7 @@ class SocialAsset(Base, TimestampMixin, TenantMixin):
 
     # Loose store for everything the provider returned that we didn't pull
     # out into typed columns. Future analytics will mine this.
-    raw_json: Mapped[dict] = mapped_column(
-        JSONB, default=dict, server_default="{}"
-    )
+    raw_json: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
 
 class PerformanceSignal(Base, TimestampMixin):
@@ -133,9 +129,7 @@ class PerformanceSignal(Base, TimestampMixin):
 
     __tablename__ = "performance_signals"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("social_assets.id", ondelete="CASCADE"),
@@ -155,13 +149,9 @@ class PerformanceSignal(Base, TimestampMixin):
     watch_time_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     ctr: Mapped[float] = mapped_column(Float, default=0.0)
 
-    raw_json: Mapped[dict] = mapped_column(
-        JSONB, default=dict, server_default="{}"
-    )
+    raw_json: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
-    captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True
-    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class AudiencePattern(Base, TimestampMixin, TenantMixin):
@@ -178,17 +168,13 @@ class AudiencePattern(Base, TimestampMixin, TenantMixin):
 
     __tablename__ = "audience_patterns"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[str] = mapped_column(String(255), index=True)
     platform: Mapped[str] = mapped_column(String(32), index=True)
 
     pattern_type: Mapped[str] = mapped_column(String(64))
     description: Mapped[str] = mapped_column(Text)
-    confidence_score: Mapped[float] = mapped_column(
-        Numeric(3, 2), default=0.5
-    )  # 0.00 – 1.00
+    confidence_score: Mapped[float] = mapped_column(Numeric(3, 2), default=0.5)  # 0.00 – 1.00
 
 
 class WinningPattern(Base, TimestampMixin, TenantMixin):
@@ -203,9 +189,7 @@ class WinningPattern(Base, TimestampMixin, TenantMixin):
 
     __tablename__ = "winning_patterns"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[str] = mapped_column(String(255), index=True)
     platform: Mapped[str | None] = mapped_column(
         String(32), nullable=True, index=True
@@ -218,9 +202,7 @@ class WinningPattern(Base, TimestampMixin, TenantMixin):
     caption_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
     cta_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
     format_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
-    posting_time_pattern: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
+    posting_time_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # The one-line summary the generator inherits, e.g. "Founder-led short
     # reels with warm dark visuals outperform product showcases 2.4x".
@@ -228,12 +210,8 @@ class WinningPattern(Base, TimestampMixin, TenantMixin):
 
     # 0.0 – 1.0. Computed from the sample size + effect-size of the
     # underlying engagement gap. The analyzer prompt sets it.
-    performance_score: Mapped[float] = mapped_column(
-        Numeric(3, 2), default=0.5
-    )
+    performance_score: Mapped[float] = mapped_column(Numeric(3, 2), default=0.5)
 
     # Which assets fed this pattern — so the user can audit it. List of
     # SocialAsset UUIDs.
-    source_asset_ids: Mapped[list] = mapped_column(
-        JSONB, default=list, server_default="[]"
-    )
+    source_asset_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")

@@ -14,6 +14,8 @@ from aicmo.config import get_settings
 from aicmo.modules.integrations.http_retry import with_retry
 from aicmo.modules.integrations.providers.base import (
     AccountInfo,
+    ContentMetricResult,
+    ContentRef,
     IntegrationProvider,
     OAuthTokens,
     SyncResult,
@@ -42,9 +44,7 @@ class YouTubeProvider(IntegrationProvider):
 
     def _credentials_configured(self) -> bool:
         return bool(
-            self._client_id
-            and self._client_secret
-            and not self._client_id.endswith("replace_me")
+            self._client_id and self._client_secret and not self._client_id.endswith("replace_me")
         )
 
     def info(self):
@@ -130,6 +130,61 @@ class YouTubeProvider(IntegrationProvider):
             external_account_name=title or "YouTube Channel",
             scopes_granted=[_SCOPE],
         )
+
+    content_metrics_supported = True
+
+    async def fetch_content_metrics(
+        self,
+        *,
+        access_token: str,
+        external_account_id: str | None,
+        posts: list[ContentRef],
+    ) -> list[ContentMetricResult]:
+        """Per-video stats via videos.list?part=statistics (up to 50 ids/call).
+
+        YouTube's statistics part exposes views/likes/comments only — reach,
+        impressions and saves are not available here, so they're omitted (never
+        fabricated). Per-chunk failures are isolated."""
+        by_id = {p.platform_post_id: p for p in posts if p.platform_post_id}
+        ids = list(by_id)
+        results: list[ContentMetricResult] = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for start in range(0, len(ids), 50):
+                chunk = ids[start : start + 50]
+                try:
+                    resp = await with_retry(
+                        lambda c=chunk: client.get(
+                            f"{_YOUTUBE_API}/videos",
+                            params={"part": "statistics", "id": ",".join(c)},
+                            headers={"Authorization": f"Bearer {access_token}"},
+                        )
+                    )
+                except Exception:
+                    continue  # isolate: one bad chunk never aborts the batch
+                if resp.status_code != 200:
+                    continue
+                for item in resp.json().get("items") or []:
+                    vid = item.get("id")
+                    stats = item.get("statistics") or {}
+                    metrics: dict[str, float] = {}
+                    if stats.get("viewCount") is not None:
+                        metrics["views"] = float(stats["viewCount"])
+                    if stats.get("likeCount") is not None:
+                        metrics["likes"] = float(stats["likeCount"])
+                    if stats.get("commentCount") is not None:
+                        metrics["comments_count"] = float(stats["commentCount"])
+                    if not metrics or vid is None:
+                        continue
+                    ref = by_id.get(vid)
+                    results.append(
+                        ContentMetricResult(
+                            platform_post_id=vid,
+                            asset_type=ref.asset_type if ref else "video",
+                            metrics=metrics,
+                            raw={"source": "youtube_data_api"},
+                        )
+                    )
+        return results
 
     async def sync(
         self,

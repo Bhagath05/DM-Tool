@@ -27,7 +27,6 @@ from aicmo.modules.integrations.schemas import (
     ProviderInfo,
 )
 
-
 # ---------------------------------------------------------------------
 #  DTOs used by the provider methods. Plain dataclasses (not Pydantic)
 #  because these are internal — they never cross the API boundary.
@@ -67,6 +66,30 @@ class SyncResult:
     metrics: dict[str, float] | None = None
     metric_raw: dict[str, dict] | None = None
     period_end: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ContentRef:
+    """A published post to measure — from the publishing pipeline."""
+
+    platform_post_id: str
+    asset_type: str = "post"  # post | reel | short | video | image | carousel
+
+
+@dataclass(frozen=True)
+class ContentMetricResult:
+    """Per-content metrics for ONE post. `metrics` carries ONLY the keys the
+    platform actually returned — a metric a provider can't expose is simply
+    absent (never zero-filled to fake availability). Canonical metric keys:
+    impressions, reach, likes, comments_count, saves, shares, views,
+    watch_time_seconds, ctr."""
+
+    platform_post_id: str
+    asset_type: str
+    metrics: dict[str, float]
+    raw: dict
+    permalink: str | None = None
+    posted_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------
@@ -145,6 +168,26 @@ class IntegrationProvider(ABC):
         decides what `rows_pulled` means — for an ad platform it's
         performance events; for a CRM it's deals; for analytics it
         might be sessions. The service layer doesn't care."""
+
+    # ---- Per-content metrics (Phase 5) — optional capability ----
+    # Providers that can return per-post metrics set this True and override
+    # `fetch_content_metrics`. Default: no capability (honest unavailable).
+    content_metrics_supported: ClassVar[bool] = False
+
+    async def fetch_content_metrics(
+        self,
+        *,
+        access_token: str,
+        external_account_id: str | None,
+        posts: list[ContentRef],
+    ) -> list[ContentMetricResult]:
+        """Fetch per-post metrics for already-published posts.
+
+        Contract: collect ONLY metrics the platform actually returns (never
+        fabricate); isolate per-post failures (skip a post that errors rather
+        than aborting the batch); never log tokens/secrets. Default returns an
+        empty list so a provider without the capability is honest, not broken."""
+        return []
 
     # ---- Derived helpers — not abstract ----
 

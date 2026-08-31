@@ -4,22 +4,30 @@ import Link from "next/link";
 
 import { SignIn } from "@clerk/nextjs";
 
+import { AuthShell } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 import { getAuthMode, isClerkActive } from "@/lib/clerk-config";
 
 export default function SignInPage() {
   // <SignIn /> internally calls useSession(), which throws when
   // <ClerkProvider /> isn't mounted. Mode-aware render:
-  //   - clerk-active     → real Clerk UI
+  //   - clerk-active     → branded shell + real Clerk UI
   //   - demo (intentional) or clerk-misconfigured → friendly fallback
   if (!isClerkActive()) {
     return <Fallback action="sign in" />;
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <SignIn />
-    </div>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to your DM Tool workspace."
+      altPrompt="New to DM Tool?"
+      altHref="/sign-up"
+      altLabel="Create an account"
+    >
+      <SignIn appearance={clerkAppearance} />
+    </AuthShell>
   );
 }
 

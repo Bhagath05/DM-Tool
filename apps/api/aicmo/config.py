@@ -249,7 +249,10 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="")
 
     llm_default_provider: Literal["anthropic", "openai", "google"] = "openai"
-    llm_default_model: str = "gpt-4o-mini"
+    # Marketing Brain — GPT-5.6 Sol (API alias `gpt-5.6`). Overridable via
+    # LLM_DEFAULT_MODEL. This is the canonical default so an unset env var
+    # can never silently fall back to a weaker model.
+    llm_default_model: str = "gpt-5.6"
 
     # Lead-capture security
     turnstile_site_key: str = Field(default="")

@@ -82,6 +82,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { MarketingHealthCard } from "./marketing-health";
+import { MarketingSignalStrip } from "./marketing-signal-strip";
 import { PriorityRow } from "../../leads/_components/intelligence-card";
 import {
   OpportunityCard,
@@ -100,6 +101,9 @@ interface CombinedReport {
   /** Intelligence-backed trend advisory (replaces separate trends fetch). */
   intelligenceTrend: ReturnType<typeof intelligenceToAdvisoryTrend>;
   dailyBrief: IntelligenceReport["daily_brief"];
+  /** Phase 4 — computed marketing-analytics signal (advisory, read-only).
+   * Optional: cached reports written before Phase 4 won't carry it. */
+  marketingSignal?: IntelligenceReport["marketing_signal"];
   trend: TrendReport | null;
 }
 
@@ -158,6 +162,7 @@ export function CommandCenter() {
           opportunities: intelligenceToOpportunityReport(intelligence),
           intelligenceTrend: intelligenceToAdvisoryTrend(intelligence.trend),
           dailyBrief: intelligence.daily_brief ?? null,
+          marketingSignal: intelligence.marketing_signal ?? null,
           trend: null,
         };
         const ts = Date.now();
@@ -286,6 +291,10 @@ function ReadyView({
       {report.dailyBrief && (
         <DailyBriefStrip brief={report.dailyBrief} />
       )}
+
+      {/* SECTION 0b — Marketing signal (computed platform analytics) */}
+      <MarketingSignalStrip signal={report.marketingSignal} />
+
 
       {/* SECTION 1 — Hero AI recommendation */}
       <HeroSection hero={hero} quickGen={heroQuickGen} />

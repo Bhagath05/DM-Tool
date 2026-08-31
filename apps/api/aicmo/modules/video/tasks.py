@@ -24,14 +24,18 @@ import uuid
 
 import structlog
 
+from aicmo.config import get_settings
 from aicmo.modules.ai_audit.service import ACTION_GENERATE_REEL, record_ai_generation
 from aicmo.modules.creative import cost as cost_ledger
 from aicmo.modules.creative import metering
-from aicmo.config import get_settings
 from aicmo.modules.creative import service as creative_service
 from aicmo.modules.creative.models import CreativeAsset
 from aicmo.modules.creative.storage.base import StorageRef
 from aicmo.modules.creative.storage.registry import get_storage_backend
+from aicmo.modules.creative.storage.validation import (
+    MediaValidationError,
+    validate_video_output,
+)
 from aicmo.modules.video.models import VideoRender, VideoScene
 from aicmo.modules.video.providers.registry import get_video_provider
 from aicmo.modules.video.tts.registry import get_tts_provider
@@ -68,22 +72,41 @@ async def generate_video_stub(ctx, session, tenant: TenantEnvelope, project_id: 
 
     # --- one scene (V0) ---
     scene = VideoScene(
-        organization_id=org, brand_id=brand, creative_project_id=pid,
-        scene_index=0, prompt=(project.brief or project.title)[:2000],
-        duration_s=min(duration_s, 8), status="rendering",
+        organization_id=org,
+        brand_id=brand,
+        creative_project_id=pid,
+        scene_index=0,
+        prompt=(project.brief or project.title)[:2000],
+        duration_s=min(duration_s, 8),
+        status="rendering",
     )
     session.add(scene)
     await session.flush()
 
     # --- provider submit → poll (the async seam) ---
     op = provider.submit(
-        scene.prompt, aspect=spec.get("aspect_ratio") or "9:16",
-        width=width, height=height, duration_s=float(scene.duration_s),
+        scene.prompt,
+        aspect=spec.get("aspect_ratio") or "9:16",
+        width=width,
+        height=height,
+        duration_s=float(scene.duration_s),
     )
     status = provider.poll(op)
-    clip_cost = provider.estimate_cost(duration_s=float(scene.duration_s), width=width, height=height)
+    clip_cost = provider.estimate_cost(
+        duration_s=float(scene.duration_s), width=width, height=height
+    )
 
     if status.state != "done" or status.result_bytes is None:
+        scene.status = "failed"
+        project.status = "failed_rendering"
+        await session.flush()
+        return {"status": project.status}
+
+    # Phase 7B — validate the provider's bytes before persisting. A wrong/error
+    # payload must never land as if it were a valid video.
+    try:
+        validate_video_output(content_type="video/mp4", data=status.result_bytes)
+    except MediaValidationError:
         scene.status = "failed"
         project.status = "failed_rendering"
         await session.flush()
@@ -94,23 +117,38 @@ async def generate_video_stub(ctx, session, tenant: TenantEnvelope, project_id: 
         key=f"{org}/{pid}/scene0.mp4", data=status.result_bytes, content_type="video/mp4"
     )
     render = VideoRender(
-        organization_id=org, brand_id=brand, user_id=project.user_id,
-        video_scene_id=scene.id, creative_project_id=pid,
-        provider=provider.name, provider_operation_id=op.op_id,
-        prompt=scene.prompt, storage_backend=clip_ref.backend, storage_key=clip_ref.key,
-        width=width, height=height, fps=int(spec.get("fps") or 24),
+        organization_id=org,
+        brand_id=brand,
+        user_id=project.user_id,
+        video_scene_id=scene.id,
+        creative_project_id=pid,
+        provider=provider.name,
+        provider_operation_id=op.op_id,
+        prompt=scene.prompt,
+        storage_backend=clip_ref.backend,
+        storage_key=clip_ref.key,
+        width=width,
+        height=height,
+        fps=int(spec.get("fps") or 24),
         duration_ms=int(scene.duration_s) * 1000,
         has_native_audio=status.has_native_audio,
         synthid_watermark=status.synthid_watermark,
-        status="succeeded", cost_cents=clip_cost,
+        status="succeeded",
+        cost_cents=clip_cost,
     )
     session.add(render)
     scene.status = "done"
     await session.flush()
     await cost_ledger.record_cost(
-        session, organization_id=org, brand_id=brand, creative_project_id=pid,
-        media_type="video", stage="veo_clip", provider=provider.name,
-        cost_cents=clip_cost, units=float(scene.duration_s),
+        session,
+        organization_id=org,
+        brand_id=brand,
+        creative_project_id=pid,
+        media_type="video",
+        stage="veo_clip",
+        provider=provider.name,
+        cost_cents=clip_cost,
+        units=float(scene.duration_s),
         duration_ms=render.duration_ms,
     )
 
@@ -122,21 +160,36 @@ async def generate_video_stub(ctx, session, tenant: TenantEnvelope, project_id: 
     audio_ref = storage.put(key=f"{org}/{pid}/voiceover.mp3", data=audio, content_type="audio/mpeg")
     tts_cost = tts.estimate_cost(char_count=len(vo_text))
     await cost_ledger.record_cost(
-        session, organization_id=org, brand_id=brand, creative_project_id=pid,
-        media_type="video", stage="tts", provider=tts.name, cost_cents=tts_cost,
+        session,
+        organization_id=org,
+        brand_id=brand,
+        creative_project_id=pid,
+        media_type="video",
+        stage="tts",
+        provider=tts.name,
+        cost_cents=tts_cost,
         units=len(vo_text),
     )
 
     # --- register the unified creative_asset (the Asset Library row) ---
     asset = CreativeAsset(
-        organization_id=org, brand_id=brand, user_id=project.user_id,
-        creative_project_id=pid, variant_label="A",
-        media_type="video", creative_type="video",
-        source_kind="video_render", source_id=render.id,
-        storage_backend=clip_ref.backend, storage_key=clip_ref.key,
+        organization_id=org,
+        brand_id=brand,
+        user_id=project.user_id,
+        creative_project_id=pid,
+        variant_label="A",
+        media_type="video",
+        creative_type="video",
+        source_kind="video_render",
+        source_id=render.id,
+        storage_backend=clip_ref.backend,
+        storage_key=clip_ref.key,
         caption_storage_key=audio_ref.key,
-        mime_type="video/mp4", aspect_ratio=spec.get("aspect_ratio"),
-        width=width, height=height, duration_ms=render.duration_ms,
+        mime_type="video/mp4",
+        aspect_ratio=spec.get("aspect_ratio"),
+        width=width,
+        height=height,
+        duration_ms=render.duration_ms,
         status="ready",
     )
     session.add(asset)
@@ -144,12 +197,17 @@ async def generate_video_stub(ctx, session, tenant: TenantEnvelope, project_id: 
 
     # --- metering (both kinds — Decision 3) ---
     await metering.record_video_usage(
-        session, organization_id=org, user_uuid=tenant.user_id_uuid(),
-        brand_id=brand, seconds=int(scene.duration_s),
+        session,
+        organization_id=org,
+        user_uuid=tenant.user_id_uuid(),
+        brand_id=brand,
+        seconds=int(scene.duration_s),
     )
 
     # --- AI audit (no content stored) ---
-    project.actual_cost_cents = await cost_ledger.project_cost_cents(session, creative_project_id=pid)
+    project.actual_cost_cents = await cost_ledger.project_cost_cents(
+        session, creative_project_id=pid
+    )
     project.status = "ready"
     await session.flush()
 
@@ -157,14 +215,24 @@ async def generate_video_stub(ctx, session, tenant: TenantEnvelope, project_id: 
     from aicmo.tenancy.context import TenantContext
 
     tctx = TenantContext(
-        user_id=str(tenant.user_id_uuid()), user_uuid=tenant.user_id_uuid(),
-        organization_id=org, brand_id=brand, member_id=tenant.user_id_uuid(),
+        user_id=str(tenant.user_id_uuid()),
+        user_uuid=tenant.user_id_uuid(),
+        organization_id=org,
+        brand_id=brand,
+        member_id=tenant.user_id_uuid(),
     )
     await record_ai_generation(
-        session, tenant=tctx, action_type=ACTION_GENERATE_REEL,
-        asset_id=asset.id, model_used=f"{provider.name}+{tts.name}",
-        metadata={"media_type": "video", "format": project.format_slug,
-                  "scenes": 1, "cost_cents": project.actual_cost_cents},
+        session,
+        tenant=tctx,
+        action_type=ACTION_GENERATE_REEL,
+        asset_id=asset.id,
+        model_used=f"{provider.name}+{tts.name}",
+        metadata={
+            "media_type": "video",
+            "format": project.format_slug,
+            "scenes": 1,
+            "cost_cents": project.actual_cost_cents,
+        },
     )
 
     return {"status": "ready", "asset_id": str(asset.id), "cost_cents": project.actual_cost_cents}
@@ -222,7 +290,9 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
                 .where(VideoScene.creative_project_id == pid)
                 .order_by(VideoScene.scene_index)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not scenes:
         project.status = "failed_rendering"
@@ -233,8 +303,14 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
     # (Pillow frames + bundled ffmpeg), no external video API. ---
     if get_settings().video_default_provider == "slideshow":
         return await _render_slideshow(
-            session, tenant=tenant, project=project, scenes=scenes,
-            width=width, height=height, aspect=aspect, fps=fps,
+            session,
+            tenant=tenant,
+            project=project,
+            scenes=scenes,
+            width=width,
+            height=height,
+            aspect=aspect,
+            fps=fps,
         )
 
     provider = get_video_provider()
@@ -252,7 +328,9 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
             sc.status = "rendering"
             await session.flush()
             dur = float(sc.duration_s or 8)
-            op = provider.submit(sc.prompt, aspect=aspect, width=width, height=height, duration_s=dur)
+            op = provider.submit(
+                sc.prompt, aspect=aspect, width=width, height=height, duration_s=dur
+            )
             st = provider.poll(op)
             cost = provider.estimate_cost(duration_s=dur, width=width, height=height)
             if st.state != "done" or st.result_bytes is None:
@@ -260,30 +338,57 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
                 project.status = "failed_rendering"
                 await session.flush()
                 return {"status": project.status, "scene": sc.scene_index, "error": st.error}
+            # Phase 7B — validate provider bytes before persisting.
+            try:
+                validate_video_output(content_type="video/mp4", data=st.result_bytes)
+            except MediaValidationError:
+                sc.status = "failed"
+                project.status = "failed_rendering"
+                await session.flush()
+                return {"status": project.status, "scene": sc.scene_index, "error": "invalid_media"}
             ref = storage.put(
                 key=f"{org}/{pid}/scene{sc.scene_index}.mp4",
-                data=st.result_bytes, content_type="video/mp4",
+                data=st.result_bytes,
+                content_type="video/mp4",
             )
             last_render = VideoRender(
-                organization_id=org, brand_id=brand, user_id=project.user_id,
-                video_scene_id=sc.id, creative_project_id=pid, provider=provider.name,
-                provider_operation_id=op.op_id, prompt=sc.prompt,
-                storage_backend=ref.backend, storage_key=ref.key,
-                width=width, height=height, fps=fps, duration_ms=int(dur * 1000),
-                has_native_audio=st.has_native_audio, synthid_watermark=st.synthid_watermark,
-                status="succeeded", cost_cents=cost,
+                organization_id=org,
+                brand_id=brand,
+                user_id=project.user_id,
+                video_scene_id=sc.id,
+                creative_project_id=pid,
+                provider=provider.name,
+                provider_operation_id=op.op_id,
+                prompt=sc.prompt,
+                storage_backend=ref.backend,
+                storage_key=ref.key,
+                width=width,
+                height=height,
+                fps=fps,
+                duration_ms=int(dur * 1000),
+                has_native_audio=st.has_native_audio,
+                synthid_watermark=st.synthid_watermark,
+                status="succeeded",
+                cost_cents=cost,
             )
             session.add(last_render)
             sc.status = "done"
             await session.flush()
             await cost_ledger.record_cost(
-                session, organization_id=org, brand_id=brand, creative_project_id=pid,
-                media_type="video", stage="veo_clip", provider=provider.name,
-                cost_cents=cost, units=dur, duration_ms=int(dur * 1000),
+                session,
+                organization_id=org,
+                brand_id=brand,
+                creative_project_id=pid,
+                media_type="video",
+                stage="veo_clip",
+                provider=provider.name,
+                cost_cents=cost,
+                units=dur,
+                duration_ms=int(dur * 1000),
             )
             clip_parts.append(st.result_bytes)
             total_seconds += int(round(dur))
-    except Exception as e:  # noqa: BLE001 — provider/network failure → fail the render cleanly
+    except Exception as e:
         log.warning("video.render.failed", project_id=project_id, error=str(e))
         project.status = "failed_rendering"
         await session.flush()
@@ -292,7 +397,9 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
     # --- assemble (stub: concat clip bytes; V1+ does ffmpeg concat + audio mux) ---
     project.status = "post_processing"
     await session.flush()
-    reel_ref = storage.put(key=f"{org}/{pid}/reel.mp4", data=b"".join(clip_parts), content_type="video/mp4")
+    reel_ref = storage.put(
+        key=f"{org}/{pid}/reel.mp4", data=b"".join(clip_parts), content_type="video/mp4"
+    )
 
     # --- voiceover (combined) + captions (.vtt), stored separately ---
     vo_text = " ".join(sc.vo_line for sc in scenes if sc.vo_line)[:2000] or project.title
@@ -302,53 +409,99 @@ async def render_design_video(ctx, session, tenant: TenantEnvelope, project_id: 
         key=f"{org}/{pid}/captions.vtt", data=_vtt(scenes).encode(), content_type="text/vtt"
     )
     await cost_ledger.record_cost(
-        session, organization_id=org, brand_id=brand, creative_project_id=pid,
-        media_type="video", stage="tts", provider=tts.name,
-        cost_cents=tts.estimate_cost(char_count=len(vo_text)), units=len(vo_text),
+        session,
+        organization_id=org,
+        brand_id=brand,
+        creative_project_id=pid,
+        media_type="video",
+        stage="tts",
+        provider=tts.name,
+        cost_cents=tts.estimate_cost(char_count=len(vo_text)),
+        units=len(vo_text),
     )
 
     # --- register the unified creative_asset (the reel) ---
     asset = CreativeAsset(
-        organization_id=org, brand_id=brand, user_id=project.user_id,
-        creative_project_id=pid, variant_label="A", media_type="video", creative_type="video",
-        source_kind="video_render", source_id=last_render.id if last_render else None,
-        storage_backend=reel_ref.backend, storage_key=reel_ref.key,
-        caption_storage_key=caption_ref.key, poster_storage_key=audio_ref.key,
-        mime_type="video/mp4", aspect_ratio=aspect, width=width, height=height,
-        duration_ms=total_seconds * 1000, status="ready",
+        organization_id=org,
+        brand_id=brand,
+        user_id=project.user_id,
+        creative_project_id=pid,
+        variant_label="A",
+        media_type="video",
+        creative_type="video",
+        source_kind="video_render",
+        source_id=last_render.id if last_render else None,
+        storage_backend=reel_ref.backend,
+        storage_key=reel_ref.key,
+        caption_storage_key=caption_ref.key,
+        poster_storage_key=audio_ref.key,
+        mime_type="video/mp4",
+        aspect_ratio=aspect,
+        width=width,
+        height=height,
+        duration_ms=total_seconds * 1000,
+        status="ready",
     )
     session.add(asset)
     await session.flush()
 
     # --- metering (video_generation + video_seconds across all scenes) ---
     await metering.record_video_usage(
-        session, organization_id=org, user_uuid=tenant.user_id_uuid(),
-        brand_id=brand, seconds=total_seconds,
+        session,
+        organization_id=org,
+        user_uuid=tenant.user_id_uuid(),
+        brand_id=brand,
+        seconds=total_seconds,
     )
 
-    project.actual_cost_cents = await cost_ledger.project_cost_cents(session, creative_project_id=pid)
+    project.actual_cost_cents = await cost_ledger.project_cost_cents(
+        session, creative_project_id=pid
+    )
     project.status = "ready"
     await session.flush()
 
     from aicmo.tenancy.context import TenantContext
 
     tctx = TenantContext(
-        user_id=str(tenant.user_id_uuid()), user_uuid=tenant.user_id_uuid(),
-        organization_id=org, brand_id=brand, member_id=tenant.user_id_uuid(),
+        user_id=str(tenant.user_id_uuid()),
+        user_uuid=tenant.user_id_uuid(),
+        organization_id=org,
+        brand_id=brand,
+        member_id=tenant.user_id_uuid(),
     )
     await record_ai_generation(
-        session, tenant=tctx, action_type=ACTION_GENERATE_REEL, asset_id=asset.id,
+        session,
+        tenant=tctx,
+        action_type=ACTION_GENERATE_REEL,
+        asset_id=asset.id,
         model_used=f"{provider.name}+{tts.name}",
-        metadata={"media_type": "video", "format": project.format_slug,
-                  "scenes": len(scenes), "seconds": total_seconds,
-                  "cost_cents": project.actual_cost_cents},
+        metadata={
+            "media_type": "video",
+            "format": project.format_slug,
+            "scenes": len(scenes),
+            "seconds": total_seconds,
+            "cost_cents": project.actual_cost_cents,
+        },
     )
-    return {"status": "ready", "asset_id": str(asset.id), "scenes": len(scenes),
-            "seconds": total_seconds, "cost_cents": project.actual_cost_cents}
+    return {
+        "status": "ready",
+        "asset_id": str(asset.id),
+        "scenes": len(scenes),
+        "seconds": total_seconds,
+        "cost_cents": project.actual_cost_cents,
+    }
 
 
 async def _render_slideshow(
-    session, *, tenant: TenantEnvelope, project, scenes, width: int, height: int, aspect: str, fps: int
+    session,
+    *,
+    tenant: TenantEnvelope,
+    project,
+    scenes,
+    width: int,
+    height: int,
+    aspect: str,
+    fps: int,
 ):
     """Render the reel design's pages to a real MP4 with Pillow + bundled ffmpeg.
 
@@ -376,9 +529,21 @@ async def _render_slideshow(
     if not pages:
         # Doc unavailable → text-only frames from the scene prompts.
         pages = [
-            {"layers": [{"type": "text", "role": "headline", "text": sc.prompt,
-                         "x": 0.08, "y": 0.4, "w": 0.84, "font_size": 0.06,
-                         "align": "center", "color": "#ffffff"}]}
+            {
+                "layers": [
+                    {
+                        "type": "text",
+                        "role": "headline",
+                        "text": sc.prompt,
+                        "x": 0.08,
+                        "y": 0.4,
+                        "w": 0.84,
+                        "font_size": 0.06,
+                        "align": "center",
+                        "color": "#ffffff",
+                    }
+                ]
+            }
             for sc in scenes
         ]
 
@@ -402,10 +567,15 @@ async def _render_slideshow(
                         image_bytes = storage.read(
                             StorageRef(backend=asset.storage_backend, key=asset.storage_key)
                         )
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:
                         log.warning("slideshow.asset_read_failed", asset_id=asset_id, error=str(e))
             frames.append(
-                (slideshow.render_page_png(page, width=width, height=height, image_bytes=image_bytes), dur)
+                (
+                    slideshow.render_page_png(
+                        page, width=width, height=height, image_bytes=image_bytes
+                    ),
+                    dur,
+                )
             )
             if sc is not None:
                 sc.status = "done"
@@ -419,7 +589,7 @@ async def _render_slideshow(
         audio = tts.synthesize(vo_text, voice_id="stub-voice")
 
         mp4 = slideshow.assemble_mp4(frames, audio_bytes=audio, width=width, height=height, fps=fps)
-    except Exception as e:  # noqa: BLE001 — Pillow/ffmpeg failure → fail cleanly
+    except Exception as e:
         log.warning("slideshow.render_failed", project_id=str(pid), error=str(e))
         project.status = "failed_rendering"
         await session.flush()
@@ -433,52 +603,105 @@ async def _render_slideshow(
 
     tts_cost = tts.estimate_cost(char_count=len(vo_text))
     await cost_ledger.record_cost(
-        session, organization_id=org, brand_id=brand, creative_project_id=pid,
-        media_type="video", stage="tts", provider=tts.name, cost_cents=tts_cost, units=len(vo_text),
+        session,
+        organization_id=org,
+        brand_id=brand,
+        creative_project_id=pid,
+        media_type="video",
+        stage="tts",
+        provider=tts.name,
+        cost_cents=tts_cost,
+        units=len(vo_text),
     )
 
     render = VideoRender(
-        organization_id=org, brand_id=brand, user_id=project.user_id,
-        video_scene_id=scenes[0].id, creative_project_id=pid, provider="slideshow",
-        provider_operation_id="slideshow-local", prompt=(project.title or "reel")[:2000],
-        storage_backend=reel_ref.backend, storage_key=reel_ref.key,
-        width=width, height=height, fps=fps, duration_ms=total_seconds * 1000,
-        has_native_audio=True, synthid_watermark=False, status="succeeded", cost_cents=0,
+        organization_id=org,
+        brand_id=brand,
+        user_id=project.user_id,
+        video_scene_id=scenes[0].id,
+        creative_project_id=pid,
+        provider="slideshow",
+        provider_operation_id="slideshow-local",
+        prompt=(project.title or "reel")[:2000],
+        storage_backend=reel_ref.backend,
+        storage_key=reel_ref.key,
+        width=width,
+        height=height,
+        fps=fps,
+        duration_ms=total_seconds * 1000,
+        has_native_audio=True,
+        synthid_watermark=False,
+        status="succeeded",
+        cost_cents=0,
     )
     session.add(render)
     await session.flush()
 
     asset = CreativeAsset(
-        organization_id=org, brand_id=brand, user_id=project.user_id,
-        creative_project_id=pid, variant_label="A", media_type="video", creative_type="video",
-        source_kind="video_render", source_id=render.id,
-        storage_backend=reel_ref.backend, storage_key=reel_ref.key,
-        caption_storage_key=caption_ref.key, poster_storage_key=audio_ref.key,
-        mime_type="video/mp4", aspect_ratio=aspect, width=width, height=height,
-        duration_ms=total_seconds * 1000, status="ready",
+        organization_id=org,
+        brand_id=brand,
+        user_id=project.user_id,
+        creative_project_id=pid,
+        variant_label="A",
+        media_type="video",
+        creative_type="video",
+        source_kind="video_render",
+        source_id=render.id,
+        storage_backend=reel_ref.backend,
+        storage_key=reel_ref.key,
+        caption_storage_key=caption_ref.key,
+        poster_storage_key=audio_ref.key,
+        mime_type="video/mp4",
+        aspect_ratio=aspect,
+        width=width,
+        height=height,
+        duration_ms=total_seconds * 1000,
+        status="ready",
     )
     session.add(asset)
     await session.flush()
 
     await metering.record_video_usage(
-        session, organization_id=org, user_uuid=tenant.user_id_uuid(), brand_id=brand, seconds=total_seconds,
+        session,
+        organization_id=org,
+        user_uuid=tenant.user_id_uuid(),
+        brand_id=brand,
+        seconds=total_seconds,
     )
-    project.actual_cost_cents = await cost_ledger.project_cost_cents(session, creative_project_id=pid)
+    project.actual_cost_cents = await cost_ledger.project_cost_cents(
+        session, creative_project_id=pid
+    )
     project.status = "ready"
     await session.flush()
 
     from aicmo.tenancy.context import TenantContext
 
     tctx = TenantContext(
-        user_id=str(tenant.user_id_uuid()), user_uuid=tenant.user_id_uuid(),
-        organization_id=org, brand_id=brand, member_id=tenant.user_id_uuid(),
+        user_id=str(tenant.user_id_uuid()),
+        user_uuid=tenant.user_id_uuid(),
+        organization_id=org,
+        brand_id=brand,
+        member_id=tenant.user_id_uuid(),
     )
     await record_ai_generation(
-        session, tenant=tctx, action_type=ACTION_GENERATE_REEL, asset_id=asset.id,
+        session,
+        tenant=tctx,
+        action_type=ACTION_GENERATE_REEL,
+        asset_id=asset.id,
         model_used=f"slideshow+{tts.name}",
-        metadata={"media_type": "video", "format": project.format_slug,
-                  "scenes": len(frames), "seconds": total_seconds,
-                  "cost_cents": project.actual_cost_cents},
+        metadata={
+            "media_type": "video",
+            "format": project.format_slug,
+            "scenes": len(frames),
+            "seconds": total_seconds,
+            "cost_cents": project.actual_cost_cents,
+        },
     )
-    return {"status": "ready", "asset_id": str(asset.id), "scenes": len(frames),
-            "seconds": total_seconds, "cost_cents": project.actual_cost_cents, "provider": "slideshow"}
+    return {
+        "status": "ready",
+        "asset_id": str(asset.id),
+        "scenes": len(frames),
+        "seconds": total_seconds,
+        "cost_cents": project.actual_cost_cents,
+        "provider": "slideshow",
+    }

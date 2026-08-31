@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.advisor.brain import (
@@ -20,7 +21,12 @@ from aicmo.modules.advisor.lead_context import load_lead_context
 from aicmo.modules.advisor.outcomes import load_outcome_context
 from aicmo.modules.advisor.schemas import DataSourceRef
 from aicmo.modules.analytics import service as analytics_service
+from aicmo.modules.marketing_analytics import service as marketing_analytics_service
+from aicmo.modules.marketing_analytics.schemas import AdvisorAnalyticsSignal
+from aicmo.modules.marketing_analytics.signal_prompt import signal_to_prompt_block
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+
+log = structlog.get_logger()
 
 
 @dataclass
@@ -39,6 +45,8 @@ class IntelligenceSignals:
     has_content_intel: bool = False
     has_lead_intel: bool = False
     activity_signals: int = 0
+    # Phase 4 — read-only computed platform analytics feed (marketing_analytics).
+    analytics_signal: AdvisorAnalyticsSignal | None = None
 
 
 async def gather_intelligence_signals(
@@ -56,6 +64,16 @@ async def gather_intelligence_signals(
     content_ctx = await load_content_intelligence(session, brand_id=brand_id)
     lead_ctx = await load_lead_context(session, brand_id=brand_id)
     overview = await analytics_service.overview(session, brand_id=brand_id)
+
+    # Phase 4 — read-only, computed platform analytics. Wrapped so an analytics
+    # failure can never break recommendation generation; degrades to None.
+    analytics_signal = None
+    try:
+        analytics_signal = await marketing_analytics_service.advisor_signal(
+            session, brand_id=brand_id
+        )
+    except Exception as e:  # never abort the advisor for an analytics read
+        log.warning("advisor.analytics_signal_failed", error=str(e)[:200])
     analytics_signals = [
         f"Total leads: {overview.total_leads}",
         f"Leads (7d): {overview.leads_7d}",
@@ -63,17 +81,11 @@ async def gather_intelligence_signals(
         f"Hot leads: {overview.hot_leads}",
     ]
     if overview.conversion_rate > 0:
-        analytics_signals.append(
-            f"Landing page conversion: {overview.conversion_rate:.1%}"
-        )
+        analytics_signals.append(f"Landing page conversion: {overview.conversion_rate:.1%}")
 
     data_sources: list[DataSourceRef] = [
-        DataSourceRef(
-            key="leads_7d", label="Leads (7 days)", value=str(overview.leads_7d)
-        ),
-        DataSourceRef(
-            key="leads_30d", label="Leads (30 days)", value=str(overview.leads_30d)
-        ),
+        DataSourceRef(key="leads_7d", label="Leads (7 days)", value=str(overview.leads_7d)),
+        DataSourceRef(key="leads_30d", label="Leads (30 days)", value=str(overview.leads_30d)),
         DataSourceRef(key="hot_leads", label="Hot leads", value=str(overview.hot_leads)),
     ]
     data_sources.extend(connector_ctx.get("data_sources", []))
@@ -81,9 +93,7 @@ async def gather_intelligence_signals(
     data_sources.extend(lead_ctx.get("data_sources", []))
 
     activity_signals = sum(
-        1
-        for n in (overview.total_leads, overview.leads_7d, overview.leads_30d)
-        if n > 0
+        1 for n in (overview.total_leads, overview.leads_7d, overview.leads_30d) if n > 0
     )
 
     return IntelligenceSignals(
@@ -101,6 +111,7 @@ async def gather_intelligence_signals(
         has_content_intel=content_ctx.get("has_data", False),
         has_lead_intel=lead_ctx.get("has_data", False),
         activity_signals=activity_signals,
+        analytics_signal=analytics_signal,
     )
 
 
@@ -140,6 +151,12 @@ def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int
             parts.append(f"- {m['provider']}/{m['key']}: {m['value']}")
     else:
         parts.append("No synced platform metrics — do not cite social/ad platform stats.")
+
+    # Phase 4 — normalized, computed marketing-analytics evidence. This is the
+    # authoritative source for platform trends: the model may explain these
+    # numbers but must never alter or invent them.
+    if signals.analytics_signal is not None:
+        parts.extend(["", signal_to_prompt_block(signals.analytics_signal)])
 
     parts.extend(["", "=== 4. CONTENT INTELLIGENCE ==="])
     if signals.has_content_intel:

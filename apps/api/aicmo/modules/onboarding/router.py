@@ -41,7 +41,7 @@ async def get_profile(
     tenant: TenantContext = Depends(require_tenant()),
 ) -> BusinessProfileResponse:
     profile = await service.require_profile(session, tenant.brand_id)
-    return service._to_response(profile)  # noqa: SLF001
+    return service._to_response(profile)
 
 
 @router.put("/profile", response_model=BusinessProfileResponse)

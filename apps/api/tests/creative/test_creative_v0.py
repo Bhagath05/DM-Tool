@@ -10,7 +10,6 @@ are cleaned up in teardown.
 
 from __future__ import annotations
 
-import socket
 import time
 import uuid
 
@@ -19,18 +18,15 @@ import pytest
 from aicmo.modules.creative.storage.base import StorageRef, sign_key, verify_key
 from aicmo.modules.video.providers.stub import StubVideoProvider
 from aicmo.modules.video.tts.stub import StubTTSProvider
+from tests._dbtest import async_dsn, pg_reachable, sync_dsn
 
 
 def _pg_up() -> bool:
-    s = socket.socket(); s.settimeout(2)
-    try:
-        s.connect(("localhost", 5432)); s.close(); return True
-    except Exception:  # noqa: BLE001
-        return False
+    return pg_reachable()
 
 
-_DSN = "postgresql://aicmo:aicmo@localhost:5432/aicmo"
-_ADSN = "postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo"
+_DSN = sync_dsn()
+_ADSN = async_dsn()
 
 
 # ---------------------------------------------------------------------

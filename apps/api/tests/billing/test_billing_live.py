@@ -7,23 +7,16 @@ roll all writes back so the shared DB is untouched. Stripe is never called
 
 from __future__ import annotations
 
-import socket
 import uuid
 
 import pytest
 
 from aicmo.modules.billing import billing_live, plan_service
+from tests._dbtest import async_dsn, pg_reachable
 
 
 def _pg_up() -> bool:
-    s = socket.socket()
-    s.settimeout(2)
-    try:
-        s.connect(("localhost", 5432))
-        s.close()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
+    return pg_reachable()
 
 
 # ---------------------------------------------------------------------
@@ -74,7 +67,7 @@ async def test_plan_service_reads_db_quotas():
         pytest.skip("Postgres not reachable")
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-    eng = create_async_engine("postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo")
+    eng = create_async_engine(async_dsn())
     plan_service.clear_cache()
     async with AsyncSession(eng) as s:
         # Seeded numbers from migration 0033.
@@ -96,7 +89,7 @@ async def test_db_quota_change_takes_effect_without_code(monkeypatch):
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-    eng = create_async_engine("postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo")
+    eng = create_async_engine(async_dsn())
     try:
         async with AsyncSession(eng) as s:
             await s.execute(
@@ -127,7 +120,7 @@ async def test_webhook_event_is_idempotent():
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-    eng = create_async_engine("postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo")
+    eng = create_async_engine(async_dsn())
     event_id = f"evt_test_{uuid.uuid4().hex}"
     event = {"id": event_id, "type": "customer.subscription.updated",
              "data": {"object": {"customer": "cus_nomatch"}}}
@@ -156,7 +149,7 @@ async def test_webhook_unhandled_type_is_acked_not_errored():
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-    eng = create_async_engine("postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo")
+    eng = create_async_engine(async_dsn())
     event_id = f"evt_test_{uuid.uuid4().hex}"
     event = {"id": event_id, "type": "ping.unknown", "data": {"object": {}}}
     try:

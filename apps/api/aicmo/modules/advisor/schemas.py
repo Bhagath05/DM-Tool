@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from aicmo.modules.marketing_analytics.schemas import AdvisorAnalyticsSignal
+
 RecommendationStatus = Literal[
     "not_started", "in_progress", "completed", "skipped"
 ]
@@ -155,6 +157,9 @@ class IntelligenceReport(BaseModel):
     signals_used: list[str] = Field(default_factory=list)
     confidence_cap: int = 55
     generated_at: str
+    # Phase 4 — computed platform analytics feed, rendered by the AI Coach UI.
+    # Numbers here are authoritative; the narrative above only explains them.
+    marketing_signal: AdvisorAnalyticsSignal | None = None
 
 
 class BusinessBrainResponse(BaseModel):

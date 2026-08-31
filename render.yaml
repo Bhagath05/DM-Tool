@@ -140,6 +140,12 @@ services:
           type: redis
           name: dm-tool-redis
           property: connectionString
+      # Mirrors the API service. Blueprint default is `staging`; set to
+      # `production` on the dashboard when going live so the worker's
+      # fail-closed secret guard (validate_worker_secrets) activates. Without
+      # API_ENV the worker resolves to development and the guard is a no-op.
+      - key: API_ENV
+        value: staging
       - key: JOBS_ENABLED
         value: "true"
       - key: PYTHONUNBUFFERED

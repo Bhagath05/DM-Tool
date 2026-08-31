@@ -56,3 +56,10 @@ verification-evidence/node_modules/
 
 # Generated media artifacts (local storage backend; never commit)
 apps/api/media/
+
+# Redis local persistence (never commit runtime data)
+*.rdb
+dump.rdb
+
+# Log files (runtime artifacts)
+*.log

@@ -57,6 +57,52 @@ export interface AdvisorEmptyPlan {
   generated_at: string;
 }
 
+// Phase 4 — computed marketing-analytics signal fed into the advisor. Numbers
+// here are authoritative (server-computed); the narrative only explains them.
+export interface MarketingSignalEvidence {
+  metric: string;
+  label: string;
+  provider?: string | null;
+  platform?: string | null;
+  change_percent?: number | null;
+  current?: number | null;
+  window: string;
+}
+
+export interface MarketingSignalInsight {
+  id: string;
+  severity: "good" | "attention" | "neutral";
+  observation: string;
+  interpretation: string;
+  recommendation: string;
+  expected_result: string;
+  confidence: number;
+  confidence_band: "high" | "medium" | "low" | "speculative";
+  evidence: MarketingSignalEvidence[];
+}
+
+export interface MarketingSignalPlatform {
+  provider_slug: string;
+  platform: string;
+  metrics: MarketingSignalEvidence[];
+}
+
+export interface MarketingAnalyticsSignal {
+  source: "marketing_analytics";
+  has_data: boolean;
+  connected: boolean;
+  data_sufficiency: string;
+  window: string;
+  headline: string;
+  empty_reason?: string | null;
+  empty_message?: string | null;
+  platforms: MarketingSignalPlatform[];
+  insights: MarketingSignalInsight[];
+  evidence: MarketingSignalEvidence[];
+  confidence_band: string;
+  last_sync_at?: string | null;
+}
+
 export interface IntelligenceReport {
   ready: boolean;
   empty?: AdvisorEmptyPlan | null;
@@ -68,6 +114,7 @@ export interface IntelligenceReport {
   signals_used: string[];
   confidence_cap: number;
   generated_at: string;
+  marketing_signal?: MarketingAnalyticsSignal | null;
 }
 
 export interface AdvisoryTrend {

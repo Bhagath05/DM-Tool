@@ -124,3 +124,59 @@ def test_plan_task_allowlists(field, bad):
     payload["tasks"][0][field] = bad
     with pytest.raises(ValidationError):
         DailyPlan.model_validate(payload)
+
+
+# ---------------------------------------------------------------------
+#  Fallback contract — the LLM path must never 500 (was /planner/today 500)
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_plan_falls_back_on_truncation(monkeypatch):
+    """A truncated/malformed LLM response (the suspected prod 500) degrades to a
+    deterministic plan instead of raising — the endpoint returns a useful 200."""
+    fake_router = SimpleNamespace(
+        generate=AsyncMock(
+            side_effect=RuntimeError(
+                "OpenAI response was truncated — schema too large for max_tokens"
+            )
+        )
+    )
+    monkeypatch.setattr(service, "get_llm_router", lambda: fake_router)
+
+    out = await service.generate_daily_plan(_profile(), _strategy())
+
+    assert isinstance(out, DailyPlan)
+    assert 1 <= len(out.tasks) <= 7
+    assert out.summary and out.focus
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_plan_falls_back_on_any_llm_error(monkeypatch):
+    """Any provider error (refusal, network, validation) degrades, never 500s."""
+    fake_router = SimpleNamespace(generate=AsyncMock(side_effect=ValueError("boom")))
+    monkeypatch.setattr(service, "get_llm_router", lambda: fake_router)
+
+    out = await service.generate_daily_plan(_profile(), None)
+
+    assert isinstance(out, DailyPlan)
+    assert out.tasks  # non-empty, useful
+
+
+def test_fallback_daily_plan_is_valid_useful_and_non_fabricated():
+    plan = service._fallback_daily_plan(_profile(), None)
+    assert isinstance(plan, DailyPlan)
+    assert 3 <= len(plan.tasks) <= 7
+    for t in plan.tasks:
+        assert t.category in {
+            "content", "social", "ads", "seo", "email",
+            "leads", "landing_page", "research", "other",
+        }
+        assert t.priority in {"high", "medium", "low"}
+        assert t.effort in {"quick", "medium", "deep"}
+        assert t.why and t.suggested_action
+    # Deterministic copy must not fabricate metrics (Constitution: no fake numbers).
+    import re
+
+    joined = plan.summary + plan.focus + " ".join(t.why for t in plan.tasks)
+    assert not re.search(r"\d+\s*%|\d+x|₹\s*\d|\$\d", joined)

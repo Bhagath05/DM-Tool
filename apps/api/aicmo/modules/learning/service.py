@@ -28,7 +28,6 @@ from aicmo.modules.learning.models import (
     ExperimentResult,
     LearningEvent,
 )
-from aicmo.tenancy.context import TenantContext  # noqa: F401  (used by string-annotation in record_experiment)
 from aicmo.modules.learning.schemas import (
     CampaignExperimentResponse,
     ExperimentProvenance,
@@ -36,6 +35,9 @@ from aicmo.modules.learning.schemas import (
     LearningEventResponse,
     RecordExperimentInput,
     RecordResultInput,
+)
+from aicmo.tenancy.context import (
+    TenantContext,
 )
 
 log = structlog.get_logger()
@@ -49,7 +51,7 @@ log = structlog.get_logger()
 async def record_experiment(
     session: AsyncSession,
     *,
-    tenant: "TenantContext",
+    tenant: TenantContext,
     payload: RecordExperimentInput,
 ) -> CampaignExperimentResponse:
     """Persist a provenance row. Idempotent on (brand, source_asset_id)."""

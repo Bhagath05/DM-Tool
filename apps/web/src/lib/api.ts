@@ -2526,6 +2526,156 @@ export interface CompetitorAnalysisResponse {
   expected_result: string;
 }
 
+// ---- Phase 3: marketing analytics + Performance Marketer ----
+// Hand-written to match aicmo/modules/marketing_analytics/schemas.py until
+// OpenAPI codegen is wired (see the note at the top of this file).
+
+export interface MaMetricEvidence {
+  metric: string;
+  label: string;
+  provider?: string | null;
+  platform?: string | null;
+  current?: number | null;
+  previous?: number | null;
+  absolute_change?: number | null;
+  change_percent?: number | null;
+  window: string;
+}
+
+export interface MaInsight {
+  id: string;
+  severity: "good" | "attention" | "neutral";
+  observation: string;
+  evidence: MaMetricEvidence[];
+  interpretation: string;
+  recommendation: string;
+  reason: string;
+  confidence: number;
+  confidence_band: "high" | "medium" | "low" | "speculative";
+  expected_result: string;
+  impact_category: "revenue" | "lead" | "customer" | "time" | "cost";
+  window: string;
+}
+
+export interface MaDataSufficiency {
+  level: string;
+  days_covered: number;
+  observations: number;
+  message: string;
+}
+
+export interface MaPlatformMetric {
+  metric: string;
+  label: string;
+  kind: string;
+  value: number;
+  unit: string;
+  comparable: boolean;
+  trend: "up" | "down" | "flat" | "insufficient";
+  change_percent?: number | null;
+  window: string;
+}
+
+export interface MaPlatformSummary {
+  provider_slug: string;
+  platform: string;
+  metrics: MaPlatformMetric[];
+  has_data: boolean;
+}
+
+export interface MaCrossPlatformEntry {
+  provider_slug: string;
+  platform: string;
+  value: number;
+  change_percent?: number | null;
+  trend: "up" | "down" | "flat" | "insufficient";
+}
+
+export interface MaCrossPlatformRow {
+  metric: string;
+  label: string;
+  kind: string;
+  unit: string;
+  entries: MaCrossPlatformEntry[];
+  leader_provider?: string | null;
+  leader_platform?: string | null;
+}
+
+export interface MaPlatformsResponse {
+  platforms: MaPlatformSummary[];
+  comparison: MaCrossPlatformRow[];
+  sufficiency: MaDataSufficiency;
+  last_sync_at?: string | null;
+  has_data: boolean;
+}
+
+export interface MaPerformanceReport {
+  headline: string;
+  sufficiency: MaDataSufficiency;
+  whats_working: MaInsight[];
+  whats_not_working: MaInsight[];
+  recommendations: MaInsight[];
+  platform_comparison: MaCrossPlatformRow[];
+  narrated: boolean;
+  has_data: boolean;
+  generated_at: string;
+}
+
+// Phase 5 — per-content performance.
+export interface MaContentItem {
+  asset_id: string;
+  platform: string;
+  platform_label: string;
+  provider_slug?: string | null;
+  platform_post_id: string;
+  asset_type: string;
+  caption?: string | null;
+  permalink?: string | null;
+  thumbnail_url?: string | null;
+  posted_at?: string | null;
+  engagement_rate: number;
+  reach: number;
+  impressions: number;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  available_metrics: string[];
+  above_median: boolean;
+}
+
+export interface MaFormatComparisonRow {
+  asset_type: string;
+  count: number;
+  median_engagement_rate: number;
+  avg_reach?: number | null;
+  avg_views?: number | null;
+}
+
+export interface MaRecommendationEffectiveness {
+  has_data: boolean;
+  recommendation_driven_count: number;
+  other_count: number;
+  recommendation_median_engagement?: number | null;
+  other_median_engagement?: number | null;
+  vs_overall_percent?: number | null;
+  summary: string;
+}
+
+export interface MaContentReport {
+  has_data: boolean;
+  sufficiency: MaDataSufficiency;
+  window: string;
+  median_engagement_rate?: number | null;
+  top: MaContentItem[];
+  worst: MaContentItem[];
+  format_comparison: MaFormatComparisonRow[];
+  insights: MaInsight[];
+  recommendation_effectiveness?: MaRecommendationEffectiveness | null;
+  generated_at: string;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -2564,6 +2714,19 @@ export const api = {
       request<{ items: TopAssetRow[] }>(
         `/api/v1/analytics/top-assets?limit=${limit}`,
       ),
+  },
+  // Phase 3 — normalized platform analytics + the Performance Marketer.
+  marketingAnalytics: {
+    platforms: (windowDays = 7) =>
+      request<MaPlatformsResponse>(
+        `/api/v1/marketing-analytics/platforms?window_days=${windowDays}`,
+      ),
+    performance: (windowDays = 7) =>
+      request<MaPerformanceReport>(
+        `/api/v1/marketing-analytics/performance?window_days=${windowDays}`,
+      ),
+    content: () =>
+      request<MaContentReport>("/api/v1/marketing-analytics/content"),
   },
   landingPages: {
     list: async (params: { include_archived?: boolean } = {}): Promise<LandingPage[]> => {

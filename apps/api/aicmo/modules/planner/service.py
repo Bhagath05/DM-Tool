@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.llm import get_llm_router
@@ -17,13 +18,56 @@ from aicmo.modules.learning import feedback as learning_feedback
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 from aicmo.modules.planner import prompts
-from aicmo.modules.planner.schemas import DailyPlan, DailyPlanResponse
+from aicmo.modules.planner.schemas import DailyPlan, DailyPlanResponse, PlannedTask
 from aicmo.modules.strategist import service as strategist_service
 from aicmo.modules.strategist.schemas import MarketingStrategy
+
+log = structlog.get_logger()
 
 
 class ProfileMissing(Exception):
     """No business profile for this brand yet."""
+
+
+def _fallback_daily_plan(
+    profile: BusinessProfileResponse,
+    strategy: MarketingStrategy | None,
+) -> DailyPlan:
+    """Deterministic plan for when the LLM is unavailable or returns a
+    malformed/truncated response. Honest marketing fundamentals — no fabricated
+    numbers — so the founder still gets a useful plan instead of a 500. The
+    caller sets `grounded_in_strategy` from whether a strategy actually existed."""
+    tasks = [
+        PlannedTask(
+            title="Publish one piece of content for your ideal customer",
+            category="content",
+            why="Consistent publishing is the highest-leverage habit before there is performance data to optimize against.",
+            priority="high",
+            effort="medium",
+            suggested_action="Content Studio → create a post",
+        ),
+        PlannedTask(
+            title="Reply to every new lead, comment, or message today",
+            category="leads",
+            why="Fast follow-up is the cheapest win available and compounds trust with people already interested.",
+            priority="high",
+            effort="quick",
+            suggested_action="Leads → follow up",
+        ),
+        PlannedTask(
+            title="Note what your best recent post or channel did well",
+            category="research",
+            why="Capturing what works starts the learning loop that sharpens every future decision.",
+            priority="medium",
+            effort="quick",
+            suggested_action="Performance → review",
+        ),
+    ]
+    return DailyPlan(
+        summary="A simple, high-leverage plan to keep momentum today.",
+        focus="Ship one piece of content and respond to everyone who shows interest.",
+        tasks=tasks,
+    )
 
 
 async def generate_daily_plan(
@@ -35,22 +79,29 @@ async def generate_daily_plan(
     """Pure of the DB so it can be unit-tested with a mocked LLM router.
 
     `learning_block` (Module 6) injects learned lessons; `goals_block` (4.3)
-    injects the brand's active goals so today's plan moves them forward."""
+    injects the brand's active goals so today's plan moves them forward.
+
+    Never raises: an LLM error, refusal, truncation, or malformed/oversized
+    response degrades to a deterministic `_fallback_daily_plan` (the same
+    fallback contract the advisor/opportunities engines use) so the endpoint
+    returns a useful 200 instead of a 500."""
     router = get_llm_router()
-    result = await router.generate(
-        response_schema=DailyPlan,
-        system=prompts.SYSTEM_PROMPT,
-        messages=[
-            LLMMessage(
-                role="user",
-                content=prompts.build_plan_prompt(
-                    profile, strategy, learning_block, goals_block
-                ),
-            ),
-        ],
-        max_tokens=2048,
-    )
-    return result.data
+    user_prompt = prompts.build_plan_prompt(profile, strategy, learning_block, goals_block)
+    try:
+        result = await router.generate(
+            response_schema=DailyPlan,
+            system=prompts.SYSTEM_PROMPT,
+            messages=[LLMMessage(role="user", content=user_prompt)],
+            # GPT-5.x is a reasoning model: max_completion_tokens includes hidden
+            # reasoning, so a low cap can truncate before the JSON completes. Match
+            # the content-generation range (2200-4500 for the same model) with
+            # headroom rather than the previous 2048 (below every content type).
+            max_tokens=4000,
+        )
+        return result.data
+    except Exception as e:  # degrade, never 500 the planner
+        log.warning("planner.generate_failed", error=str(e)[:300])
+        return _fallback_daily_plan(profile, strategy)
 
 
 async def plan_today(

@@ -5,22 +5,18 @@ publishing exports. The render-job + exports tests need live Postgres
 
 from __future__ import annotations
 
-import socket
 import uuid
 
 import pytest
 
-_DSN = "postgresql://aicmo:aicmo@localhost:5432/aicmo"
-_ADSN = "postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo"
+from tests._dbtest import async_dsn, pg_reachable, sync_dsn
+
+_DSN = sync_dsn()
+_ADSN = async_dsn()
 
 
 def _pg_up() -> bool:
-    try:
-        s = socket.create_connection(("localhost", 5432), 0.3)
-        s.close()
-        return True
-    except OSError:
-        return False
+    return pg_reachable()
 
 
 # ---- Veo provider: creds-guarded, registry selection ----

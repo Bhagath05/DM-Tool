@@ -14,6 +14,8 @@ from aicmo.config import get_settings
 from aicmo.modules.integrations.http_retry import with_retry
 from aicmo.modules.integrations.providers.base import (
     AccountInfo,
+    ContentMetricResult,
+    ContentRef,
     IntegrationProvider,
     OAuthTokens,
     SyncResult,
@@ -42,9 +44,7 @@ class PinterestProvider(IntegrationProvider):
 
     def _credentials_configured(self) -> bool:
         return bool(
-            self._client_id
-            and self._client_secret
-            and not self._client_id.endswith("replace_me")
+            self._client_id and self._client_secret and not self._client_id.endswith("replace_me")
         )
 
     def info(self):
@@ -129,6 +129,64 @@ class PinterestProvider(IntegrationProvider):
             external_account_name=display,
             scopes_granted=list(self.scopes),
         )
+
+    content_metrics_supported = True
+
+    async def fetch_content_metrics(
+        self,
+        *,
+        access_token: str,
+        external_account_id: str | None,
+        posts: list[ContentRef],
+    ) -> list[ContentMetricResult]:
+        """Per-pin impressions + saves via /pins/{id}/analytics (last 30 days).
+
+        Pinterest exposes IMPRESSION/SAVE/PIN_CLICK; we collect impressions and
+        saves (likes/comments/shares are not Pinterest concepts). Per-pin errors
+        are isolated."""
+        from datetime import date, timedelta
+
+        end = date.today()
+        start = end - timedelta(days=30)
+        results: list[ContentMetricResult] = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for p in posts:
+                pin = p.platform_post_id
+                if not pin:
+                    continue
+                try:
+                    resp = await with_retry(
+                        lambda pin=pin: client.get(
+                            f"{_API_BASE}/pins/{pin}/analytics",
+                            params={
+                                "start_date": start.isoformat(),
+                                "end_date": end.isoformat(),
+                                "metric_types": "IMPRESSION,SAVE",
+                            },
+                            headers={"Authorization": f"Bearer {access_token}"},
+                        )
+                    )
+                except Exception:
+                    continue
+                if resp.status_code != 200:
+                    continue
+                summary = ((resp.json().get("all") or {}).get("summary_metrics")) or {}
+                metrics: dict[str, float] = {}
+                if summary.get("IMPRESSION") is not None:
+                    metrics["impressions"] = float(summary["IMPRESSION"])
+                if summary.get("SAVE") is not None:
+                    metrics["saves"] = float(summary["SAVE"])
+                if not metrics:
+                    continue
+                results.append(
+                    ContentMetricResult(
+                        platform_post_id=pin,
+                        asset_type=p.asset_type,
+                        metrics=metrics,
+                        raw={"source": "pinterest_analytics"},
+                    )
+                )
+        return results
 
     async def sync(
         self,

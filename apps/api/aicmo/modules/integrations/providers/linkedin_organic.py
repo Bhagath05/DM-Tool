@@ -14,6 +14,8 @@ from aicmo.config import get_settings
 from aicmo.modules.integrations.http_retry import with_retry
 from aicmo.modules.integrations.providers.base import (
     AccountInfo,
+    ContentMetricResult,
+    ContentRef,
     IntegrationProvider,
     OAuthTokens,
     SyncResult,
@@ -43,9 +45,7 @@ class LinkedInOrganicProvider(IntegrationProvider):
 
     def _credentials_configured(self) -> bool:
         return bool(
-            self._client_id
-            and self._client_secret
-            and not self._client_id.endswith("replace_me")
+            self._client_id and self._client_secret and not self._client_id.endswith("replace_me")
         )
 
     def info(self):
@@ -131,6 +131,62 @@ class LinkedInOrganicProvider(IntegrationProvider):
             external_account_name=org_name or "LinkedIn Organization",
             scopes_granted=list(self.scopes),
         )
+
+    content_metrics_supported = True
+
+    async def fetch_content_metrics(
+        self,
+        *,
+        access_token: str,
+        external_account_id: str | None,
+        posts: list[ContentRef],
+    ) -> list[ContentMetricResult]:
+        """Per-post like/comment counts via /v2/socialActions/{urn}.
+
+        Impressions require the organization share-statistics endpoint (different
+        auth scope) so they're not collected here — omitted, never fabricated.
+        Per-post errors are isolated."""
+        from urllib.parse import quote
+
+        results: list[ContentMetricResult] = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for p in posts:
+                urn = p.platform_post_id
+                if not urn:
+                    continue
+                try:
+                    resp = await with_retry(
+                        lambda urn=urn: client.get(
+                            f"{_API_BASE}/v2/socialActions/{quote(urn, safe='')}",
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "X-Restli-Protocol-Version": "2.0.0",
+                            },
+                        )
+                    )
+                except Exception:
+                    continue
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                metrics: dict[str, float] = {}
+                likes = (data.get("likesSummary") or {}).get("totalLikes")
+                if likes is not None:
+                    metrics["likes"] = float(likes)
+                comments = (data.get("commentsSummary") or {}).get("aggregatedTotalComments")
+                if comments is not None:
+                    metrics["comments_count"] = float(comments)
+                if not metrics:
+                    continue
+                results.append(
+                    ContentMetricResult(
+                        platform_post_id=urn,
+                        asset_type=p.asset_type,
+                        metrics=metrics,
+                        raw={"source": "linkedin_social_actions"},
+                    )
+                )
+        return results
 
     async def sync(
         self,

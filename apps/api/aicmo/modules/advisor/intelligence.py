@@ -103,9 +103,7 @@ async def compose_intelligence(
     now = datetime.now(UTC)
     generated_at = now.isoformat()
 
-    ctx = await gather_intelligence_signals(
-        session, profile=profile, brand_id=tenant.brand_id
-    )
+    ctx = await gather_intelligence_signals(session, profile=profile, brand_id=tenant.brand_id)
 
     if not ctx.brain_complete:
         return IntelligenceReport(
@@ -118,6 +116,7 @@ async def compose_intelligence(
                 generated_at=generated_at,
             ),
             generated_at=generated_at,
+            marketing_signal=ctx.analytics_signal,
         )
 
     cap = _confidence_cap(
@@ -158,6 +157,7 @@ async def compose_intelligence(
             ),
             generated_at=generated_at,
             confidence_cap=cap,
+            marketing_signal=ctx.analytics_signal,
         )
 
     if not settings.advisor_intelligence_enabled:
@@ -171,6 +171,7 @@ async def compose_intelligence(
                 generated_at=generated_at,
             ),
             generated_at=generated_at,
+            marketing_signal=ctx.analytics_signal,
         )
 
     user_prompt = signals_to_prompt_block(ctx, confidence_cap=cap)
@@ -210,9 +211,11 @@ async def compose_intelligence(
         _to_intelligence_opp(o, cap=cap, default_kind="content")
         for o in narrative.content_opportunities[:5]
     ]
+    # Phase 6 — surface computed "repeat this winning format" content insights as
+    # executable opportunities (deep-link into the Creative Studio, human-approved).
+    content = (content + _content_opportunities(ctx, cap=cap))[:5]
     ads = [
-        _to_intelligence_opp(o, cap=cap, default_kind="ad")
-        for o in narrative.ad_opportunities[:3]
+        _to_intelligence_opp(o, cap=cap, default_kind="ad") for o in narrative.ad_opportunities[:3]
     ]
     trend = _to_intelligence_rec(narrative.trend, cap=cap) if narrative.trend else None
 
@@ -236,6 +239,7 @@ async def compose_intelligence(
         signals_used=ctx.analytics_signals,
         confidence_cap=cap,
         generated_at=generated_at,
+        marketing_signal=ctx.analytics_signal,
     )
 
 
@@ -314,9 +318,7 @@ def _deterministic_report(
 
     why_parts: list[str] = []
     if success_delta and success_title:
-        why_parts.append(
-            f"Historical outcome: '{success_title}' — {success_delta}"
-        )
+        why_parts.append(f"Historical outcome: '{success_title}' — {success_delta}")
     if winning_line:
         why_parts.append(winning_line)
     if ig_engagement is not None and ig_reach:
@@ -352,7 +354,9 @@ def _deterministic_report(
             "— carousels earn more saves than single-image posts."
         )
     else:
-        hero_action = "Publish and share your lead capture page to start converting local search interest."
+        hero_action = (
+            "Publish and share your lead capture page to start converting local search interest."
+        )
 
     hero = IntelligenceRecommendation(
         observation=what,
@@ -383,7 +387,7 @@ def _deterministic_report(
     _biz = brain.business_name or "your business"
     _audience = (brain.target_audience or "your audience").strip()
     _audience_short = _audience[:80] + ("…" if len(_audience) > 80 else "")
-    _platform = (brain.preferred_platforms[0] if brain.preferred_platforms else "Instagram")
+    _platform = brain.preferred_platforms[0] if brain.preferred_platforms else "Instagram"
     _has_history = bool(success_title or winning_line)
 
     content_opps: list[IntelligenceOpportunity] = []
@@ -391,7 +395,9 @@ def _deterministic_report(
         content_opps.append(
             IntelligenceOpportunity(
                 kind="content",
-                headline="Repeat your best carousel format" if _has_history else "Publish a value-packed carousel",
+                headline="Repeat your best carousel format"
+                if _has_history
+                else "Publish a value-packed carousel",
                 observation=what,
                 root_cause=why,
                 recommended_action=(
@@ -470,6 +476,9 @@ def _deterministic_report(
             )
         )
 
+    # Phase 6 — executable content insights also flow through the honest fallback.
+    content_opps = (content_opps + _content_opportunities(ctx, cap=cap))[:5]
+
     return IntelligenceReport(
         ready=True,
         hero=hero,
@@ -484,6 +493,7 @@ def _deterministic_report(
         signals_used=ctx.analytics_signals,
         confidence_cap=cap,
         generated_at=generated_at,
+        marketing_signal=ctx.analytics_signal,
     )
 
 
@@ -547,6 +557,46 @@ def _to_intelligence_opp(
     )
 
 
+def _content_opportunities(ctx: IntelligenceSignals, *, cap: int) -> list[IntelligenceOpportunity]:
+    """Turn the Phase-5 computed content insights (on the marketing-analytics
+    signal) into executable content opportunities. Only insights carrying a
+    generator_hint become opportunities; the numbers stay exactly as computed —
+    the LLM never authored them. Human approval is still required to publish."""
+    sig = ctx.analytics_signal
+    if sig is None or not sig.content_insights:
+        return []
+    out: list[IntelligenceOpportunity] = []
+    for ci in sig.content_insights:
+        if not ci.generator_hint:
+            continue
+        sources: list[DataSourceRef] = []
+        for e in ci.evidence:
+            value = (
+                f"{e.change_percent:+.0f}% vs median" if e.change_percent is not None else e.label
+            )
+            sources.append(DataSourceRef(key=f"content:{e.metric}", label=e.label, value=value))
+        if not sources:
+            sources = [
+                DataSourceRef(key="content", label="Content performance", value=ci.observation[:60])
+            ]
+        impact = ci.impact_category if ci.impact_category in _VALID_IMPACT_CATEGORIES else "lead"
+        out.append(
+            IntelligenceOpportunity(
+                kind="content",
+                headline="Repeat your winning content format",
+                observation=ci.observation,
+                root_cause=ci.interpretation,
+                recommended_action=ci.recommendation,
+                expected_impact=ci.expected_result,
+                confidence=_clamp_confidence(ci.confidence, cap),
+                data_sources_used=sources,
+                impact_category=impact,  # type: ignore[arg-type]
+                generator_hint=_normalize_generator_hint(ci.generator_hint),
+            )
+        )
+    return out[:2]
+
+
 async def _persist_intelligence(
     session: AsyncSession,
     *,
@@ -577,8 +627,10 @@ async def _persist_intelligence(
 
     new_content: list[IntelligenceOpportunity] = []
     for opp in content:
-        gen = GeneratorHint.model_validate(opp.generator_hint) if opp.generator_hint else GeneratorHint(
-            target="content", format="social_post", goal="Drive engagement"
+        gen = (
+            GeneratorHint.model_validate(opp.generator_hint)
+            if opp.generator_hint
+            else GeneratorHint(target="content", format="social_post", goal="Drive engagement")
         )
         fp = fingerprint_for_opportunity(
             kind=opp.kind, generator=gen, recommended_action=opp.recommended_action
@@ -607,8 +659,10 @@ async def _persist_intelligence(
 
     new_ads: list[IntelligenceOpportunity] = []
     for opp in ads:
-        gen = GeneratorHint.model_validate(opp.generator_hint) if opp.generator_hint else GeneratorHint(
-            target="ad", format="meta", goal="Drive leads", objective="leads"
+        gen = (
+            GeneratorHint.model_validate(opp.generator_hint)
+            if opp.generator_hint
+            else GeneratorHint(target="ad", format="meta", goal="Drive leads", objective="leads")
         )
         fp = fingerprint_for_opportunity(
             kind=opp.kind, generator=gen, recommended_action=opp.recommended_action

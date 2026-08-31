@@ -131,16 +131,11 @@ async def test_decorator_raises_without_envelope():
 
 
 def _pg_up() -> bool:
-    import socket
+    # Real connect+auth (not a bare socket open) so a foreign server squatting
+    # on the port makes these DB tests SKIP rather than fail on auth.
+    from tests._dbtest import pg_reachable
 
-    s = socket.socket()
-    s.settimeout(2)
-    try:
-        s.connect(("localhost", 5432))
-        s.close()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
+    return pg_reachable()
 
 
 @pytest.mark.asyncio

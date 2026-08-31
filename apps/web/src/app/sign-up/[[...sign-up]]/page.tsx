@@ -4,7 +4,9 @@ import Link from "next/link";
 
 import { SignUp } from "@clerk/nextjs";
 
+import { AuthShell } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 import { getAuthMode, isClerkActive } from "@/lib/clerk-config";
 
 export default function SignUpPage() {
@@ -14,9 +16,15 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <SignUp />
-    </div>
+    <AuthShell
+      title="Create your account"
+      subtitle="Start turning marketing data into decisions."
+      altPrompt="Already have an account?"
+      altHref="/sign-in"
+      altLabel="Sign in"
+    >
+      <SignUp appearance={clerkAppearance} />
+    </AuthShell>
   );
 }
 

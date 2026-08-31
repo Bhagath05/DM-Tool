@@ -48,6 +48,8 @@ import { useViewMode } from "@/lib/use-view-mode";
 import { ComingSoonCard } from "./coming-soon-card";
 import { LandingPagesTable } from "./landing-pages-table";
 import { Overview } from "./overview";
+import { PerformanceMarketer } from "./performance-marketer";
+import { TopContent } from "./top-content";
 import { SourcesTable } from "./sources-table";
 import { StatusDonut } from "./status-donut";
 import { AnalyticsSummaryCard, useAnalyticsSummary } from "./summary-card";
@@ -152,6 +154,16 @@ export function Dashboard() {
         refreshing={summaryStore.refreshing}
         onRefresh={summaryStore.refresh}
       />
+
+      {/* ============================================================ */}
+      {/* 1b. Performance Marketer — platform performance + next moves  */}
+      {/* ============================================================ */}
+      <PerformanceMarketer />
+
+      {/* ============================================================ */}
+      {/* 1c. Top performing content — which posts to repeat            */}
+      {/* ============================================================ */}
+      <TopContent />
 
       {/* ============================================================ */}
       {/* 2. Lead Generation — the outcome we have data for            */}

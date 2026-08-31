@@ -52,11 +52,13 @@ async def shutdown(ctx: dict) -> None:
 # appends its `@tenant_job`-decorated functions here so the worker
 # discovers them. Phase 0 ships only the reference job.
 from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
+from aicmo.modules.integrations.tasks import collect_metrics_cron  # noqa: E402
 from aicmo.modules.operations.tasks import operations_cycle_cron  # noqa: E402
 from aicmo.modules.publishing.tasks import (  # noqa: E402
     publish_due_cron,
     publish_due_scheduled_posts,
 )
+from aicmo.modules.social.content_metrics import collect_content_metrics_cron  # noqa: E402
 from aicmo.modules.video.tasks import generate_video_stub, render_design_video  # noqa: E402
 from aicmo.observability.health import monitor_system_cron  # noqa: E402
 from aicmo.queue.reference import echo_tenant_job  # noqa: E402
@@ -80,6 +82,26 @@ CRON_JOBS: list = [
     cron(
         operations_cycle_cron,
         hour=_settings.operations_daily_cron_hour,
+        minute=0,
+        second=0,
+        run_at_startup=False,
+    ),
+    # Phase 2 — automated marketing-metrics collection. Every 6 hours, syncs
+    # ACTIVE integration connections due for a refresh via the existing
+    # service.sync (failure-isolated, idempotent, incremental).
+    cron(
+        collect_metrics_cron,
+        hour={0, 6, 12, 18},
+        minute=0,
+        second=0,
+        run_at_startup=False,
+    ),
+    # Phase 5 — per-content metrics collection for FB/YouTube/LinkedIn/Pinterest.
+    # Every 12h (offset from the account-level cron); reads published posts and
+    # writes SocialAsset + PerformanceSignal (failure-isolated, idempotent).
+    cron(
+        collect_content_metrics_cron,
+        hour={3, 15},
         minute=0,
         second=0,
         run_at_startup=False,

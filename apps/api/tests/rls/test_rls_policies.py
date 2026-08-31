@@ -30,6 +30,7 @@ import uuid
 import pytest
 
 from aicmo.db import rls
+from tests._dbtest import sync_dsn
 
 # ---------------------------------------------------------------------
 #  1. Pure-function tests (no DB)
@@ -159,7 +160,7 @@ async def test_runtime_helpers_emit_set_config_when_flag_on(monkeypatch):
 #  2. Live-Postgres enforcement tests
 # ---------------------------------------------------------------------
 
-_DSN = "postgresql://aicmo:aicmo@localhost:5432/aicmo"
+_DSN = sync_dsn()
 _TEST_ROLE = "rls_probe_app_role"
 
 
@@ -168,7 +169,7 @@ def _pg_or_skip():
     try:
         conn = psycopg.connect(_DSN, connect_timeout=3)
     except Exception:  # noqa: BLE001
-        pytest.skip("Postgres not reachable on localhost:5432")
+        pytest.skip(f"Postgres not reachable at {_DSN}")
     conn.autocommit = True
     return conn
 

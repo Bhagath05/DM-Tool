@@ -14,6 +14,7 @@ from aicmo.db.session import dispose_engine
 from aicmo.modules.ads.router import router as ads_router
 from aicmo.modules.advisor.router import router as advisor_router
 from aicmo.modules.analytics.router import router as analytics_router
+from aicmo.modules.marketing_analytics.router import router as marketing_analytics_router
 from aicmo.modules.audit.router import router as audit_router
 from aicmo.modules.autonomy.router import router as autonomy_router
 from aicmo.modules.billing.router import (
@@ -260,6 +261,9 @@ app.include_router(campaigns_router, prefix="/api/v1")
 app.include_router(landing_pages_router, prefix="/api/v1")
 app.include_router(leads_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
+# Phase 3 — normalized marketing analytics + Performance Marketer over the
+# ConnectorMetric snapshots the Phase 2 cron collects. Read-only, advisory.
+app.include_router(marketing_analytics_router, prefix="/api/v1")
 app.include_router(coach_router, prefix="/api/v1")
 app.include_router(opportunities_router, prefix="/api/v1")
 app.include_router(advisor_router, prefix="/api/v1")

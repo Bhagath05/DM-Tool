@@ -9,9 +9,9 @@ should look different and reflect the work.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # A distinct visual treatment. The model picks one to keep a feed varied.
 PosterLayout = Literal["editorial", "split", "banner"]
@@ -21,6 +21,10 @@ PosterPalette = Literal["warm", "cool", "bold", "mono"]
 # software/abstract → illustration).
 ImageStyle = Literal["photo", "illustration"]
 
+_LAYOUTS = frozenset(get_args(PosterLayout))
+_PALETTES = frozenset(get_args(PosterPalette))
+_STYLES = frozenset(get_args(ImageStyle))
+
 
 # ---------------------------------------------------------------------
 #  LLM output — the structured copy + art direction for ONE post
@@ -29,6 +33,32 @@ ImageStyle = Literal["photo", "illustration"]
 
 class LinkedInCopy(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_renderable(cls, data: object) -> object:
+        """Salvage a good post when the LLM returns a stray enum or too many
+        list items. We coerce those to renderable values BEFORE strict
+        Literal/length validation runs, so one hallucinated field (e.g.
+        palette="rainbow") no longer fails the whole generation and throws
+        away an otherwise-usable headline/body/image. Mirrors copy.clamp()
+        so both the LLM path and direct construction stay safe. The outward
+        schema keeps its enums + limits, so the model is still fully guided.
+        """
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        if "layout" in d and d["layout"] not in _LAYOUTS:
+            d["layout"] = "editorial"
+        if "palette" in d and d["palette"] not in _PALETTES:
+            d["palette"] = "bold"
+        if "image_style" in d and d["image_style"] not in _STYLES:
+            d["image_style"] = "photo"
+        if isinstance(d.get("bullets"), list):
+            d["bullets"] = [str(b).strip()[:32] for b in d["bullets"] if str(b).strip()][:3]
+        if isinstance(d.get("hashtags"), list):
+            d["hashtags"] = [str(h).lstrip("#").strip() for h in d["hashtags"] if str(h).strip()][:8]
+        return d
 
     layout: PosterLayout = Field(
         default="editorial",

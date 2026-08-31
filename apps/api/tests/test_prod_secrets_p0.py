@@ -44,6 +44,16 @@ def test_prod_passes_with_all_secrets():
     validate_production_secrets(_prod_settings())
 
 
+@pytest.mark.parametrize("mode", ["demo", "hybrid"])
+def test_prod_refuses_non_clerk_auth_mode(mode):
+    """Production must run AUTH_MODE=clerk. demo accepts every request as the
+    demo-user and hybrid lets anonymous traffic fall through the same way —
+    validate_production_secrets refuses to boot for either."""
+    with pytest.raises(SystemExit) as exc:
+        validate_production_secrets(_prod_settings(auth_mode=mode))
+    assert "AUTH_MODE must be 'clerk'" in str(exc.value)
+
+
 def test_prod_boots_without_clerk_jwt_audience():
     """Standard Clerk session tokens carry no `aud`. Production MUST boot with
     CLERK_JWT_AUDIENCE empty — issuer + signature + expiry are still enforced.

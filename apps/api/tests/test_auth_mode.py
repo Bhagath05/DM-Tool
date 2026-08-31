@@ -227,6 +227,103 @@ class TestBackwardsCompat:
 
 
 # ---------------------------------------------------------------------
+#  Production fail-closed — API_ENV=production MUST run AUTH_MODE=clerk
+# ---------------------------------------------------------------------
+
+
+class TestProductionFailClosed:
+    """A customer-facing deploy (API_ENV=production) must run AUTH_MODE=clerk.
+    demo accepts every request as the demo-user; hybrid lets anonymous traffic
+    fall through the same way. Either in production is a fail-OPEN security
+    hole — the process must refuse to start."""
+
+    def test_production_demo_refuses_to_boot(self, monkeypatch):
+        clerk = _reload_clerk_with(
+            monkeypatch, API_ENV="production", AUTH_MODE="demo"
+        )
+        with pytest.raises(SystemExit) as exc:
+            clerk.assert_auth_config_valid()
+        assert "AUTH_MODE" in str(exc.value)
+        assert "production" in str(exc.value)
+
+    def test_production_hybrid_refuses_to_boot(self, monkeypatch):
+        # Even with Clerk fully configured, hybrid in production is rejected:
+        # it still resolves anonymous traffic to the demo-user.
+        clerk = _reload_clerk_with(
+            monkeypatch,
+            API_ENV="production",
+            AUTH_MODE="hybrid",
+            CLERK_JWT_ISSUER="https://real.clerk.dev",
+            CLERK_JWKS_URL="https://real.clerk.dev/.well-known/jwks.json",
+        )
+        with pytest.raises(SystemExit) as exc:
+            clerk.assert_auth_config_valid()
+        assert "AUTH_MODE" in str(exc.value)
+
+    def test_production_clerk_boots_with_config(self, monkeypatch):
+        clerk = _reload_clerk_with(
+            monkeypatch,
+            API_ENV="production",
+            AUTH_MODE="clerk",
+            CLERK_JWT_ISSUER="https://real-instance.clerk.dev",
+            CLERK_JWKS_URL="https://real-instance.clerk.dev/.well-known/jwks.json",
+        )
+        clerk.assert_auth_config_valid()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_production_clerk_anonymous_is_401_never_demo_user(self, monkeypatch):
+        """Core guarantee: in production clerk mode an unauthenticated request
+        is rejected with 401 — it NEVER resolves to the dev-user."""
+        clerk = _reload_clerk_with(
+            monkeypatch,
+            API_ENV="production",
+            AUTH_MODE="clerk",
+            CLERK_JWT_ISSUER="https://real.clerk.dev",
+            CLERK_JWKS_URL="https://real.clerk.dev/.well-known/jwks.json",
+        )
+        with pytest.raises(HTTPException) as exc:
+            await clerk.require_user(authorization=None)
+        assert exc.value.status_code == 401
+        # And it must not be the demo identity by any path.
+        with pytest.raises(HTTPException):
+            await clerk.require_user(authorization="")
+
+
+# ---------------------------------------------------------------------
+#  Debug endpoints — mounted only when api_env != "production"
+# ---------------------------------------------------------------------
+
+
+class TestDebugEndpointsEnvGate:
+    """`main.py` mounts /api/v1/debug only when `api_env != "production"`, so
+    the debug endpoints are not registered in production at all. This pins the
+    config value the gate reads; the definitive end-to-end proof is the live
+    post-deploy check (GET /api/v1/debug/sentry-config → 404)."""
+
+    def test_production_is_the_debug_exclusion_value(self, monkeypatch):
+        from aicmo.config import get_settings
+
+        monkeypatch.setenv("API_ENV", "production")
+        monkeypatch.setenv("AUTH_MODE", "clerk")
+        get_settings.cache_clear()
+        try:
+            # main.py: `if settings.api_env != "production": mount debug_router`
+            assert get_settings().api_env == "production"
+        finally:
+            get_settings.cache_clear()
+
+    def test_staging_mounts_debug(self, monkeypatch):
+        from aicmo.config import get_settings
+
+        monkeypatch.setenv("API_ENV", "staging")
+        get_settings.cache_clear()
+        try:
+            assert get_settings().api_env != "production"
+        finally:
+            get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------
 #  CLERK_JWT_AUDIENCE — opt-in aud verification (issuer/signature/expiry
 #  are ALWAYS enforced regardless)
 # ---------------------------------------------------------------------
