@@ -117,6 +117,13 @@ class SocialAsset(Base, TimestampMixin, TenantMixin):
     # out into typed columns. Future analytics will mine this.
     raw_json: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
+    # Evidence engine (Phase 11): "ai" | "human" | NULL(unknown). Lets the
+    # advisor build honest AI-vs-human performance cohorts. NULL = unknown and
+    # is EXCLUDED from comparisons — provenance is never guessed.
+    creative_provenance: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
+
 
 class PerformanceSignal(Base, TimestampMixin):
     """Per-asset performance snapshot. One row per (asset, captured_at).

@@ -275,3 +275,53 @@ class MarketingHealthResponse(BaseModel):
     headline: str
     focus_key: str = Field(description="Key of the weakest score — what to fix first.")
     scores: list[HealthScore] = Field(default_factory=list)
+
+
+# ---------- Evidence engine: AI-vs-human creative evaluation (Phase 11) ----------
+
+CreativeEvaluationVerdict = Literal[
+    "AI_OUTPERFORMING",
+    "AI_UNDERPERFORMING",
+    "HUMAN_OUTPERFORMING",
+    "NO_SIGNIFICANT_DIFFERENCE",
+    "INSUFFICIENT_EVIDENCE",
+]
+
+
+class CreativeMetricDelta(BaseModel):
+    """One metric compared AI vs human — the explainability substrate."""
+
+    metric: str
+    label: str
+    ai_value: float
+    human_value: float
+    relative_delta: float
+    ai_better: bool
+    significant: bool
+
+
+class CreativeEvaluationResponse(BaseModel):
+    """Evidence-first AI-vs-human creative verdict. Carries the full
+    recommendation contract (diagnosis / evidence / confidence / expected
+    impact / assumptions / risks / action / alternatives / limitations).
+
+    `human_approval_required` is always True: this is advisory intelligence —
+    it never publishes or spends, and confidence never unlocks execution.
+    """
+
+    verdict: CreativeEvaluationVerdict
+    confidence: int = Field(ge=0, le=100)
+    ai_sample_size: int
+    human_sample_size: int
+    unknown_sample_size: int
+    diagnosis: str
+    recommended_action: str
+    expected_impact: str
+    alternatives: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    evidence_limitations: list[str] = Field(default_factory=list)
+    metric_deltas: list[CreativeMetricDelta] = Field(default_factory=list)
+    human_approval_required: bool = True
+    generated_at: str

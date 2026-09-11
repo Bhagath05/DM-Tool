@@ -18,6 +18,7 @@ from aicmo.modules.advisor.execute import execute_recommendation
 from aicmo.modules.advisor.health import compute_health
 from aicmo.modules.advisor.intelligence import compose_intelligence
 from aicmo.modules.advisor.readiness import assess_readiness
+from aicmo.modules.advisor.creative_evaluation_service import evaluate_creative
 from aicmo.modules.advisor.schemas import (
     AdvisorHistoryList,
     AdvisorReadinessResponse,
@@ -26,6 +27,7 @@ from aicmo.modules.advisor.schemas import (
     AgentReportType,
     BusinessBrainResponse,
     BusinessBrainUpdate,
+    CreativeEvaluationResponse,
     EffectivenessChannel,
     EffectivenessResponse,
     ExecuteRecommendationRequest,
@@ -58,6 +60,16 @@ async def _require_profile(
             detail="Complete business onboarding first",
         )
     return BusinessProfileResponse.model_validate(profile_row)
+
+
+@router.get("/creative-evaluation", response_model=CreativeEvaluationResponse)
+async def get_creative_evaluation(
+    session: AsyncSession = Depends(get_db),
+    tenant: TenantContext = Depends(require_permission("analytics.view")),
+) -> CreativeEvaluationResponse:
+    """Evidence-first AI-vs-human creative verdict for this brand. Read-only and
+    advisory — it never publishes or spends; execution stays behind approval."""
+    return await evaluate_creative(session, tenant=tenant)
 
 
 @router.get("/readiness", response_model=AdvisorReadinessResponse)
