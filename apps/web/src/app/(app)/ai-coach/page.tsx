@@ -13,6 +13,7 @@
 import { Compass, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { CreativeEvaluationPanel } from "@/app/(app)/today/_components/creative-evaluation-panel";
 import { AiRecommendation } from "@/components/ui/business-metric";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -74,6 +75,10 @@ export default function AiCoachPage() {
         }
         size="lg"
       />
+
+      {/* Evidence-driven AI-vs-human creative verdict. Self-hiding when there's
+          no verdict/evidence yet, so it never competes with the weekly plan. */}
+      <CreativeEvaluationPanel />
 
       {loading && (
         <div className="flex flex-col gap-4">

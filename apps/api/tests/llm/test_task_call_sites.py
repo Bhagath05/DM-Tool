@@ -210,6 +210,10 @@ async def test_advisor_intelligence_passes_intelligence_task(monkeypatch):
             )
         ),
     )
+    monkeypatch.setattr(
+        "aicmo.modules.advisor.creative_evaluation_service.generate_creative_recommendation",
+        AsyncMock(return_value=None),
+    )
 
     report = await intelligence.compose_intelligence(
         SimpleNamespace(),

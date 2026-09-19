@@ -29,11 +29,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import SessionLocal
+from aicmo.modules.advisor.creative_evaluation_service import resolve_provenance
 from aicmo.modules.integrations.models import IntegrationConnection
 from aicmo.modules.integrations.providers.base import ContentMetricResult, ContentRef
 from aicmo.modules.integrations.registry import IntegrationRegistry
 from aicmo.modules.integrations.service import ensure_access_token
-from aicmo.modules.publishing.models import ScheduledPost
+from aicmo.modules.publishing.models import ContentAsset, ScheduledPost
 from aicmo.modules.social.models import PerformanceSignal, SocialAsset
 
 log = structlog.get_logger()
@@ -100,6 +101,34 @@ async def _existing_assets(
     return {a.platform_post_id: a for a in (await session.execute(stmt)).scalars().all()}
 
 
+async def _provenance_by_post(
+    session: AsyncSession, scheduled_posts: list[ScheduledPost]
+) -> dict[str, str]:
+    """Resolve AI/human provenance for each published post from its content
+    asset's source table (Phase 11 resolver). Returns ONLY posts we can
+    positively attribute to 'ai' or 'human'; anything unattributable is omitted
+    so it stays UNKNOWN on the SocialAsset — provenance is never guessed."""
+    asset_ids = {sp.content_asset_id for sp in scheduled_posts if sp.content_asset_id}
+    if not asset_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(ContentAsset.id, ContentAsset.source_table).where(ContentAsset.id.in_(asset_ids))
+        )
+    ).all()
+    source_by_asset = {aid: src for aid, src in rows}
+    out: dict[str, str] = {}
+    for sp in scheduled_posts:
+        if not sp.platform_post_id or not sp.content_asset_id:
+            continue
+        prov = resolve_provenance(
+            explicit=None, source_table=source_by_asset.get(sp.content_asset_id)
+        )
+        if prov.value in ("ai", "human"):
+            out[sp.platform_post_id] = prov.value
+    return out
+
+
 def _engagement_rate(m: dict[str, float]) -> float:
     denom = max(m.get("impressions") or m.get("reach") or m.get("views") or 1, 1)
     engagement = (
@@ -116,11 +145,15 @@ def _write_asset_and_signal(
     scheduled_post: ScheduledPost,
     existing: SocialAsset | None,
     result: ContentMetricResult,
+    provenance: str | None = None,
 ) -> None:
     """Upsert the SocialAsset (idempotent) + append one PerformanceSignal.
 
     Tenant identity (user_id/org/brand) comes from the ScheduledPost, which is
-    the authoritative attribution row for the published post."""
+    the authoritative attribution row for the published post. `provenance`
+    ('ai'/'human'/None) is resolved from the published content's origin so this
+    provider-collected post can join AI-vs-human cohorts; None leaves it UNKNOWN
+    and it never overwrites an existing explicit label."""
     now = _now()
     if existing is None:
         asset = SocialAsset(
@@ -136,6 +169,7 @@ def _write_asset_and_signal(
             asset_type=result.asset_type,
             permalink=result.permalink,
             posted_at=result.posted_at or scheduled_post.published_at,
+            creative_provenance=provenance,
             raw_json={"source": "content_metrics_collection", **(result.raw or {})},
         )
         session.add(asset)
@@ -144,6 +178,9 @@ def _write_asset_and_signal(
         asset.provider_slug = connection.provider_slug
         asset.integration_connection_id = connection.id
         asset.asset_type = result.asset_type or asset.asset_type
+        # Backfill provenance only when unknown — never clobber an explicit label.
+        if provenance and asset.creative_provenance is None:
+            asset.creative_provenance = provenance
         if result.permalink:
             asset.permalink = result.permalink
         asset.raw_json = {
@@ -221,6 +258,10 @@ async def collect_for_connection(
         posts=refs,
     )
 
+    # Resolve provenance once for the whole batch (from each post's content
+    # asset origin) so provider-collected posts can join AI-vs-human cohorts.
+    provenance = await _provenance_by_post(session, list(sp_by_id.values()))
+
     written = 0
     for res in results:
         sp = sp_by_id.get(res.platform_post_id)
@@ -233,6 +274,7 @@ async def collect_for_connection(
             scheduled_post=sp,
             existing=existing.get(res.platform_post_id),
             result=res,
+            provenance=provenance.get(res.platform_post_id),
         )
         written += 1
 

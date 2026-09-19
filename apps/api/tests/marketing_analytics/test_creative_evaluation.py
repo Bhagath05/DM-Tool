@@ -158,6 +158,21 @@ def test_missing_metrics_are_reported_never_invented():
     assert any("attributed revenue" in lim for lim in out.limitations)
 
 
+def test_available_revenue_is_used_when_present():
+    # When per-creative revenue IS present on both cohorts it must be compared
+    # (not ignored) and drive the verdict — and NOT reported as a limitation.
+    samples = _cohort(Provenance.AI, 3, views=1000, revenue=40.0) + _cohort(
+        Provenance.HUMAN, 3, views=1000, revenue=120.0
+    )
+    out = evaluate_ai_vs_human(samples)
+    metrics = {d.metric for d in out.metric_deltas}
+    assert "revenue" in metrics
+    rev = next(d for d in out.metric_deltas if d.metric == "revenue")
+    assert rev.significant and not rev.ai_better  # human revenue clearly higher
+    assert not any("attributed revenue" in lim for lim in out.limitations)
+    assert out.verdict in (Verdict.AI_UNDERPERFORMING, Verdict.HUMAN_OUTPERFORMING)
+
+
 def test_unknown_metric_key_is_ignored():
     samples = _cohort(Provenance.AI, 3, views=1300, made_up_metric=999999) + _cohort(
         Provenance.HUMAN, 3, views=1000, made_up_metric=1

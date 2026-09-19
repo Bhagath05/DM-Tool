@@ -311,6 +311,10 @@ class CreativeEvaluationResponse(BaseModel):
 
     verdict: CreativeEvaluationVerdict
     confidence: int = Field(ge=0, le=100)
+    # Where the evidence came from, so the UI never dresses fixtures up as live
+    # data: "provider_verified" (metrics collected from a connected account),
+    # "local_only" (fixture/seeded rows), or "none" (no comparable evidence).
+    evidence_source: Literal["provider_verified", "local_only", "none"] = "none"
     ai_sample_size: int
     human_sample_size: int
     unknown_sample_size: int

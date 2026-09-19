@@ -128,6 +128,9 @@ async def _load_samples(session: AsyncSession, *, brand_id: uuid.UUID) -> list[C
             explicit=a.creative_provenance,
             source_table=prov_map.get(a.platform_post_id),
         )
+        # Provider-collected assets carry an integration connection; fixture /
+        # manually-seeded rows do not. This is the "provider-verified" signal.
+        source = "provider" if a.integration_connection_id is not None else "local"
         samples.append(
             CreativeSample(
                 provenance=provenance,
@@ -136,9 +139,22 @@ async def _load_samples(session: AsyncSession, *, brand_id: uuid.UUID) -> list[C
                 fmt=a.asset_type,
                 posted_at=a.posted_at,
                 ref=str(a.id),
+                source=source,
             )
         )
     return samples
+
+
+def _evidence_source(samples: list[CreativeSample]) -> str:
+    """Label the evidence behind a verdict: provider-verified if any comparable
+    (AI/human) sample came from a connected account, else local/fixture, else
+    none. Never lets fixture data masquerade as live provider data."""
+    known = [s for s in samples if s.provenance in (Provenance.AI, Provenance.HUMAN)]
+    if not known:
+        return "none"
+    if any(s.source == "provider" for s in known):
+        return "provider_verified"
+    return "local_only"
 
 
 # ---------------------------------------------------------------------
@@ -146,15 +162,39 @@ async def _load_samples(session: AsyncSession, *, brand_id: uuid.UUID) -> list[C
 # ---------------------------------------------------------------------
 
 
+def _join(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+
+def _significant_labels(ev: CreativeEvaluation, *, ai_better: bool) -> list[str]:
+    """The metric labels that were BOTH significant and won by the given side —
+    so a diagnosis names exactly the dimensions the evidence supports and never
+    implies (e.g.) a revenue effect that wasn't measured."""
+    return [d.label for d in ev.metric_deltas if d.significant and d.ai_better is ai_better]
+
+
 def _diagnosis(ev: CreativeEvaluation) -> str:
     n = f"{ev.ai_sample_size} AI-generated vs {ev.human_sample_size} human-created comparable posts"
     match ev.verdict:
         case Verdict.AI_UNDERPERFORMING:
-            return f"AI-generated creative is currently underperforming the human-created baseline ({n})."
+            scope = _join(_significant_labels(ev, ai_better=False))
+            on = f" on {scope}" if scope else ""
+            return (
+                f"AI-generated creative is underperforming the human-created baseline{on} ({n}). "
+                "This is an observed performance gap on the measured metrics, not a proven revenue effect."
+            )
         case Verdict.HUMAN_OUTPERFORMING:
-            return f"Human-created creative is decisively outperforming AI-generated creative across every measured metric ({n})."
+            scope = _join(_significant_labels(ev, ai_better=False))
+            on = f" on {scope}" if scope else ""
+            return f"Human-created creative is decisively outperforming AI-generated creative{on} ({n})."
         case Verdict.AI_OUTPERFORMING:
-            return f"AI-generated creative is currently outperforming the human-created baseline ({n})."
+            scope = _join(_significant_labels(ev, ai_better=True))
+            on = f" on {scope}" if scope else ""
+            return f"AI-generated creative is outperforming the human-created baseline{on} ({n})."
         case Verdict.NO_SIGNIFICANT_DIFFERENCE:
             return f"No significant performance difference between AI-generated and human-created creative ({n})."
         case _:
@@ -233,11 +273,14 @@ def _risks(ev: CreativeEvaluation) -> list[str]:
     return risks
 
 
-def shape_response(ev: CreativeEvaluation) -> CreativeEvaluationResponse:
+def shape_response(
+    ev: CreativeEvaluation, *, evidence_source: str = "none"
+) -> CreativeEvaluationResponse:
     action, alternatives = _action_and_alternatives(ev)
     return CreativeEvaluationResponse(
         verdict=ev.verdict.value,
         confidence=ev.confidence,
+        evidence_source=evidence_source,  # type: ignore[arg-type]
         ai_sample_size=ev.ai_sample_size,
         human_sample_size=ev.human_sample_size,
         unknown_sample_size=ev.unknown_sample_size,
@@ -286,10 +329,18 @@ async def evaluate_creative(
         )
     samples = await _load_samples(session, brand_id=tenant.brand_id)
     evaluation = evaluate_ai_vs_human(samples)
-    return shape_response(evaluation)
+    return shape_response(evaluation, evidence_source=_evidence_source(samples))
 
 
-_ACTIONABLE = {Verdict.AI_UNDERPERFORMING, Verdict.HUMAN_OUTPERFORMING, Verdict.AI_OUTPERFORMING}
+# Everything EXCEPT insufficient evidence is actionable: a clear winner, or —
+# for NO_SIGNIFICANT_DIFFERENCE — a "run a controlled test" recommendation.
+# INSUFFICIENT_EVIDENCE is never persisted, so we never fabricate a conclusion.
+_ACTIONABLE = {
+    Verdict.AI_UNDERPERFORMING,
+    Verdict.HUMAN_OUTPERFORMING,
+    Verdict.AI_OUTPERFORMING,
+    Verdict.NO_SIGNIFICANT_DIFFERENCE,
+}
 
 
 async def record_creative_recommendation(
@@ -298,32 +349,80 @@ async def record_creative_recommendation(
     """Persist an actionable verdict as an AdvisorRecommendation via the existing
     (audited, tenant-scoped) path so it enters the outcome/effectiveness loop.
 
-    Returns None for non-actionable verdicts (insufficient / no difference) — we
-    never create a task with nothing to act on. The recommendation is created
-    with status 'not_started'; execution still flows through the existing
-    approval gates, so a high confidence never bypasses human approval.
+    Returns None for INSUFFICIENT_EVIDENCE — we never create a task from a
+    conclusion the data can't support. Every other verdict is a real, honest
+    recommendation (a clear winner, or a controlled test when there's no
+    significant difference). The recommendation is created with status
+    'not_started'; execution still flows through the existing approval gates,
+    so a high confidence never bypasses human approval.
+
+    Durability (H1): `get_db()` does not auto-commit, and the deterministic
+    LLM-fallback path in `compose_intelligence()` returns without
+    `_persist_intelligence()`'s commit. Persistence therefore uses a dedicated
+    short-lived `SessionLocal` write session so we never
+    `commit()` the caller's request session (which may already carry unrelated
+    tenancy dirtiness such as `last_active_brand_id`). After commit, the row is
+    re-loaded on the caller's session (no commit) so callers can still mutate
+    scalar fields (e.g. human rejection) on that session.
     """
+    from aicmo.db.session import SessionLocal
+
     if response.verdict not in {v.value for v in _ACTIONABLE}:
         return None
     fingerprint = f"creative_eval:{tenant.brand_id}:{response.verdict}"
     rec_id = uuid.uuid5(uuid.NAMESPACE_URL, fingerprint)
+    source_label = {
+        "provider_verified": "Provider-verified (metrics from a connected account)",
+        "local_only": "Local/fixture evidence (no connected account yet)",
+        "none": "No comparable evidence",
+    }
     data_used = [
-        {"key": "evidence", "label": "Evidence", "value": e} for e in response.evidence[:6]
+        {
+            "key": "evidence_source",
+            "label": "Evidence source",
+            "value": source_label.get(response.evidence_source, response.evidence_source),
+        },
+        *({"key": "evidence", "label": "Evidence", "value": e} for e in response.evidence[:5]),
     ]
-    return await _upsert_recommendation(
-        session,
-        tenant=tenant,
-        rec_id=rec_id,
-        fingerprint=fingerprint,
-        title="AI-vs-human creative performance",
-        description=response.recommended_action,
-        source_surface="creative_evaluation",
-        confidence=response.confidence,
-        impact_category="revenue",
-        why=response.diagnosis,
-        expected_result=response.expected_impact,
-        data_used=data_used,
-        generator_hint=None,
-        observation=response.diagnosis,
-        root_cause=" ".join(response.evidence[:2]) or None,
-    )
+    async with SessionLocal() as write_session:
+        await _upsert_recommendation(
+            write_session,
+            tenant=tenant,
+            rec_id=rec_id,
+            fingerprint=fingerprint,
+            title="AI-vs-human creative performance",
+            description=response.recommended_action,
+            source_surface="creative_evaluation",
+            confidence=response.confidence,
+            impact_category="revenue",
+            why=response.diagnosis,
+            expected_result=response.expected_impact,
+            data_used=data_used,
+            generator_hint=None,
+            observation=response.diagnosis,
+            root_cause=" ".join(response.evidence[:2]) or None,
+        )
+        await write_session.commit()
+
+    # Re-attach on the request session for callers that mutate scalars later.
+    # Does not commit `session`.
+    return await session.get(AdvisorRecommendation, rec_id)
+
+
+async def generate_creative_recommendation(
+    session: AsyncSession, *, tenant: TenantContext
+) -> CreativeEvaluationResponse:
+    """Advisor-workflow entry point: evaluate AI-vs-human creative and, when the
+    verdict is actionable, persist it as an AdvisorRecommendation (fingerprint-
+    idempotent) so it joins the existing recommendation list + outcome loop.
+
+    Returns the evaluation response either way. Persistence is skipped for
+    INSUFFICIENT_EVIDENCE (never fabricate) and when advisor persistence is
+    disabled. Advisory only — never publishes or spends.
+    """
+    from aicmo.config import get_settings
+
+    response = await evaluate_creative(session, tenant=tenant)
+    if get_settings().advisor_engine_enabled:
+        await record_creative_recommendation(session, tenant=tenant, response=response)
+    return response

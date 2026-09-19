@@ -425,6 +425,49 @@ export interface MarketingHealth {
   scores: HealthScore[];
 }
 
+// ---------- Evidence engine: AI-vs-human creative evaluation ----------
+
+export type CreativeEvaluationVerdict =
+  | "AI_OUTPERFORMING"
+  | "AI_UNDERPERFORMING"
+  | "HUMAN_OUTPERFORMING"
+  | "NO_SIGNIFICANT_DIFFERENCE"
+  | "INSUFFICIENT_EVIDENCE";
+
+export interface CreativeMetricDelta {
+  metric: string;
+  label: string;
+  ai_value: number;
+  human_value: number;
+  relative_delta: number;
+  ai_better: boolean;
+  significant: boolean;
+}
+
+/** Evidence-first AI-vs-human creative verdict. Advisory only —
+ * `human_approval_required` is always true; confidence never unlocks execution. */
+export interface CreativeEvaluation {
+  verdict: CreativeEvaluationVerdict;
+  confidence: number;
+  /** Where the evidence came from — so the UI never dresses fixtures up as
+   * live data. */
+  evidence_source: "provider_verified" | "local_only" | "none";
+  ai_sample_size: number;
+  human_sample_size: number;
+  unknown_sample_size: number;
+  diagnosis: string;
+  recommended_action: string;
+  expected_impact: string;
+  alternatives: string[];
+  assumptions: string[];
+  risks: string[];
+  evidence: string[];
+  evidence_limitations: string[];
+  metric_deltas: CreativeMetricDelta[];
+  human_approval_required: boolean;
+  generated_at: string;
+}
+
 // ---------- Intelligent Onboarding — AI discovery ----------
 
 /** The AI's proposed Brand Brain, shown for review + editing before it's applied. */
@@ -3533,6 +3576,9 @@ export const api = {
   advisor: {
     /** Plain-language marketing health, computed from real data (no LLM). */
     health: () => request<MarketingHealth>("/api/v1/advisor/health"),
+    /** Evidence-driven AI-vs-human creative verdict (read-only, advisory). */
+    creativeEvaluation: () =>
+      request<CreativeEvaluation>("/api/v1/advisor/creative-evaluation"),
     history: () =>
       request<{ items: AdvisorHistoryItem[] }>("/api/v1/advisor/history").then(
         (r) => r.items,

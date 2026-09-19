@@ -160,6 +160,22 @@ async def compose_intelligence(
             marketing_signal=ctx.analytics_signal,
         )
 
+    # Phase 12 — fold the evidence-driven AI-vs-human creative verdict into the
+    # Advisor workflow. It persists as a normal recommendation (idempotent) so
+    # it joins the recommendation list + outcome/effectiveness loop. LLM-free
+    # and non-fatal: a failure here must never break the main intelligence
+    # report, and it has its own stricter evidence gate (returns
+    # INSUFFICIENT_EVIDENCE — and persists nothing — until a labelled cohort
+    # exists). Runs before the LLM-engine gate so it works without an LLM key.
+    try:
+        from aicmo.modules.advisor.creative_evaluation_service import (
+            generate_creative_recommendation,
+        )
+
+        await generate_creative_recommendation(session, tenant=tenant)
+    except Exception as e:
+        log.warning("advisor.creative_eval_failed", error=str(e))
+
     if not settings.advisor_intelligence_enabled:
         return IntelligenceReport(
             ready=False,

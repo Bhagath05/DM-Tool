@@ -109,6 +109,10 @@ class CreativeSample:
     spend: float | None = None
     audience_size: float | None = None
     ref: str | None = None
+    # Where the numbers came from: "provider" (collected from a connected
+    # account's API) or "local" (fixture / manually seeded). Used only to label
+    # evidence provenance in the response — never affects the verdict.
+    source: str = "local"
 
 
 @dataclass(frozen=True)

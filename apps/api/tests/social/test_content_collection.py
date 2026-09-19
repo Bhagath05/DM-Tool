@@ -32,9 +32,11 @@ class _Res:
 class _Sess:
     """Routes scheduled_posts vs social_assets reads by the compiled SQL."""
 
-    def __init__(self, scheduled=None, assets=None):
+    def __init__(self, scheduled=None, assets=None, content_assets=None):
         self._scheduled = scheduled or []
         self._assets = assets or []
+        # rows of (content_asset_id, source_table) for the provenance lookup
+        self._content_assets = content_assets or []
         self.added: list = []
         self.committed = False
         self.captured: dict[str, object] = {}
@@ -44,6 +46,9 @@ class _Sess:
         if "scheduled_posts" in s:
             self.captured["scheduled"] = stmt
             return _Res(self._scheduled)
+        if "content_assets" in s:  # provenance lookup returns (id, source_table)
+            self.captured["content_assets"] = stmt
+            return _Res(self._content_assets)
         if "social_assets" in s:
             self.captured["assets"] = stmt
             return _Res(self._assets)
@@ -69,7 +74,7 @@ def _conn(provider="youtube"):
     )
 
 
-def _post(post_id="v1", day=1):
+def _post(post_id="v1", day=1, content_asset_id=None):
     return SimpleNamespace(
         id=uuid.uuid4(),
         user_id="u1",
@@ -80,6 +85,7 @@ def _post(post_id="v1", day=1):
         publish_status="published",
         published_at=NOW - timedelta(days=day),
         updated_at=NOW - timedelta(days=day),
+        content_asset_id=content_asset_id,
     )
 
 
@@ -265,3 +271,72 @@ async def test_connection_failure_is_isolated_and_never_logs_token(monkeypatch):
     assert secret not in blob  # token from the exception is NOT logged
     assert "youtube" in blob  # provider slug is safe to log
     assert any(kw.get("error_type") == "RuntimeError" for _, kw in calls)
+
+
+# ---------------- Phase 13: creative provenance resolved at collection ----------------
+
+
+@pytest.mark.asyncio
+async def test_provenance_ai_resolved_at_collection(monkeypatch):
+    """A DM Tool-published post whose content came from an AI generator is
+    labelled creative_provenance='ai' on the collected SocialAsset, so provider
+    data can join AI-vs-human cohorts."""
+    ca_id = uuid.uuid4()
+    post = _post("v1", content_asset_id=ca_id)
+    result = ContentMetricResult(
+        platform_post_id="v1", asset_type="video", metrics={"views": 1000.0}, raw={}
+    )
+    _patch_registry(monkeypatch, _fake_provider([result]))
+    sess = _Sess(scheduled=[post], assets=[], content_assets=[(ca_id, "generated_content")])
+
+    await content_metrics.collect_for_connection(sess, connection=_conn("youtube"))
+
+    a = next(r for r in sess.added if isinstance(r, SocialAsset))
+    assert a.creative_provenance == "ai"
+
+
+@pytest.mark.asyncio
+async def test_provenance_unknown_stays_unknown_never_guessed_human(monkeypatch):
+    """An externally-created / unrecognised-origin post is NOT guessed as human;
+    creative_provenance stays None so it's excluded from AI-vs-human cohorts."""
+    ca_id = uuid.uuid4()
+    post = _post("v1", content_asset_id=ca_id)
+    result = ContentMetricResult(
+        platform_post_id="v1", asset_type="video", metrics={"views": 1000.0}, raw={}
+    )
+    _patch_registry(monkeypatch, _fake_provider([result]))
+    sess = _Sess(scheduled=[post], assets=[], content_assets=[(ca_id, "manual_upload")])
+
+    await content_metrics.collect_for_connection(sess, connection=_conn("youtube"))
+
+    a = next(r for r in sess.added if isinstance(r, SocialAsset))
+    assert a.creative_provenance is None
+
+
+@pytest.mark.asyncio
+async def test_provenance_backfill_does_not_clobber_explicit_label(monkeypatch):
+    """Re-collecting a post with an existing explicit provenance label leaves it
+    untouched (human labelling is authoritative)."""
+    ca_id = uuid.uuid4()
+    post = _post("v1", content_asset_id=ca_id)
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        platform_post_id="v1",
+        creative_provenance="human",  # a human explicitly labelled it
+        updated_at=NOW - timedelta(days=5),  # stale → eligible for re-poll
+        provider_slug=None,
+        integration_connection_id=None,
+        asset_type="video",
+        permalink=None,
+        raw_json={},
+    )
+    result = ContentMetricResult(
+        platform_post_id="v1", asset_type="video", metrics={"views": 1000.0}, raw={}
+    )
+    _patch_registry(monkeypatch, _fake_provider([result]))
+    # source says 'ai', but the explicit human label must win.
+    sess = _Sess(scheduled=[post], assets=[existing], content_assets=[(ca_id, "generated_content")])
+
+    await content_metrics.collect_for_connection(sess, connection=_conn("youtube"))
+
+    assert existing.creative_provenance == "human"
