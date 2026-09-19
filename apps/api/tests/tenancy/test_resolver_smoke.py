@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from aicmo.auth.clerk import AuthContext
+from aicmo.auth.dependencies import AuthContext
 from aicmo.tenancy.dependencies import require_permission, require_tenant
 from aicmo.tenancy.exceptions import (
     BrandNotInOrg,
@@ -34,7 +34,6 @@ from aicmo.tenancy.exceptions import (
     OrganizationInactive,
     TenantMismatch,
 )
-
 
 # ---------------------------------------------------------------------
 #  Fixture builders
@@ -66,9 +65,7 @@ def _make_member(
     return member
 
 
-def _make_org(
-    *, org_id: uuid.UUID | None = None, status: str = "active"
-) -> MagicMock:
+def _make_org(*, org_id: uuid.UUID | None = None, status: str = "active") -> MagicMock:
     org = MagicMock()
     org.id = org_id or uuid.uuid4()
     org.status = status
@@ -143,7 +140,11 @@ class _StubAsyncSession:
             return _result(scalar_one_or_none=self._user_row)
 
         # _single_active_membership_org → SELECT org_id from members
-        if "organization_members" in sql and "organization_id" in sql and "select organization_members.organization_id" in sql:
+        if (
+            "organization_members" in sql
+            and "organization_id" in sql
+            and "select organization_members.organization_id" in sql
+        ):
             ids = [self._single_org_id] if self._single_org_id else []
             return _result(scalars_all=ids)
 
@@ -167,6 +168,9 @@ class _StubAsyncSession:
 
     async def get(self, model: Any, id_: uuid.UUID) -> Any:
         name = getattr(model, "__name__", str(model)).lower()
+        if name == "user":
+            # First-party resolver loads the authenticated user by id.
+            return self._user_row
         if "organization" in name:
             return self._org_lookup.get(id_)
         if "brand" in name:
@@ -183,21 +187,15 @@ def _result(
     r = MagicMock()
     r.scalar_one_or_none.return_value = scalar_one_or_none
     r.scalars.return_value.all.return_value = scalars_all or []
-    r.scalars.return_value.first.return_value = (
-        scalars_all[0] if scalars_all else None
-    )
+    r.scalars.return_value.first.return_value = scalars_all[0] if scalars_all else None
     # .all() on the result itself → tuple rows (e.g. effect-aware permission query)
     r.all.return_value = rows or []
     return r
 
 
-def _auth(*, clerk_user_id: str = "clerk_test") -> AuthContext:
-    return AuthContext(
-        user_id=clerk_user_id,
-        session_id=None,
-        org_id=None,
-        claims={"sub": clerk_user_id},
-    )
+def _auth(*, user_uuid: uuid.UUID | None = None) -> AuthContext:
+    uid = user_uuid or uuid.uuid4()
+    return AuthContext(user_id=str(uid), user_uuid=uid, email="u@example.com")
 
 
 # ---------------------------------------------------------------------
@@ -230,7 +228,9 @@ class TestRequireTenantSuccess:
         dep = require_tenant()
 
         ctx = await dep(
-            request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+            request=request,
+            auth=_auth(),
+            session=session,  # type: ignore[arg-type]
         )
 
         assert ctx.organization_id == org_id
@@ -261,7 +261,9 @@ class TestRequireTenantRejections:
 
         with pytest.raises(TenantMismatch):
             await dep(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
     @pytest.mark.asyncio
@@ -275,7 +277,9 @@ class TestRequireTenantRejections:
 
         with pytest.raises(MissingTenant) as exc:
             await dep(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
         assert "X-Organization-Id" in exc.value.detail
 
@@ -308,7 +312,9 @@ class TestRequireTenantRejections:
 
         with pytest.raises(BrandNotInOrg):
             await dep(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
     @pytest.mark.asyncio
@@ -331,7 +337,9 @@ class TestRequireTenantRejections:
 
         with pytest.raises(OrganizationInactive):
             await dep(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
 
@@ -370,7 +378,9 @@ class TestRequirePermission:
             # the inner async fn.
             tenant_dep = require_tenant()
             tenant = await tenant_dep(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
             await dep(tenant=tenant)  # type: ignore[call-arg]
 
@@ -400,7 +410,9 @@ class TestRequirePermission:
 
         tenant_dep = require_tenant()
         tenant = await tenant_dep(
-            request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+            request=request,
+            auth=_auth(),
+            session=session,  # type: ignore[arg-type]
         )
         # Should not raise.
         dep = require_permission("billing.manage")

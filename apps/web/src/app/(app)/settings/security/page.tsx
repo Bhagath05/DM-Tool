@@ -1,28 +1,23 @@
 "use client";
 
 /**
- * Phase 10.1 — Settings · Security.
+ * Settings · Security.
  *
- * Four sections, all honest about what's wired today:
- *
- *   1. Authentication       — surfaces the real auth mode (Clerk / demo /
- *                             hybrid) so the founder knows what's
- *                             protecting their account.
- *   2. Active sessions      — current session is real; "Revoke all
- *                             other sessions" is a placeholder because
- *                             no session-list endpoint exists yet.
- *   3. Multi-factor (MFA)   — Clerk handles this when configured at
- *                             org level; we link out, no UI duplication.
+ *   1. Authentication       — first-party account summary (Argon2id, HttpOnly
+ *                             session cookie).
+ *   2. Active sessions      — real first-party sessions from GET
+ *                             /security/sessions; revoke one, revoke all
+ *                             others, or sign out the current device.
+ *   3. Password             — reset via a verified, single-use email link.
  *   4. Login history        — empty state today; populated when an
  *                             audit-log endpoint ships.
  *
- * Never fabricates session rows, login events, or MFA status.
+ * Never fabricates session rows or login events.
  */
 
 import {
   Activity,
   ArrowUpRight,
-  Fingerprint,
   Globe,
   KeyRound,
   Laptop,
@@ -31,52 +26,75 @@ import {
   ShieldCheck,
   TimerReset,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 import { useTenant } from "@/components/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { StatusPill, type PillTone } from "@/components/ui/status-pill";
+import { api, type SecuritySession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-interface SessionRow {
-  id: string;
-  device: string;
-  location: string;
-  isCurrent: boolean;
-  lastActive: string;
-}
-
 export default function SecuritySettingsPage() {
   const tenant = useTenant();
-  const [userAgent, setUserAgent] = useState<string>("This device");
-  const [now, setNow] = useState<string>("just now");
+  const router = useRouter();
+  const [sessions, setSessions] = useState<SecuritySession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
-  // Resolve the current device summary client-side so SSR doesn't
-  // hydrate a different value than the browser.
-  useEffect(() => {
-    if (typeof navigator !== "undefined") {
-      setUserAgent(prettyAgent(navigator.userAgent));
+  const refetch = useCallback(async () => {
+    try {
+      const res = await api.security.sessions();
+      setSessions(res.sessions);
+    } catch {
+      /* settings sub-panel — stay quiet on error */
+    } finally {
+      setLoading(false);
     }
-    setNow(new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
   }, []);
 
-  const sessions: SessionRow[] = [
-    {
-      id: "current",
-      device: userAgent,
-      location: "Your browser",
-      isCurrent: true,
-      lastActive: now,
-    },
-  ];
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
 
-  // Auth mode — read from env so we surface what's actually live.
-  const authMode =
-    process.env.NEXT_PUBLIC_AUTH_MODE ?? "hybrid";
+  async function revokeOne(id: string) {
+    setBusy(true);
+    try {
+      await api.security.revokeSession(id);
+      await refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeAllOthers() {
+    setBusy(true);
+    try {
+      await api.security.revokeAllOtherSessions();
+      await refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Revoking the CURRENT session = sign out (the server-side session is
+  // revoked and the cookie cleared), then return to the login page.
+  async function signOutCurrent() {
+    setBusy(true);
+    try {
+      await api.auth.signout();
+    } catch {
+      /* fall through to the redirect regardless */
+    }
+    router.push("/sign-in" as never);
+    router.refresh();
+  }
+
+  const hasOthers = sessions.some((s) => !s.is_current);
 
   return (
     <div className="flex flex-col gap-8" data-testid="settings-security">
@@ -101,17 +119,17 @@ export default function SecuritySettingsPage() {
           </span>
           <div className="flex flex-col gap-1">
             <h3 className="text-card-title font-semibold">
-              Account protected by Clerk
+              Account security
             </h3>
             <p className="text-sm text-muted-foreground">
-              Sign-in, sessions, and password reset are handled by Clerk's
-              enterprise auth — SOC 2, MFA-capable, GDPR-compliant.
+              Sign-in, sessions, and password reset are handled by DM Tool.
+              Passwords are hashed with Argon2id and never stored in the clear;
+              your session lives in a secure, HttpOnly cookie.
             </p>
             <p className="text-xs text-muted-foreground/80">
-              Auth mode: <span className="tabular font-medium">{authMode}</span>
               {tenant.user?.email && (
                 <>
-                  {" · "}signed in as{" "}
+                  Signed in as{" "}
                   <span className="font-medium">{tenant.user.email}</span>
                 </>
               )}
@@ -138,43 +156,47 @@ export default function SecuritySettingsPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled
+            disabled={busy || !hasOthers}
+            onClick={() => void revokeAllOthers()}
             data-testid="security-revoke-all"
-            title="Bulk session revocation lands in a future release"
           >
             <TimerReset className="mr-2 h-3.5 w-3.5" />
             Revoke all others
           </Button>
         </header>
         <ul className="divide-y divide-border/40">
-          {sessions.map((s) => (
-            <SessionRowView key={s.id} row={s} />
-          ))}
+          {loading ? (
+            <li className="px-6 py-4 text-sm text-muted-foreground">
+              Loading sessions…
+            </li>
+          ) : sessions.length === 0 ? (
+            <li className="px-6 py-4 text-sm text-muted-foreground">
+              No active sessions.
+            </li>
+          ) : (
+            sessions.map((s) => (
+              <SessionRowView
+                key={s.id}
+                row={s}
+                busy={busy}
+                onRevoke={() => void revokeOne(s.id)}
+                onSignOut={() => void signOutCurrent()}
+              />
+            ))
+          )}
         </ul>
       </section>
 
-      {/* MFA + Password */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <SecurityFeatureCard
-          icon={Fingerprint}
-          title="Multi-factor authentication"
-          description="Add a second factor (TOTP, passkey, SMS) via your Clerk account. We never store factor secrets."
-          tone="ai"
-          status="Configured in Clerk"
-          actionLabel="Open Clerk profile"
-          actionHref="https://accounts.clerk.dev/user"
-          external
-          testId="security-mfa"
-        />
+      {/* Password */}
+      <div className="grid grid-cols-1 gap-4">
         <SecurityFeatureCard
           icon={KeyRound}
-          title="Password & passkeys"
-          description="Change your password or add a passkey from your Clerk account. Resets flow through verified email."
+          title="Password"
+          description="Reset your password any time via a single-use, expiring link sent to your verified email. Changing it signs out every other session."
           tone="ai"
-          status="Configured in Clerk"
-          actionLabel="Open Clerk profile"
-          actionHref="https://accounts.clerk.dev/user"
-          external
+          status="Email-based reset"
+          actionLabel="Reset password"
+          actionHref="/forgot-password"
           testId="security-password"
         />
       </div>
@@ -198,16 +220,11 @@ export default function SecuritySettingsPage() {
           icon={Lock}
           title="Login history isn't surfaced yet"
           description="We log every authentication event server-side, but the UI to browse them ships with the audit-log work in an upcoming phase."
-          hint="If you suspect unauthorised access, change your password from your Clerk profile immediately."
+          hint="If you suspect unauthorised access, reset your password immediately — it signs out every other session."
           action={
             <Button asChild size="sm">
-              <a
-                href="https://accounts.clerk.dev/user"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="security-clerk-link"
-              >
-                Open Clerk profile
+              <a href="/forgot-password" data-testid="security-reset-link">
+                Reset password
                 <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
               </a>
             </Button>
@@ -222,7 +239,23 @@ export default function SecuritySettingsPage() {
 //  Sub-components
 // ---------------------------------------------------------------------
 
-function SessionRowView({ row }: { row: SessionRow }) {
+function SessionRowView({
+  row,
+  busy,
+  onRevoke,
+  onSignOut,
+}: {
+  row: SecuritySession;
+  busy: boolean;
+  onRevoke: () => void;
+  onSignOut: () => void;
+}) {
+  const device = prettyAgent(row.user_agent ?? "");
+  const location = row.ip ?? "Unknown location";
+  const lastActive = new Date(row.last_seen_at).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
   return (
     <li
       data-testid={`session-${row.id}`}
@@ -237,8 +270,8 @@ function SessionRowView({ row }: { row: SessionRow }) {
         </span>
         <div className="flex flex-col">
           <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            {row.device}
-            {row.isCurrent && (
+            {device}
+            {row.is_current && (
               <StatusPill tone="good" size="sm" dot>
                 This device
               </StatusPill>
@@ -246,23 +279,33 @@ function SessionRowView({ row }: { row: SessionRow }) {
           </span>
           <span className="text-xs text-muted-foreground">
             <Globe className="mr-1 inline h-3 w-3" />
-            {row.location} · Last active {row.lastActive}
+            {location} · Last active {lastActive}
           </span>
         </div>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={row.isCurrent}
-        data-testid={`session-${row.id}-revoke`}
-        title={
-          row.isCurrent
-            ? "You can't revoke the session you're using"
-            : "Revoke this session"
-        }
-      >
-        {row.isCurrent ? "Current" : "Revoke"}
-      </Button>
+      {row.is_current ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={onSignOut}
+          data-testid={`session-${row.id}-signout`}
+          title="Sign out this device (revokes the current session)"
+        >
+          Sign out
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={onRevoke}
+          data-testid={`session-${row.id}-revoke`}
+          title="Revoke this session"
+        >
+          Revoke
+        </Button>
+      )}
     </li>
   );
 }

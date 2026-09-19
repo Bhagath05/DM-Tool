@@ -13,9 +13,6 @@ Two responsibilities:
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
-
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,54 +41,6 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------
 #  Identity reconciliation
 # ---------------------------------------------------------------------
-
-
-async def get_or_create_from_clerk(
-    session: AsyncSession,
-    *,
-    clerk_user_id: str,
-    email: str | None = None,
-    display_name: str | None = None,
-    avatar_url: str | None = None,
-) -> User:
-    """Lazy-create the User row. Also called from tenancy resolver.
-
-    When `email` is provided (webhook path), it overwrites the placeholder
-    we may have inserted on a prior lazy-create.
-    """
-    stmt = select(User).where(User.clerk_user_id == clerk_user_id)
-    row = (await session.execute(stmt)).scalar_one_or_none()
-
-    if row is None:
-        row = User(
-            clerk_user_id=clerk_user_id,
-            email=email or f"{clerk_user_id}@pending.local",
-            display_name=display_name,
-            avatar_url=avatar_url,
-            status="active",
-            last_seen_at=datetime.now(UTC),
-        )
-        session.add(row)
-        await session.flush()
-        return row
-
-    # Update mutable fields when caller has fresh data (typically webhook).
-    dirty = False
-    if email and (
-        row.email.endswith("@pending.local") or row.email != email
-    ):
-        row.email = email
-        dirty = True
-    if display_name and row.display_name != display_name:
-        row.display_name = display_name
-        dirty = True
-    if avatar_url and row.avatar_url != avatar_url:
-        row.avatar_url = avatar_url
-        dirty = True
-    row.last_seen_at = datetime.now(UTC)
-    if dirty:
-        await session.flush()
-    return row
 
 
 # ---------------------------------------------------------------------
@@ -130,13 +79,17 @@ async def build_me_response(
 
         # Brands in this org (active only).
         brand_rows = (
-            await session.execute(
-                select(Brand)
-                .where(Brand.organization_id == m.organization_id)
-                .where(Brand.status == "active")
-                .order_by(Brand.created_at)
+            (
+                await session.execute(
+                    select(Brand)
+                    .where(Brand.organization_id == m.organization_id)
+                    .where(Brand.status == "active")
+                    .order_by(Brand.created_at)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         role_slugs = await compute_role_slugs_for_member(session, m.id)
         permissions = await compute_permissions_for_member(session, m.id)

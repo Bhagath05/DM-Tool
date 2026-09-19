@@ -210,8 +210,7 @@ export function purgeBrandScopedCaches(): void {
 //
 //  Why not a React context: api.ts is invoked from event handlers, hooks,
 //  effects — anywhere. A context value would require the API client to
-//  be reconstructed on every render. A module-level getter is the same
-//  pattern Clerk uses for `getToken()`.
+//  be reconstructed on every render. A module-level getter avoids that.
 // ---------------------------------------------------------------------
 
 let _activeOrg: string | null = null;

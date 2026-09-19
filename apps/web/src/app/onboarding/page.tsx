@@ -14,9 +14,10 @@ export const metadata: Metadata = {
  * around the centered card and there's no TenantProvider context to
  * mismatch (the user has no tenant yet — that's why they're here).
  *
- * Auth is still required (Clerk middleware enforces it). The wizard
- * itself uses `api.onboarding.createWorkspace()` which goes through
- * the same fetch wrapper that attaches the Clerk JWT.
+ * Auth is still required (the session-cookie middleware redirects an
+ * unauthenticated user to /sign-in). The wizard uses
+ * `api.onboarding.createWorkspace()`, which sends the session cookie like
+ * every other API call.
  */
 export default function OnboardingPage() {
   return (

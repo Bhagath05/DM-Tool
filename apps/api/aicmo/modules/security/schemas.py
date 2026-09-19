@@ -16,7 +16,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------
 #  Enums — kept in lock-step with migration 0024 CHECK constraints
 # ---------------------------------------------------------------------
@@ -32,13 +31,6 @@ SecurityEventType = Literal[
 
 Actor = Literal["self", "admin", "system", "unknown"]
 
-RevokedBy = Literal["user", "admin", "webhook", "system"]
-
-RevocationStatus = Literal["remote_ok", "local_only", "remote_failed"]
-# remote_ok    — Clerk admin API acknowledged the revoke
-# local_only   — Clerk call skipped (no CLERK_SECRET_KEY in env)
-# remote_failed — Clerk call returned non-2xx; row still marked revoked locally
-
 
 # ---------------------------------------------------------------------
 #  Session inventory
@@ -46,27 +38,22 @@ RevocationStatus = Literal["remote_ok", "local_only", "remote_failed"]
 
 
 class SessionRead(BaseModel):
-    """One row in the Settings → Security → Devices list.
+    """One row in the Settings → Security → Active Sessions list, sourced from
+    the first-party session store (`user_sessions`).
 
-    `is_current` is computed server-side from the request's session id
-    so the UI can pin the current device to the top + disable the
-    "revoke" button on it (revoking your own current session would log
-    you out instantly with no confirmation grace period).
+    `is_current` is computed server-side from the request's session so the UI
+    can pin the current device and offer "sign out" for it rather than a plain
+    revoke (revoking your own live session would 401 the page mid-action).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    clerk_session_id: str
     user_agent: str | None
-    ip_address: str | None
-    geo_country: str | None
-    geo_city: str | None
+    ip: str | None
     last_seen_at: datetime
     expires_at: datetime | None
     revoked_at: datetime | None
-    revoked_by: RevokedBy | None
-    revocation_status: RevocationStatus | None
     is_current: bool = Field(
         description="True if this row matches the requester's current session.",
     )
@@ -82,16 +69,11 @@ class SessionList(BaseModel):
 
 
 class RevokeSessionResponse(BaseModel):
-    """Return value from POST /sessions/{id}/revoke.
-
-    Tells the caller whether Clerk-side revocation actually landed
-    (vs. local-only) — important UX so the page can warn the founder
-    if their secret key isn't configured in dev.
-    """
+    """Return value from POST /sessions/{id}/revoke — the revoked row so the UI
+    can replace it optimistically."""
 
     model_config = ConfigDict(extra="forbid")
     session: SessionRead
-    revocation_status: RevocationStatus
 
 
 class RevokeAllResponse(BaseModel):
@@ -140,9 +122,9 @@ class SecurityEventCreate(BaseModel):
 
     Only event types the frontend can legitimately witness are allowed:
     `mfa_challenge` (rendered the MFA UI), `failed_login` (saw the
-    server's 401). The other four types come from the Clerk webhook
-    exclusively — clients trying to POST them are rejected (see
-    ALLOWED_CLIENT_EVENTS in service.py).
+    server's 401). The other types are produced server-side only —
+    clients trying to POST them are rejected (see ALLOWED_CLIENT_EVENTS
+    in service.py).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -177,21 +159,3 @@ class SecuritySummary(BaseModel):
             "last 24h. Drives the 'something unusual happened' banner."
         ),
     )
-
-
-# ---------------------------------------------------------------------
-#  Webhook payloads (Clerk → us)
-# ---------------------------------------------------------------------
-# These are NOT exposed via the OpenAPI schema (the webhook endpoint
-# uses a Request directly). They're here as type aids for the dispatcher.
-
-
-ClerkEventType = Literal[
-    "session.created",
-    "session.ended",
-    "session.removed",
-    "session.revoked",
-    "user.updated",
-    "user.created",
-    "user.deleted",
-]

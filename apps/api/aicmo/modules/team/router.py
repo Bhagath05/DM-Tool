@@ -40,7 +40,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db.session import get_db
 from aicmo.modules.team import role_catalog, service
 from aicmo.modules.team.schemas import (
@@ -191,9 +191,7 @@ async def resend_invite_endpoint(
         await session.commit()
         return result
     except service.InviteNotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
     except service.InviteAlreadyConsumed as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -219,9 +217,7 @@ async def revoke_invite_endpoint(
             invite_id=invite_id,
         )
     except service.InviteNotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
     except service.InviteAlreadyConsumed as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -250,9 +246,7 @@ async def preview_invite_endpoint(
     try:
         return await service.preview_invite(session, token=token)
     except service.InviteNotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
 
 
 @public_router.post(
@@ -291,9 +285,7 @@ async def accept_invite_endpoint(
             token=payload.token,
         )
     except service.InviteNotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
     except service.InviteExpired:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,

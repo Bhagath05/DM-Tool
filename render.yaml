@@ -15,8 +15,8 @@
 # GOING TO PRODUCTION — checklist (the app REFUSES to boot if any is missing;
 # see aicmo/config.py::validate_production_secrets):
 #   1. API_ENV=production   (removes debug router; enables prod Sentry env)
-#   2. AUTH_MODE=clerk       + CLERK_SECRET_KEY / CLERK_JWT_ISSUER /
-#      CLERK_JWKS_URL / CLERK_JWT_AUDIENCE  (real authentication)
+#   2. SESSION_COOKIE_SECURE=true (default) — first-party session cookies must
+#      be Secure in production; the boot guard refuses to start otherwise.
 #   3. REDIS_URL             must be the managed Redis (NOT localhost — the
 #      boot guard rejects localhost in production; worker/queue depend on it)
 #   4. SENTRY_DSN, IP_HASH_PEPPER, MEDIA_SIGNING_SECRET, INTEGRATION_TOKEN_KEY
@@ -69,15 +69,13 @@ services:
       # CORS — the Vercel frontend origin(s), comma-separated.
       - key: API_CORS_ORIGINS
         value: https://dm-tool-web.vercel.app
-      # Strict Clerk auth posture: every API request requires a valid Clerk
-      # JWT (require_user is strict; no anonymous demo-user). The Clerk secret
-      # bundle is set in the Render dashboard (sync:false, below). API_ENV
-      # stays 'staging' — real auth WITHOUT the additional production
-      # hardening + full secret bundle that API_ENV=production would require.
+      # First-party auth: every API request requires a valid DM Tool session
+      # cookie (require_user validates it server-side; no anonymous access).
+      # Session cookies are Secure in production by default. API_ENV stays
+      # 'staging' — real auth WITHOUT the additional production hardening +
+      # full secret bundle that API_ENV=production would require.
       - key: API_ENV
         value: staging
-      - key: AUTH_MODE
-        value: clerk
       - key: PYTHONUNBUFFERED
         value: "1"
       # ---- Secrets (set in the Render dashboard; never commit) ----
@@ -87,15 +85,6 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: GOOGLE_API_KEY
-        sync: false
-      # Required ONLY when going to real production (API_ENV=production):
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: CLERK_JWT_ISSUER
-        sync: false
-      - key: CLERK_JWKS_URL
-        sync: false
-      - key: CLERK_JWT_AUDIENCE
         sync: false
       - key: IP_HASH_PEPPER
         sync: false

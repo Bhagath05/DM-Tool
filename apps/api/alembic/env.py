@@ -7,6 +7,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from aicmo.auth.models import (  # noqa: F401
+    EmailToken,
+    LoginAttempt,
+    UserSession,
+)
 from aicmo.config import get_settings
 from aicmo.db.base import Base
 
@@ -129,7 +134,6 @@ from aicmo.modules.rbac.models import (  # noqa: F401
 )
 from aicmo.modules.security.models import (  # noqa: F401
     SecurityEvent,
-    UserSession,
 )
 from aicmo.modules.social.models import (  # noqa: F401
     AudiencePattern,

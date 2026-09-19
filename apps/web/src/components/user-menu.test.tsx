@@ -1,67 +1,56 @@
 /**
- * UserMenu — logout must return to the dedicated login page.
+ * UserMenu — first-party identity + sign-out.
  *
- * Pins the contract that a signed-in user's <UserButton> is configured with
- * afterSignOutUrl="/sign-in" (never "/" — the public landing page), so
- * clicking Logout lands on the login experience.
+ * Pins that sign-out revokes the server-side session (api.auth.signout) and
+ * returns to the dedicated login page (/sign-in), never the public landing.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Capture the props Clerk's <UserButton> is rendered with.
-let userButtonProps: Record<string, unknown> | null = null;
-let signedIn = true;
-
-vi.mock("@clerk/nextjs", () => ({
-  SignedIn: ({ children }: { children: React.ReactNode }) =>
-    signedIn ? <>{children}</> : null,
-  SignedOut: ({ children }: { children: React.ReactNode }) =>
-    signedIn ? null : <>{children}</>,
-  UserButton: (props: Record<string, unknown>) => {
-    userButtonProps = props;
-    return <div data-testid="user-button" />;
-  },
+const { push, refresh, signout } = vi.hoisted(() => ({
+  push: vi.fn(),
+  refresh: vi.fn(),
+  signout: vi.fn().mockResolvedValue({ message: "Signed out." }),
 }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, refresh }),
+}));
+vi.mock("@/lib/api", () => ({ api: { auth: { signout } } }));
 
-let clerkActive = true;
-vi.mock("@/lib/clerk-config", () => ({
-  isClerkActive: () => clerkActive,
-  getAuthMode: () => (clerkActive ? "clerk" : "demo"),
+let user: { display_name: string | null; email: string } | null = null;
+vi.mock("@/components/tenant-provider", () => ({
+  useTenant: () => ({ user }),
 }));
 
 import { UserMenu } from "./user-menu";
 
 beforeEach(() => {
-  userButtonProps = null;
-  signedIn = true;
-  clerkActive = true;
+  user = { display_name: "Ann Owner", email: "ann@example.com" };
 });
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("UserMenu logout routing", () => {
-  it("signed-in UserButton logs out to /sign-in (not the landing page)", () => {
+describe("UserMenu", () => {
+  it("shows the signed-in identity and a sign-out control", () => {
     render(<UserMenu />);
-    expect(screen.getByTestId("user-button")).toBeInTheDocument();
-    expect(userButtonProps).not.toBeNull();
-    expect(userButtonProps?.afterSignOutUrl).toBe("/sign-in");
-    expect(userButtonProps?.afterSignOutUrl).not.toBe("/");
+    expect(screen.getByText("Ann Owner")).toBeInTheDocument();
+    expect(screen.getByTestId("sign-out")).toBeInTheDocument();
   });
 
-  it("anonymous (hybrid demo session) shows the mode badge, not a UserButton", () => {
-    signedIn = false;
+  it("falls back to the email when there is no display name", () => {
+    user = { display_name: null, email: "ann@example.com" };
     render(<UserMenu />);
-    expect(screen.queryByTestId("user-button")).toBeNull();
-    expect(screen.getByTestId("user-menu-fallback")).toBeInTheDocument();
+    expect(screen.getByText("ann@example.com")).toBeInTheDocument();
   });
 
-  it("clerk-inactive renders the fallback badge and no Clerk UI", () => {
-    clerkActive = false;
+  it("sign-out revokes the session and returns to /sign-in (never the landing)", async () => {
     render(<UserMenu />);
-    expect(screen.queryByTestId("user-button")).toBeNull();
-    expect(screen.getByTestId("user-menu-fallback")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sign-out"));
+    await waitFor(() => expect(signout).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith("/sign-in");
+    expect(push).not.toHaveBeenCalledWith("/");
   });
 });

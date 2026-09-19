@@ -14,11 +14,7 @@ from aicmo.config import Settings, validate_production_secrets
 def _prod_settings(**over) -> Settings:
     base = dict(
         api_env="production",
-        auth_mode="clerk",
-        clerk_secret_key="sk_live_real",
-        clerk_jwt_issuer="https://x.clerk.test",
-        clerk_jwks_url="https://x.clerk.test/.well-known/jwks.json",
-        clerk_jwt_audience="aud",
+        session_cookie_secure=True,
         ip_hash_pepper="a-real-pepper",
         media_signing_secret="a-real-media-secret",
         sentry_dsn="https://abc@o1.ingest.sentry.io/1",
@@ -44,21 +40,13 @@ def test_prod_passes_with_all_secrets():
     validate_production_secrets(_prod_settings())
 
 
-@pytest.mark.parametrize("mode", ["demo", "hybrid"])
-def test_prod_refuses_non_clerk_auth_mode(mode):
-    """Production must run AUTH_MODE=clerk. demo accepts every request as the
-    demo-user and hybrid lets anonymous traffic fall through the same way —
-    validate_production_secrets refuses to boot for either."""
+def test_prod_refuses_insecure_session_cookie():
+    """First-party auth: production MUST issue Secure session cookies. A
+    non-Secure cookie can be sent over plaintext HTTP and stolen, so
+    validate_production_secrets refuses to boot with SESSION_COOKIE_SECURE=false."""
     with pytest.raises(SystemExit) as exc:
-        validate_production_secrets(_prod_settings(auth_mode=mode))
-    assert "AUTH_MODE must be 'clerk'" in str(exc.value)
-
-
-def test_prod_boots_without_clerk_jwt_audience():
-    """Standard Clerk session tokens carry no `aud`. Production MUST boot with
-    CLERK_JWT_AUDIENCE empty — issuer + signature + expiry are still enforced.
-    Setting it (opt-in) enables aud verification (see test_auth_mode.py)."""
-    validate_production_secrets(_prod_settings(clerk_jwt_audience=""))
+        validate_production_secrets(_prod_settings(session_cookie_secure=False))
+    assert "SESSION_COOKIE_SECURE" in str(exc.value)
 
 
 # ---------------------------------------------------------------------
@@ -70,9 +58,7 @@ def _worker_prod_settings(**over) -> Settings:
     """Worker prod settings. The worker checks DATABASE_URL; the shared
     _prod_settings defaults DB to localhost (the API guard doesn't check DB),
     so give the worker a real one unless a test overrides it."""
-    over.setdefault(
-        "database_url", "postgresql+psycopg://u:p@prod-db.internal:5432/app"
-    )
+    over.setdefault("database_url", "postgresql+psycopg://u:p@prod-db.internal:5432/app")
     return _prod_settings(**over)
 
 
@@ -185,9 +171,7 @@ def test_worker_error_logs_names_not_values():
     with pytest.raises(SystemExit) as exc:
         # media secret is set (real), redis is missing → error names REDIS_URL
         # and must NOT contain the media secret value.
-        validate_worker_secrets(
-            _worker_prod_settings(redis_url="", media_signing_secret=secret)
-        )
+        validate_worker_secrets(_worker_prod_settings(redis_url="", media_signing_secret=secret))
     msg = str(exc.value)
     assert "REDIS_URL" in msg
     assert secret not in msg
@@ -202,9 +186,7 @@ def test_prod_refuses_localhost_redis():
     """P-stab — the exact wild misconfiguration: production with the localhost
     Redis default means a dead queue + no background jobs. Must refuse to boot."""
     with pytest.raises(SystemExit) as exc:
-        validate_production_secrets(
-            _prod_settings(redis_url="redis://localhost:6379/0")
-        )
+        validate_production_secrets(_prod_settings(redis_url="redis://localhost:6379/0"))
     assert "REDIS_URL" in str(exc.value)
 
 
@@ -216,9 +198,7 @@ def test_prod_refuses_empty_redis():
 
 def test_prod_refuses_loopback_ip_redis():
     with pytest.raises(SystemExit) as exc:
-        validate_production_secrets(
-            _prod_settings(redis_url="redis://127.0.0.1:6379/0")
-        )
+        validate_production_secrets(_prod_settings(redis_url="redis://127.0.0.1:6379/0"))
     assert "REDIS_URL" in str(exc.value)
 
 

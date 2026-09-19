@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from fastapi.routing import APIRoute
 
-from aicmo.auth.clerk import require_user
+from aicmo.auth.dependencies import require_user
 from aicmo.main import app
 
 # --- intentional exceptions (every entry is a deliberate, reviewed choice) ---
@@ -38,20 +38,20 @@ from aicmo.main import app
 # its own mechanism authenticates the caller (HMAC signature, OAuth state,
 # signed URL, or a single-use invite token), not a tenant session.
 _PUBLIC_PREFIXES: tuple[str, ...] = (
-    "/api/v1/public/",              # public landing pages + public lead capture
-    "/api/v1/webhooks/",           # Clerk webhook (Svix signature-verified)
-    "/api/v1/media/",              # signed-URL media serving (visuals + creative)
-    "/api/v1/invites/",            # invite view/accept by token (pre-membership)
-    "/api/v1/integrations/oauth/", # OAuth provider redirect callbacks (state-verified)
-    "/api/v1/debug/",              # observability diagnostics — dev/staging ONLY; the
-                                   # debug router is not mounted when api_env==production
-                                   # (aicmo/main.py), so these never exist in prod.
+    "/api/v1/public/",  # public landing pages + public lead capture
+    "/api/v1/webhooks/",  # reserved for signature-verified webhooks (empty)
+    "/api/v1/media/",  # signed-URL media serving (visuals + creative)
+    "/api/v1/invites/",  # invite view/accept by token (pre-membership)
+    "/api/v1/integrations/oauth/",  # OAuth provider redirect callbacks (state-verified)
+    "/api/v1/debug/",  # observability diagnostics — dev/staging ONLY; the
+    # debug router is not mounted when api_env==production
+    # (aicmo/main.py), so these never exist in prod.
 )
 _PUBLIC_EXACT: frozenset[str] = frozenset(
     {
         "/api/v1/billing/webhooks/stripe",  # Stripe webhook (signature-verified)
-        "/api/v1/poster/media",             # public expiring signed-PNG serving
-        "/api/v1/social/availability",      # capability probe — no session, no tenant data
+        "/api/v1/poster/media",  # public expiring signed-PNG serving
+        "/api/v1/social/availability",  # capability probe — no session, no tenant data
         # social OAuth *callback* only — the sibling /oauth/{platform}/init is
         # tenant-guarded (a logged-in user starting the connect flow), so we must
         # NOT use a broad /social/oauth/ prefix here.
@@ -62,6 +62,13 @@ _PUBLIC_EXACT: frozenset[str] = frozenset(
         # (X-Operations-Token) + global throttle; disabled (503) until a secret
         # is configured. The sibling /operations/monitoring IS tenant-guarded.
         "/api/v1/operations/tick",
+        # First-party auth — unauthenticated account entry points. Each is
+        # guarded by require_same_origin (Origin allowlist), not a session.
+        "/api/v1/auth/signup",
+        "/api/v1/auth/signin",
+        "/api/v1/auth/verify-email",
+        "/api/v1/auth/request-password-reset",
+        "/api/v1/auth/reset-password",
     }
 )
 
@@ -70,19 +77,26 @@ _PUBLIC_EXACT: frozenset[str] = frozenset(
 _AUTH_ONLY_EXACT: frozenset[str] = frozenset(
     {
         "/api/v1/users/me",
-        "/api/v1/orgs",            # POST create + GET list (pre-tenant)
+        "/api/v1/orgs",  # POST create + GET list (pre-tenant)
         "/api/v1/orgs/workspace",  # onboarding: single transactional create
         # Global storage capability — config-derived booleans only (media
         # backend + whether durable object storage is configured). No tenant
         # data; identical for every tenant, so tenant-scoping it would be
         # wrong. Auth-required; the admin-gating of the UI notice is client-side.
         "/api/v1/system/storage",
+        # First-party auth — authenticated but pre-tenant account management
+        # (require_user, no tenant): session lifecycle + password change.
+        "/api/v1/auth/session",
+        "/api/v1/auth/signout",
+        "/api/v1/auth/change-password",
+        "/api/v1/auth/revoke-all",
+        "/api/v1/auth/disable",
     }
 )
 _AUTH_ONLY_PREFIXES: tuple[str, ...] = (
-    "/api/v1/rbac/",      # global RBAC catalog (reference data, not tenant-scoped)
-    "/api/v1/invites/",   # invite *accept* is authed but pre-tenant (joining a new org)
-    "/api/v1/debug/",     # dev/staging-only; sentry-authed is authed but tenant-less
+    "/api/v1/rbac/",  # global RBAC catalog (reference data, not tenant-scoped)
+    "/api/v1/invites/",  # invite *accept* is authed but pre-tenant (joining a new org)
+    "/api/v1/debug/",  # dev/staging-only; sentry-authed is authed but tenant-less
 )
 
 
@@ -128,11 +142,7 @@ def classify(route: APIRoute) -> str:
 
 
 def _api_routes() -> list[APIRoute]:
-    return [
-        r
-        for r in app.routes
-        if isinstance(r, APIRoute) and str(r.path).startswith("/api/v1")
-    ]
+    return [r for r in app.routes if isinstance(r, APIRoute) and str(r.path).startswith("/api/v1")]
 
 
 def _on_public_allowlist(path: str) -> bool:
@@ -199,10 +209,7 @@ def test_auth_only_allowlist_routes_are_authenticated() -> None:
 
 if __name__ == "__main__":
     # Standalone discovery/evidence mode: print the full classification table.
-    rows = sorted(
-        (classify(r), ",".join(sorted(r.methods or [])), r.path)
-        for r in _api_routes()
-    )
+    rows = sorted((classify(r), ",".join(sorted(r.methods or [])), r.path) for r in _api_routes())
     counts = {"tenant": 0, "user": 0, "public": 0}
     for kind, methods, path in rows:
         counts[kind] += 1

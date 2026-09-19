@@ -4,17 +4,14 @@ Two routers:
 
   `router`        — authenticated; gated on require_tenant
                     (self-service settings, no extra permission slug)
-  `public_router` — unauthenticated; the Clerk webhook receiver,
-                    verified by Svix signature instead of bearer token
+  `public_router` — reserved (empty) for future signature-verified public
+                    webhooks; the legacy Clerk webhook receiver was removed.
 
 Exception → status mapping:
 
   SessionNotFound                  → 404
   CurrentSessionRevokeRefused      → 409
   EventTypeNotAllowedFromClient    → 403
-  WebhookVerificationError         → 400 (with generic detail — never
-                                          leak which check failed)
-  webhook disabled (no secret)     → 503
 
 All client errors emit a structlog warning so a noisy attacker shows
 up in dashboards without us paying full Sentry quota per event.
@@ -24,14 +21,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth import clerk_webhook
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db.session import get_db
 from aicmo.modules.security import service
 from aicmo.modules.security.schemas import (
@@ -72,11 +67,11 @@ async def get_sessions(
     auth: AuthContext = Depends(require_user),
     session: AsyncSession = Depends(get_db),
 ) -> SessionList:
-    current_clerk = _current_session_id(auth, request)
+    current_session = _current_session_id(auth)
     return await service.list_sessions(
         session,
         user_id=tenant.user_uuid,
-        current_clerk_session_id=current_clerk,
+        current_session_id=current_session,
         include_revoked=include_revoked,
     )
 
@@ -84,7 +79,7 @@ async def get_sessions(
 @router.post(
     "/sessions/{session_id}/revoke",
     response_model=RevokeSessionResponse,
-    summary="Revoke one session (calls Clerk admin API)",
+    summary="Revoke one session (local store)",
 )
 async def revoke_session_endpoint(
     session_id: uuid.UUID,
@@ -93,13 +88,13 @@ async def revoke_session_endpoint(
     auth: AuthContext = Depends(require_user),
     session: AsyncSession = Depends(get_db),
 ) -> RevokeSessionResponse:
-    current_clerk = _current_session_id(auth, request)
+    current_session = _current_session_id(auth)
     try:
         return await service.mark_session_revoked(
             session,
             user_id=tenant.user_uuid,
             session_row_id=session_id,
-            current_clerk_session_id=current_clerk,
+            current_session_id=current_session,
             ip_address=_client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
@@ -111,10 +106,7 @@ async def revoke_session_endpoint(
     except service.CurrentSessionRevokeRefused:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Cannot revoke your current session from this endpoint — "
-                "sign out instead."
-            ),
+            detail=("Cannot revoke your current session from this endpoint — sign out instead."),
         )
 
 
@@ -129,11 +121,11 @@ async def revoke_all_sessions_endpoint(
     auth: AuthContext = Depends(require_user),
     session: AsyncSession = Depends(get_db),
 ) -> RevokeAllResponse:
-    current_clerk = _current_session_id(auth, request)
+    current_session = _current_session_id(auth)
     return await service.revoke_all_sessions(
         session,
         user_id=tenant.user_uuid,
-        current_clerk_session_id=current_clerk,
+        current_session_id=current_session,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
@@ -196,7 +188,7 @@ async def post_event(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 f"Event type '{exc.event_type}' cannot be recorded from "
-                "the client — must arrive via the Clerk webhook."
+                "the client — it is produced server-side only."
             ),
         )
 
@@ -213,67 +205,10 @@ async def get_summary(
     return await service.build_summary(session, user_id=tenant.user_uuid)
 
 
-# ---------------------------------------------------------------------
-#  Public — Clerk webhook receiver
-# ---------------------------------------------------------------------
-
-
-@public_router.post(
-    "/clerk",
-    status_code=status.HTTP_200_OK,
-    summary="Receive a Clerk webhook delivery (Svix-signed)",
-    include_in_schema=False,  # webhooks aren't part of the public OpenAPI
-)
-async def clerk_webhook_receiver(
-    request: Request,
-    session: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Verify signature → parse JSON → dispatch.
-
-    503 when no signing secret configured (intentional fail-closed; we
-    never accept unverified payloads even in dev).
-    400 when signature / timestamp / format checks fail (generic detail
-    so we don't leak which check tripped).
-    200 with `{handled: bool, ...}` for any verified delivery — even
-    if the event type is unrecognised, so Clerk doesn't retry forever.
-    """
-    body = await request.body()
-    try:
-        verified = clerk_webhook.verify(
-            headers=dict(request.headers),
-            body=body,
-        )
-    except clerk_webhook.WebhookVerificationError as exc:
-        if exc.reason == "webhook_disabled":
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Webhook receiver disabled — CLERK_WEBHOOK_SIGNING_SECRET not set.",
-            )
-        log.warning(
-            "security.webhook.reject",
-            reason=exc.reason,
-            ip=_client_ip(request),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Webhook verification failed.",
-        )
-
-    import json
-
-    try:
-        payload = json.loads(verified.body)
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Malformed JSON body.",
-        )
-
-    return await service.dispatch_webhook(
-        session,
-        payload=payload,
-        ip_address=_client_ip(request),
-    )
+# The Clerk webhook receiver (Svix-signed `/webhooks/clerk`) was removed with
+# the first-party auth migration — there is no external identity provider to
+# receive user/session events from. `public_router` is kept (empty) so its
+# mount point stays stable for future signature-verified public webhooks.
 
 
 # ---------------------------------------------------------------------
@@ -281,13 +216,11 @@ async def clerk_webhook_receiver(
 # ---------------------------------------------------------------------
 
 
-def _current_session_id(auth: AuthContext, request: Request) -> str | None:
-    """Prefer the session id from the verified JWT claims (AuthContext).
-    Fall back to an explicit `X-Clerk-Session-Id` header — used in dev /
-    demo mode where the JWT path isn't exercised."""
-    if auth.session_id:
-        return auth.session_id
-    return request.headers.get("x-clerk-session-id")
+def _current_session_id(auth: AuthContext) -> str | None:
+    """The caller's first-party session id (`user_sessions.id` as a string),
+    resolved by `require_user` from the session cookie. Used to flag the current
+    device and to spare it from 'sign out everywhere else'."""
+    return auth.session_id
 
 
 def _client_ip(request: Request) -> str | None:

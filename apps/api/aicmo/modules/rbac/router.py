@@ -18,7 +18,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db.session import get_db
 from aicmo.modules.orgs import service as orgs_service
 from aicmo.modules.rbac import service

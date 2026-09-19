@@ -20,9 +20,12 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0.36",
   "psycopg[binary,pool]>=3.2.3",
   "alembic>=1.14.0",
-  # auth (Clerk JWT verification)
+  # auth — first-party DM Tool authentication (Argon2id password hashing).
+  # `argon2-cffi` wraps the reference Argon2 implementation; we never roll our
+  # own KDF. (Clerk's `python-jose` JWT-verification dependency was removed
+  # with the first-party auth migration.)
+  "argon2-cffi>=23.1.0",
   "httpx>=0.27.0",
-  "python-jose[cryptography]>=3.3.0",
   # job queue
   "arq>=0.26.3",
   # payments (Phase 1 — billing). Imported lazily; only the live billing
@@ -65,3 +68,7 @@ ignore = ["E501"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
+# Resolve third-party imports against the project virtualenv so Pyright doesn't
+# emit spurious reportMissingImports for installed packages (sqlalchemy, etc.).
+venvPath = "."
+venv = ".venv"

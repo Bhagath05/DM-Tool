@@ -1,57 +1,49 @@
 "use client";
 
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-import { getAuthMode, isClerkActive } from "@/lib/clerk-config";
+import { useTenant } from "@/components/tenant-provider";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 /**
- * Avatar / mode-badge in the topbar.
- *
- * Strict rule: NEVER mix sign-in UI into the demo experience. Sign-in
- * is a separate journey reachable only from the landing page.
- *
- *   demo                           → "Demo mode" badge
- *   clerk + signed                 → <UserButton>
- *   clerk + anon                   → (middleware would have redirected to /sign-in)
- *   hybrid + signed                → <UserButton>
- *   hybrid + anon (demo session)   → "Demo mode" badge (NOT a sign-in link)
- *
- * Clerk's <UserButton>, <SignedIn>, <SignedOut> internally call
- * useSession() and crash if <ClerkProvider> isn't mounted. We only use
- * them when isClerkActive() is true.
+ * Topbar identity + sign-out. First-party: the signed-in user comes from the
+ * tenant context (resolved via GET /me), and sign-out revokes the server-side
+ * session and clears the cookie, then returns to /sign-in.
  */
 export function UserMenu() {
-  if (!isClerkActive()) {
-    return <ModeBadge />;
+  const router = useRouter();
+  const { user } = useTenant();
+  const [pending, setPending] = useState(false);
+
+  async function signOut() {
+    setPending(true);
+    try {
+      await api.auth.signout();
+    } catch {
+      // Even if the call fails, drop the client and send them to sign-in.
+    }
+    router.push("/sign-in" as never);
+    router.refresh();
   }
 
-  return (
-    <>
-      <SignedIn>
-        {/* Logout must return to the dedicated login page, never the public
-            landing. Honoured by Clerk in every mode where <UserButton>
-            renders (clerk + hybrid). */}
-        <UserButton afterSignOutUrl="/sign-in" />
-      </SignedIn>
-      <SignedOut>
-        {/* Anonymous on hybrid: still the demo experience — no sign-in
-            prompt. The landing page is where users discover sign-in. */}
-        <ModeBadge />
-      </SignedOut>
-    </>
-  );
-}
+  const label = user?.display_name || user?.email || "Account";
 
-function ModeBadge() {
-  const mode = getAuthMode();
-  const label =
-    mode === "demo" || mode === "hybrid" ? "Demo mode" : "Auth not configured";
   return (
-    <span
-      data-testid="user-menu-fallback"
-      className="rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground"
-    >
-      {label}
-    </span>
+    <div className="flex items-center gap-2" data-testid="user-menu">
+      <span className="hidden text-sm text-muted-foreground sm:inline" title={user?.email ?? undefined}>
+        {label}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={signOut}
+        disabled={pending}
+        data-testid="sign-out"
+      >
+        {pending ? "Signing out…" : "Sign out"}
+      </Button>
+    </div>
   );
 }

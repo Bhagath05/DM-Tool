@@ -25,14 +25,12 @@
  * chooses an org or role.
  */
 
-import { SignedIn, SignedOut } from "@clerk/nextjs";
 import { AlertCircle, CheckCircle2, Clock, Mail, ShieldX } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { isClerkActive } from "@/lib/clerk-config";
 import { api, type InvitePreview } from "@/lib/api";
 import { writePersistedSelection } from "@/lib/tenant";
 
@@ -58,6 +56,19 @@ function AcceptInvite() {
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
+
+  // First-party sign-in state (this page is outside the TenantProvider tree).
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api.auth
+      .session()
+      .then(() => alive && setSignedIn(true))
+      .catch(() => alive && setSignedIn(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -160,8 +171,8 @@ function AcceptInvite() {
     );
   }
 
-  // After signing in, Clerk returns the user to this exact invite via the
-  // `redirect_url` query param (Next encodes the value for the href).
+  // After signing in, the sign-in page returns the user to this exact invite
+  // via the `redirect_url` query param (Next encodes the value for the href).
   const redirectTarget = `/invites/accept?token=${token}`;
 
   return (
@@ -209,39 +220,36 @@ function AcceptInvite() {
           </div>
         </dl>
 
-        {!isClerkActive() ? (
-          <p className="text-center text-sm text-muted-foreground">
-            Accepting an invitation requires a signed-in account.
-          </p>
+        {signedIn === null ? (
+          <p className="text-center text-sm text-muted-foreground">Checking…</p>
+        ) : signedIn ? (
+          <>
+            {acceptError && <ErrorLine message={acceptError} />}
+            <Button
+              className="w-full"
+              onClick={() => void handleAccept()}
+              disabled={accepting}
+              data-testid="invite-accept-button"
+            >
+              {accepting ? "Joining…" : "Accept invitation"}
+            </Button>
+          </>
         ) : (
           <>
-            <SignedIn>
-              {acceptError && <ErrorLine message={acceptError} />}
-              <Button
-                className="w-full"
-                onClick={() => void handleAccept()}
-                disabled={accepting}
-                data-testid="invite-accept-button"
+            <Button asChild className="w-full">
+              <Link
+                href={{
+                  pathname: "/sign-in",
+                  query: { redirect_url: redirectTarget },
+                }}
+                data-testid="invite-signin-link"
               >
-                {accepting ? "Joining…" : "Accept invitation"}
-              </Button>
-            </SignedIn>
-            <SignedOut>
-              <Button asChild className="w-full">
-                <Link
-                  href={{
-                    pathname: "/sign-in",
-                    query: { redirect_url: redirectTarget },
-                  }}
-                  data-testid="invite-signin-link"
-                >
-                  Sign in to accept
-                </Link>
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Sign in with {preview.invited_email} to join this workspace.
-              </p>
-            </SignedOut>
+                Sign in to accept
+              </Link>
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Sign in with {preview.invited_email} to join this workspace.
+            </p>
           </>
         )}
       </div>

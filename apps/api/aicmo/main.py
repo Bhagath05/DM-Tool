@@ -8,13 +8,13 @@ from fastapi.responses import JSONResponse
 
 # Force provider self-registration into IntegrationRegistry at import.
 import aicmo.modules.integrations.providers  # noqa: F401
-from aicmo.auth.clerk import require_user
+from aicmo.auth.dependencies import require_user
+from aicmo.auth.router import router as auth_router
 from aicmo.config import get_settings
 from aicmo.db.session import dispose_engine
 from aicmo.modules.ads.router import router as ads_router
 from aicmo.modules.advisor.router import router as advisor_router
 from aicmo.modules.analytics.router import router as analytics_router
-from aicmo.modules.marketing_analytics.router import router as marketing_analytics_router
 from aicmo.modules.audit.router import router as audit_router
 from aicmo.modules.autonomy.router import router as autonomy_router
 from aicmo.modules.billing.router import (
@@ -47,6 +47,7 @@ from aicmo.modules.landing_pages.router import router as landing_pages_router
 from aicmo.modules.leads.router import public_router as leads_public_router
 from aicmo.modules.leads.router import router as leads_router
 from aicmo.modules.learning.router import router as learning_router
+from aicmo.modules.marketing_analytics.router import router as marketing_analytics_router
 from aicmo.modules.notifications.router import router as notifications_router
 from aicmo.modules.onboarding.router import router as onboarding_router
 from aicmo.modules.operations.router import router as operations_router
@@ -81,21 +82,16 @@ from aicmo.modules.visuals.router import router as visuals_router
 settings = get_settings()
 
 # ---------------------------------------------------------------------
-# SECURITY GUARD — fail fast if AUTH_MODE=clerk but Clerk isn't wired.
+# SECURITY GUARD — first-party auth posture + production secrets.
 #
-# The demo-user auth bypass exists for the public-demo product flow.
-# If AUTH_MODE=clerk but Clerk env vars are missing, every request
-# would silently become the demo-user → data leak. assert_auth_config_valid()
-# raises SystemExit before uvicorn binds the port if that happens.
-# Do not move this lower in the file; it must run at module load.
+# DM Tool authenticates via first-party server-side sessions only (no Clerk,
+# no demo bypass). `validate_production_secrets` refuses to boot a production
+# deploy that still carries placeholder secrets OR that would issue insecure
+# (non-Secure) session cookies. No-op in dev/staging. Runs at module load,
+# before uvicorn binds the port.
 # ---------------------------------------------------------------------
-from aicmo.auth.clerk import assert_auth_config_valid  # noqa: E402
 from aicmo.config import validate_production_secrets  # noqa: E402
 
-assert_auth_config_valid()
-# Second boot gate: in production, refuse to start with placeholder
-# secrets (the deploy never copied real values over .env.example).
-# No-op in dev/staging so the demo flow keeps working.
 validate_production_secrets(settings)
 
 # ---------------------------------------------------------------------
@@ -291,9 +287,8 @@ app.include_router(integrations_public_router, prefix="/api/v1")
 # Phase 10.2b — Notification preferences (per-user, per-org matrix).
 # No delivery dispatcher yet — channels report delivery_status='placeholder'.
 app.include_router(notifications_router, prefix="/api/v1")
-# Phase 10.2c — Security backend: session inventory, audit trail, revoke,
-# Clerk webhook receiver. Public router is the Svix-verified webhook —
-# never carries an Authorization header.
+# Security backend: first-party session inventory, audit trail, revoke.
+# The public router is retained (empty) for future signature-verified webhooks.
 app.include_router(security_router, prefix="/api/v1")
 app.include_router(security_public_router, prefix="/api/v1")
 # Phase 10.2d — Team management: invite system + role catalog + team
@@ -365,6 +360,9 @@ from aicmo.modules.growth.router import router as growth_router  # noqa: E402
 app.include_router(growth_router, prefix="/api/v1")
 app.include_router(design_router, prefix="/api/v1")
 # SaaS foundation — identity, tenancy, RBAC. Mounted at /api/v1 alongside everything else.
+# First-party authentication (signup/signin/signout/verify/reset/change/…).
+# Its routes already carry the /api/v1/auth prefix.
+app.include_router(auth_router)
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(orgs_router, prefix="/api/v1")
 app.include_router(brands_org_router, prefix="/api/v1")
@@ -373,6 +371,7 @@ app.include_router(rbac_catalog_router, prefix="/api/v1")
 # Observability debug endpoints — mounted in dev/staging only.
 if settings.api_env != "production":
     from aicmo.observability.router import router as debug_router
+
     app.include_router(debug_router, prefix="/api/v1")
 app.include_router(rbac_org_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")

@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db.session import get_db
 from aicmo.modules.orgs import service
 from aicmo.modules.orgs.schemas import (
@@ -27,7 +27,7 @@ from aicmo.modules.orgs.schemas import (
     OrganizationResponse,
     OrganizationUpdate,
 )
-from aicmo.modules.users.service import get_or_create_from_clerk
+from aicmo.modules.users.models import User
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission
 
@@ -54,12 +54,10 @@ async def create(
 
     No permission check — any authenticated user can create an org.
     """
-    user = await get_or_create_from_clerk(
-        session, clerk_user_id=auth.user_id
-    )
-    result = await service.create_organization(
-        session, actor_user=user, payload=payload
-    )
+    user = await session.get(User, auth.user_uuid)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    result = await service.create_organization(session, actor_user=user, payload=payload)
     await session.commit()
     return result
 
@@ -85,12 +83,10 @@ async def create_workspace_via_wizard(
     JWT) but RBAC is not consulted; the operation grants the caller
     Owner on the newly-created org.
     """
-    user = await get_or_create_from_clerk(
-        session, clerk_user_id=auth.user_id
-    )
-    result = await service.create_workspace(
-        session, actor_user=user, payload=payload
-    )
+    user = await session.get(User, auth.user_uuid)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    result = await service.create_workspace(session, actor_user=user, payload=payload)
     await session.commit()
     return result
 
@@ -101,9 +97,9 @@ async def list_my_orgs(
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationList:
     """List orgs the caller is a member of. Used by the org switcher."""
-    user = await get_or_create_from_clerk(
-        session, clerk_user_id=auth.user_id
-    )
+    user = await session.get(User, auth.user_uuid)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     items = await service.list_user_orgs(session, user_id=user.id)
     await session.commit()
     return OrganizationList(items=items)
@@ -117,9 +113,7 @@ async def list_my_orgs(
 @router.get("/{org_id}", response_model=OrganizationResponse)
 async def get_one(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationResponse:
     _ensure_active_tenant(tenant, org_id)
@@ -130,9 +124,7 @@ async def get_one(
 async def update_one(
     org_id: uuid.UUID,
     payload: OrganizationUpdate,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationResponse:
     _ensure_active_tenant(tenant, org_id)
@@ -159,9 +151,7 @@ async def update_one(
 @router.get("/{org_id}/profile", response_model=OrganizationProfileRead)
 async def get_profile(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationProfileRead:
     _ensure_active_tenant(tenant, org_id)
@@ -172,9 +162,7 @@ async def get_profile(
 async def update_profile(
     org_id: uuid.UUID,
     payload: OrganizationProfileUpdate,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationProfileRead:
     _ensure_active_tenant(tenant, org_id)
@@ -191,9 +179,7 @@ async def update_profile(
 @router.get("/{org_id}/analytics", response_model=OrganizationAnalytics)
 async def get_analytics(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationAnalytics:
     _ensure_active_tenant(tenant, org_id)
@@ -203,15 +189,11 @@ async def get_analytics(
 @router.delete("/{org_id}", response_model=OrganizationResponse)
 async def archive_one(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationResponse:
     _ensure_active_tenant(tenant, org_id)
-    result = await service.archive_org(
-        session, actor_user_id=tenant.user_uuid, org_id=org_id
-    )
+    result = await service.archive_org(session, actor_user_id=tenant.user_uuid, org_id=org_id)
     await session.commit()
     return result
 
@@ -228,9 +210,7 @@ async def archive_one(
 @router.post("/{org_id}/reset", response_model=OrganizationResetResult)
 async def reset_one(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> OrganizationResetResult:
     """Clear all user-provided content; keep the workspace shell."""
@@ -246,17 +226,13 @@ async def reset_one(
 @router.post("/{org_id}/purge")
 async def purge_one(
     org_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """HARD delete the org and everything in it. Irreversible."""
     _ensure_active_tenant(tenant, org_id)
     await _require_owner(session, tenant)
-    await service.purge_organization(
-        session, actor_user_id=tenant.user_uuid, org_id=org_id
-    )
+    await service.purge_organization(session, actor_user_id=tenant.user_uuid, org_id=org_id)
     await session.commit()
     return {"status": "purged"}
 
@@ -270,27 +246,19 @@ async def purge_one(
 async def list_org_members(
     org_id: uuid.UUID,
     include_inactive: bool = False,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> MemberList:
     _ensure_active_tenant(tenant, org_id)
-    items = await service.list_members(
-        session, org_id=org_id, include_inactive=include_inactive
-    )
+    items = await service.list_members(session, org_id=org_id, include_inactive=include_inactive)
     return MemberList(items=items)
 
 
-@router.post(
-    "/{org_id}/members/{member_id}/deactivate", response_model=MemberResponse
-)
+@router.post("/{org_id}/members/{member_id}/deactivate", response_model=MemberResponse)
 async def deactivate_org_member(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> MemberResponse:
     _ensure_active_tenant(tenant, org_id)
@@ -306,15 +274,11 @@ async def deactivate_org_member(
     return result
 
 
-@router.post(
-    "/{org_id}/members/{member_id}/reactivate", response_model=MemberResponse
-)
+@router.post("/{org_id}/members/{member_id}/reactivate", response_model=MemberResponse)
 async def reactivate_org_member(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> MemberResponse:
     _ensure_active_tenant(tenant, org_id)
@@ -335,9 +299,7 @@ async def replace_member_roles(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
     payload: MemberRoleUpdate,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, list[str]]:
     _ensure_active_tenant(tenant, org_id)
@@ -358,9 +320,7 @@ async def assign_member_role(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
     payload: MemberAssignRole,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, list[str]]:
     _ensure_active_tenant(tenant, org_id)
@@ -381,9 +341,7 @@ async def remove_member_role(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
     role_slug: str,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, list[str]]:
     _ensure_active_tenant(tenant, org_id)
@@ -403,9 +361,7 @@ async def remove_member_role(
 async def transfer_org_ownership(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("organization.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("organization.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Transfer the workspace Owner role to another member. Owner-only —
@@ -427,9 +383,7 @@ async def transfer_org_ownership(
 async def remove_org_member(
     org_id: uuid.UUID,
     member_id: uuid.UUID,
-    tenant: TenantContext = Depends(
-        require_permission("team.manage", brand_optional=True)
-    ),
+    tenant: TenantContext = Depends(require_permission("team.manage", brand_optional=True)),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     _ensure_active_tenant(tenant, org_id)

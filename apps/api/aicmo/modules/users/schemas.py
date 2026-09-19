@@ -16,7 +16,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-
 # ---------------------------------------------------------------------
 #  User
 # ---------------------------------------------------------------------
@@ -26,7 +25,9 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    clerk_user_id: str
+    # Legacy Clerk subject id — null for first-party accounts, retained only
+    # for historical rows. Not used by the frontend for identity.
+    clerk_user_id: str | None = None
     email: str
     display_name: str | None
     avatar_url: str | None

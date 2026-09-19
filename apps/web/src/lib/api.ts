@@ -13,7 +13,7 @@
  *   cache hasn't been seeded yet.
  */
 
-import { getAuthToken } from "./auth-token";
+import { CSRF_HEADER, getCsrfToken } from "./csrf";
 import { dedupeRequest } from "./request-dedupe";
 import type {
   BrandAsset,
@@ -137,13 +137,15 @@ async function request<T>(
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
 
-  // Authorization header — per-call `token` override wins, else pull
-  // from the auth-token cache (populated by ClerkTokenBridge in prod;
-  // null in dev when Clerk isn't configured, which lets the backend's
-  // dev-user bypass take over). Token-getter handles refresh per call.
-  const explicitToken = init?.token;
-  const token = explicitToken ?? (await getAuthToken());
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  // First-party auth: the session travels in an HttpOnly cookie sent via
+  // `credentials: "include"` (set below). For state-changing requests we echo
+  // the CSRF cookie in a header (double-submit) so the backend can prove the
+  // request came from our own origin. No bearer tokens, no token in JS storage.
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = getCsrfToken();
+    if (csrf) headers.set(CSRF_HEADER, csrf);
+  }
 
   // Tenant headers — explicit per-call override wins over the module-level
   // cache. Skip setting either header if the value is null/undefined so we
@@ -158,10 +160,13 @@ async function request<T>(
   if (orgId) headers.set("X-Organization-Id", orgId);
   if (brandId) headers.set("X-Brand-Id", brandId);
 
-  const method = (init?.method ?? "GET").toUpperCase();
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
   } catch (networkErr) {
     // Network-level failure (DNS, refused, offline). Surface to Sentry
     // because the user sees a spinner-forever, not a structured error.
@@ -2676,8 +2681,100 @@ export interface MaContentReport {
   generated_at: string;
 }
 
+export interface SessionUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  email_verified: boolean;
+}
+
+export interface SecuritySession {
+  id: string;
+  user_agent: string | null;
+  ip: string | null;
+  last_seen_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  is_current: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
+  /**
+   * First-party authentication. The session is an HttpOnly cookie set by the
+   * backend on signin; the browser sends it automatically (credentials:
+   * include). Mutations carry the CSRF double-submit header. No tokens are
+   * ever stored in JS. Unauthenticated calls pass organizationId/brandId null
+   * to suppress any stale tenant headers from the module cache.
+   */
+  auth: {
+    session: () => request<SessionUser>("/api/v1/auth/session"),
+    signup: (email: string, password: string, displayName?: string) =>
+      request<{ message: string }>("/api/v1/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({ email, password, display_name: displayName ?? null }),
+        organizationId: null,
+        brandId: null,
+      }),
+    signin: (email: string, password: string) =>
+      request<SessionUser>("/api/v1/auth/signin", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+        organizationId: null,
+        brandId: null,
+      }),
+    signout: () =>
+      request<{ message: string }>("/api/v1/auth/signout", { method: "POST" }),
+    verifyEmail: (token: string) =>
+      request<{ message: string }>("/api/v1/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+        organizationId: null,
+        brandId: null,
+      }),
+    requestPasswordReset: (email: string) =>
+      request<{ message: string }>("/api/v1/auth/request-password-reset", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        organizationId: null,
+        brandId: null,
+      }),
+    resetPassword: (token: string, newPassword: string) =>
+      request<{ message: string }>("/api/v1/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token, new_password: newPassword }),
+        organizationId: null,
+        brandId: null,
+      }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<SessionUser>("/api/v1/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      }),
+    revokeAll: () =>
+      request<{ message: string }>("/api/v1/auth/revoke-all", { method: "POST" }),
+  },
+  /** Settings → Security → Active Sessions (first-party session store). */
+  security: {
+    sessions: () =>
+      request<{ sessions: SecuritySession[] }>("/api/v1/security/sessions"),
+    revokeSession: (id: string) =>
+      request<{ session: SecuritySession }>(
+        `/api/v1/security/sessions/${id}/revoke`,
+        { method: "POST" },
+      ),
+    revokeAllOtherSessions: () =>
+      request<{ revoked_count: number; skipped_current: boolean }>(
+        "/api/v1/security/sessions/revoke-all",
+        { method: "POST" },
+      ),
+  },
   /**
    * Identity + tenant bootstrap. Designed never to 4xx for an authed user.
    * `organizationId`/`brandId` overrides are used by `TenantProvider` so
@@ -3976,8 +4073,8 @@ export const api = {
       form.append("file", file);
 
       const headers = new Headers();
-      const token = await getAuthToken();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const csrf = getCsrfToken();
+      if (csrf) headers.set(CSRF_HEADER, csrf);
       const { organization_id, brand_id } = getActiveTenantHeaders();
       if (organization_id) headers.set("X-Organization-Id", organization_id);
       if (brand_id) headers.set("X-Brand-Id", brand_id);
@@ -3986,6 +4083,7 @@ export const api = {
         method: "POST",
         body: form,
         headers,
+        credentials: "include",
       });
       if (!res.ok) {
         const text = await res.text();
@@ -4153,8 +4251,8 @@ export const api = {
         form.append("kind", kind);
         if (label) form.append("label", label);
         const headers = new Headers();
-        const token = await getAuthToken();
-        if (token) headers.set("Authorization", `Bearer ${token}`);
+        const csrf = getCsrfToken();
+        if (csrf) headers.set(CSRF_HEADER, csrf);
         const { organization_id, brand_id } = getActiveTenantHeaders();
         if (organization_id) headers.set("X-Organization-Id", organization_id);
         if (brand_id) headers.set("X-Brand-Id", brand_id);
@@ -4162,6 +4260,7 @@ export const api = {
           method: "POST",
           body: form,
           headers,
+          credentials: "include",
         });
         if (!res.ok) throw new Error((await res.text()) || "Upload failed");
         return res.json();

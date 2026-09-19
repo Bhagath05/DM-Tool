@@ -15,24 +15,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   // Next.js App Router rule: <html> and <body> MUST be the literal root
-  // of the layout's returned JSX. Wrapping them in a client component
-  // (as we did previously with `<AuthProvider>` outside) breaks two
-  // invariants simultaneously:
-  //
-  //   1. Structural — the App Router framework expects to manage
-  //      <html>/<body> directly; wrapping causes hydration anomalies.
-  //
-  //   2. Hooks — AuthProvider conditionally renders <ClerkProvider> +
-  //      <ClerkTokenBridge> (which call hooks internally) vs. a bare
-  //      Fragment, based on `isClerkConfigured()`. When the condition
-  //      flips between the server-rendered tree and the client-hydrated
-  //      tree (env var resolution timing in dev / streamed RSC), the
-  //      hook count of the wrapped subtree changes → React throws
-  //      "Rendered more hooks than during the previous render."
-  //
-  // Nesting AuthProvider INSIDE <body> stabilises both: <html>/<body>
-  // are always the root, and any conditional rendering happens at a
-  // child level where React handles tree-shape changes cleanly.
+  // of the layout's returned JSX, so any client provider is nested INSIDE
+  // <body> rather than wrapping it. `AuthProvider` is a thin pass-through
+  // under first-party auth (login state comes from TenantProvider's /me
+  // call), kept as a stable mount point.
   return (
     <html lang="en">
       {/* suppressHydrationWarning: browser extensions (Grammarly, etc.)

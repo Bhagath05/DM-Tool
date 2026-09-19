@@ -65,7 +65,7 @@ class StorageBackend(Protocol):
 # ---------------------------------------------------------------------
 def _signing_key() -> bytes:
     s = get_settings()
-    secret = s.media_signing_secret or s.clerk_secret_key or "dev-media-secret"
+    secret = s.media_signing_secret or "dev-media-secret"
     return secret.encode()
 
 

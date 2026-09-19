@@ -13,7 +13,6 @@ from pydantic import BaseModel
 
 from aicmo.modules.security import schemas
 
-
 # Mirrors integrations + notifications — keep in lock-step. Security
 # additions: any field that looks like an authenticator secret.
 FORBIDDEN_FIELD_SUBSTRINGS = (
@@ -57,18 +56,14 @@ def test_no_schema_exposes_authenticator_secrets() -> None:
 
 
 def test_session_read_field_set_is_stable() -> None:
+    # First-party session store fields only — no Clerk/geo columns.
     expected = {
         "id",
-        "clerk_session_id",
         "user_agent",
-        "ip_address",
-        "geo_country",
-        "geo_city",
+        "ip",
         "last_seen_at",
         "expires_at",
         "revoked_at",
-        "revoked_by",
-        "revocation_status",
         "is_current",
         "is_active",
         "created_at",
@@ -114,8 +109,8 @@ def test_security_event_create_only_allows_known_fields() -> None:
     set `actor='admin'` (server-controlled) must be rejected — that's
     the only defence against a user forging admin-attributed events
     in their own timeline."""
-    from pydantic import ValidationError
     import pytest
+    from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
         schemas.SecurityEventCreate(

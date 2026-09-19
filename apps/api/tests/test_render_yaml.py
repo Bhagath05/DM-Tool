@@ -32,4 +32,7 @@ def test_api_service_still_declares_auth_env():
         text.split("name: dm-tool-api", 1)[1].split("name: dm-tool-worker", 1)[0]
     )
     assert "API_ENV" in api_section
-    assert "AUTH_MODE" in api_section
+    # First-party auth needs no AUTH_MODE / CLERK_* env — the render config must
+    # not reintroduce them.
+    assert "AUTH_MODE" not in api_section
+    assert "CLERK" not in api_section

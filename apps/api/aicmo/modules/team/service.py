@@ -23,11 +23,9 @@ Policy decisions (all enforced here, not by Pydantic):
      IntegrityError and convert to a clean 409.
 
   4. Email match on accept. We compare the invited email (lowercased)
-     to the authenticated user's email. The `@pending.local` placeholder
-     (from lazy-create when Clerk webhook hasn't filled the email yet)
-     is treated as match-any — this keeps dev/onboarding working.
-     Production users always have a real Clerk-verified email and the
-     match is exact.
+     to the authenticated user's email. A legacy `@pending.local`
+     placeholder email is treated as match-any (defensive — first-party
+     accounts always carry a real verified email, so the match is exact).
 
   5. Already-member rejection. If the invitee's user_id is ALREADY an
      active member of the org (e.g. invite issued but member joined via
@@ -75,8 +73,8 @@ log = structlog.get_logger()
 
 DEFAULT_INVITE_TTL_DAYS = 7
 ACCEPT_URL_PATH = "/invites/accept"
-# The placeholder email lazy-create assigns when Clerk webhook hasn't
-# populated the real email yet. See `_get_or_create_user` in tenancy.
+# Legacy placeholder-email suffix (older lazy-created rows). First-party
+# accounts always carry a real verified email.
 PENDING_EMAIL_SUFFIX = "@pending.local"
 
 
@@ -174,13 +172,9 @@ async def create_invite(
 
     # Defense in depth — Pydantic Literal already excludes 'owner'.
     if not role_catalog.is_invitable(role_slug):
-        raise InviteRoleNotAllowed(
-            role_slug, "role is not in the invitable set"
-        )
+        raise InviteRoleNotAllowed(role_slug, "role is not in the invitable set")
     if not actor_is_owner and not role_catalog.is_admin_grantable(role_slug):
-        raise InviteRoleNotAllowed(
-            role_slug, "admins cannot grant this role; owner required"
-        )
+        raise InviteRoleNotAllowed(role_slug, "admins cannot grant this role; owner required")
 
     raw_token = generate_token()
     token_hash_value = hash_token(raw_token)
@@ -241,9 +235,7 @@ async def list_invites(
     organization_id: uuid.UUID,
     include_terminal: bool = False,
 ) -> InviteList:
-    stmt = select(OrganizationInvite).where(
-        OrganizationInvite.organization_id == organization_id
-    )
+    stmt = select(OrganizationInvite).where(OrganizationInvite.organization_id == organization_id)
     if not include_terminal:
         stmt = stmt.where(OrganizationInvite.status == "pending")
     stmt = stmt.order_by(desc(OrganizationInvite.created_at))
@@ -369,13 +361,13 @@ async def accept_invite(
     token: str,
 ) -> InviteAcceptResponse:
     """Consume a pending invite. Order:
-      1. Load + validate status
-      2. Check not expired
-      3. Verify email match (with @pending.local relaxation)
-      4. Refuse if already a member
-      5. Create OrganizationMember + MemberRole
-      6. Mark invite accepted + record audit
-      7. Auto-select brand if exactly one exists
+    1. Load + validate status
+    2. Check not expired
+    3. Verify email match (with @pending.local relaxation)
+    4. Refuse if already a member
+    5. Create OrganizationMember + MemberRole
+    6. Mark invite accepted + record audit
+    7. Auto-select brand if exactly one exists
     """
     row = await _load_by_token(session, token=token)
     if row is None:
@@ -420,9 +412,7 @@ async def accept_invite(
         raise InviteNotFound()
 
     # Auto-select sole brand for the new member's last_active_brand_id.
-    brand_id = await _only_active_brand(
-        session, organization_id=row.organization_id
-    )
+    brand_id = await _only_active_brand(session, organization_id=row.organization_id)
 
     member = OrganizationMember(
         organization_id=row.organization_id,
@@ -516,20 +506,14 @@ async def team_overview(
     requester_can_invite: bool,
 ) -> TeamOverview:
     """Aggregate everything Settings → Team needs to render."""
-    members = await _list_member_summaries(
-        session, organization_id=organization_id
-    )
-    invites = await list_invites(
-        session, organization_id=organization_id, include_terminal=False
-    )
+    members = await _list_member_summaries(session, organization_id=organization_id)
+    invites = await list_invites(session, organization_id=organization_id, include_terminal=False)
     catalog = role_catalog.get_catalog()
 
     owner_count = sum(1 for m in members if m.is_owner)
     requester_is_owner = False
     if requester_member_id is not None:
-        slugs = await compute_role_slugs_for_member(
-            session, member_id=requester_member_id
-        )
+        slugs = await compute_role_slugs_for_member(session, member_id=requester_member_id)
         requester_is_owner = "owner" in slugs
 
     return TeamOverview(
@@ -554,22 +538,17 @@ def _emails_match(*, invited: str, actor: str) -> bool:
     if not actor:
         return False
     if actor.endswith(PENDING_EMAIL_SUFFIX):
-        # Dev / lazy-created user — Clerk webhook hasn't populated the
-        # real email yet. Trust the JWT-derived user id (already
-        # authenticated) and accept the invite.
+        # Legacy placeholder-email row — trust the already-authenticated
+        # session's user id and accept the invite.
         return True
     return invited.strip().lower() == actor.strip().lower()
 
 
-async def _load_by_token(
-    session: AsyncSession, *, token: str
-) -> OrganizationInvite | None:
+async def _load_by_token(session: AsyncSession, *, token: str) -> OrganizationInvite | None:
     if not token or len(token) < 16:
         return None
     h = hash_token(token)
-    stmt = select(OrganizationInvite).where(
-        OrganizationInvite.token_hash == h
-    )
+    stmt = select(OrganizationInvite).where(OrganizationInvite.token_hash == h)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -608,9 +587,7 @@ async def _list_member_summaries(
 
     summaries: list[MemberSummary] = []
     for member, user in rows:
-        slugs = sorted(
-            await compute_role_slugs_for_member(session, member_id=member.id)
-        )
+        slugs = sorted(await compute_role_slugs_for_member(session, member_id=member.id))
         # Best-effort last_active — newest non-revoked user_session.
         last_seen_stmt = (
             select(UserSession.last_seen_at)
@@ -638,9 +615,7 @@ async def _list_member_summaries(
     return summaries
 
 
-def _to_invite_read(
-    row: OrganizationInvite, *, now: datetime
-) -> InviteRead:
+def _to_invite_read(row: OrganizationInvite, *, now: datetime) -> InviteRead:
     return InviteRead(
         id=row.id,
         organization_id=row.organization_id,

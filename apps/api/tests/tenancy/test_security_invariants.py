@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from aicmo.auth.clerk import AuthContext
+from aicmo.auth.dependencies import AuthContext
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.dependencies import require_permission, require_tenant
 from aicmo.tenancy.exceptions import (
@@ -24,7 +24,6 @@ from aicmo.tenancy.exceptions import (
     OrganizationInactive,
     TenantMismatch,
 )
-
 
 # Reuse the lightweight stubs from the resolver smoke test. Keeping them
 # inline (instead of importing) so this file is self-contained for an
@@ -38,12 +37,8 @@ def _make_request(headers: dict[str, str]):
 
 
 def _auth() -> AuthContext:
-    return AuthContext(
-        user_id="clerk_security_test",
-        session_id=None,
-        org_id=None,
-        claims={"sub": "clerk_security_test"},
-    )
+    uid = uuid.uuid4()
+    return AuthContext(user_id=str(uid), user_uuid=uid, email="sec@example.com")
 
 
 def _stub_session(**kw: Any):
@@ -67,7 +62,10 @@ def _stub_session(**kw: Any):
             sql = str(stmt).lower()
             if "users" in sql and "clerk_user_id" in sql:
                 return _result(scalar_one_or_none=self._user_row)
-            if "organization_members" in sql and "select organization_members.organization_id" in sql:
+            if (
+                "organization_members" in sql
+                and "select organization_members.organization_id" in sql
+            ):
                 ids = [self._single_org_id] if self._single_org_id else []
                 return _result(scalars_all=ids)
             if "organization_members" in sql and "user_id" in sql:
@@ -83,6 +81,8 @@ def _stub_session(**kw: Any):
 
         async def get(self, model, id_):
             name = getattr(model, "__name__", str(model)).lower()
+            if name == "user":
+                return self._user_row
             if "organization" in name:
                 return self._org_lookup.get(id_)
             if "brand" in name:
@@ -96,9 +96,7 @@ def _result(*, scalar_one_or_none=None, scalars_all=None, rows=None):
     r = MagicMock()
     r.scalar_one_or_none.return_value = scalar_one_or_none
     r.scalars.return_value.all.return_value = scalars_all or []
-    r.scalars.return_value.first.return_value = (
-        scalars_all[0] if scalars_all else None
-    )
+    r.scalars.return_value.first.return_value = scalars_all[0] if scalars_all else None
     r.all.return_value = rows or []
     return r
 
@@ -131,7 +129,9 @@ class TestNoAccessOutsideMemberships:
 
         with pytest.raises(TenantMismatch):
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
     @pytest.mark.asyncio
@@ -149,7 +149,9 @@ class TestNoAccessOutsideMemberships:
 
         with pytest.raises(MissingTenant):
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
 
@@ -183,13 +185,13 @@ class TestNoCrossOrgBrandAccess:
             org_lookup={my_org: org},
             brand_lookup={wrong_brand: brand},
         )
-        request = _make_request(
-            {"X-Organization-Id": str(my_org), "X-Brand-Id": str(wrong_brand)}
-        )
+        request = _make_request({"X-Organization-Id": str(my_org), "X-Brand-Id": str(wrong_brand)})
 
         with pytest.raises(BrandNotInOrg):
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
 
 
@@ -208,7 +210,9 @@ class TestHeaderTampering:
 
         with pytest.raises(MissingTenant) as exc:
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
         assert "X-Organization-Id" in exc.value.detail
 
@@ -240,7 +244,9 @@ class TestHeaderTampering:
 
         with pytest.raises(MissingTenant) as exc:
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )
         assert "X-Brand-Id" in exc.value.detail
 
@@ -274,16 +280,16 @@ class TestTenantIsolation:
             single_org_id=org_id,
             only_brand_id=brand_id,
             org_lookup={org_id: _row(id=org_id, status="active")},
-            brand_lookup={
-                brand_id: _row(id=brand_id, organization_id=org_id, status="active")
-            },
+            brand_lookup={brand_id: _row(id=brand_id, organization_id=org_id, status="active")},
             permissions={"content.create"},
             role_slugs={"editor"},
         )
         request = _make_request({})
 
         ctx = await require_tenant()(
-            request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+            request=request,
+            auth=_auth(),
+            session=session,  # type: ignore[arg-type]
         )
         assert ctx.brand_id == brand_id
         assert ctx.organization_id == org_id
@@ -321,9 +327,7 @@ class TestNoRoleEscalation:
             single_org_id=org_id,
             only_brand_id=brand_id,
             org_lookup={org_id: _row(id=org_id, status="active")},
-            brand_lookup={
-                brand_id: _row(id=brand_id, organization_id=org_id, status="active")
-            },
+            brand_lookup={brand_id: _row(id=brand_id, organization_id=org_id, status="active")},
             permissions={"content.create"},  # DB says one perm
             role_slugs={"viewer"},
         )
@@ -336,7 +340,9 @@ class TestNoRoleEscalation:
         )
 
         ctx = await require_tenant()(
-            request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+            request=request,
+            auth=_auth(),
+            session=session,  # type: ignore[arg-type]
         )
         # Smuggled headers were ignored; perms reflect DB state.
         assert ctx.permissions == frozenset({"content.create"})
@@ -365,15 +371,15 @@ class TestNoRoleEscalation:
             single_org_id=org_id,
             only_brand_id=brand_id,
             org_lookup={org_id: _row(id=org_id, status="active")},
-            brand_lookup={
-                brand_id: _row(id=brand_id, organization_id=org_id, status="active")
-            },
+            brand_lookup={brand_id: _row(id=brand_id, organization_id=org_id, status="active")},
             permissions={"content.read"},  # viewer-style
             role_slugs={"viewer"},
         )
 
         tenant = await require_tenant()(
-            request=_make_request({}), auth=_auth(), session=session  # type: ignore[arg-type]
+            request=_make_request({}),
+            auth=_auth(),
+            session=session,  # type: ignore[arg-type]
         )
 
         with pytest.raises(NotAuthorized) as exc:
@@ -412,20 +418,20 @@ class TestRefreshIntegrity:
                 single_org_id=org_id,
                 only_brand_id=brand_id,
                 org_lookup={org_id: _row(id=org_id, status="active")},
-                brand_lookup={
-                    brand_id: _row(
-                        id=brand_id, organization_id=org_id, status="active"
-                    )
-                },
+                brand_lookup={brand_id: _row(id=brand_id, organization_id=org_id, status="active")},
                 permissions={"content.create"},
                 role_slugs={"editor"},
             )
 
         ctx_a: TenantContext = await require_tenant()(
-            request=_make_request({}), auth=_auth(), session=fresh_session()  # type: ignore[arg-type]
+            request=_make_request({}),
+            auth=_auth(),
+            session=fresh_session(),  # type: ignore[arg-type]
         )
         ctx_b: TenantContext = await require_tenant()(
-            request=_make_request({}), auth=_auth(), session=fresh_session()  # type: ignore[arg-type]
+            request=_make_request({}),
+            auth=_auth(),
+            session=fresh_session(),  # type: ignore[arg-type]
         )
 
         assert ctx_a.permissions == ctx_b.permissions
@@ -458,5 +464,7 @@ class TestRefreshIntegrity:
 
         with pytest.raises(OrganizationInactive):
             await require_tenant()(
-                request=request, auth=_auth(), session=session  # type: ignore[arg-type]
+                request=request,
+                auth=_auth(),
+                session=session,  # type: ignore[arg-type]
             )

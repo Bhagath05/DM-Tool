@@ -14,10 +14,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api";
 import {
-  __resetAuthTokenForTests,
-  setAuthTokenGetter,
-} from "./auth-token";
-import {
   __resetActiveTenantHeadersForTests,
   setActiveTenantHeaders,
 } from "./tenant";
@@ -35,14 +31,12 @@ let fetchMock: FetchMock;
 
 beforeEach(() => {
   __resetActiveTenantHeadersForTests();
-  __resetAuthTokenForTests();
   fetchMock = vi.fn().mockResolvedValue(mockJsonOk({ status: "ok", env: "test" }));
   globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
   __resetActiveTenantHeadersForTests();
-  __resetAuthTokenForTests();
   vi.restoreAllMocks();
 });
 
@@ -130,42 +124,31 @@ describe("api.request header injection", () => {
     expect(h.has("X-Brand-Id")).toBe(false);
   });
 
-  it("omits Authorization when no token getter is set (dev-bypass path)", async () => {
+  it("sends credentials: 'include' so the session cookie travels with every request", async () => {
     await api.health();
-    const h = headersFromLastCall();
-    expect(h.has("Authorization")).toBe(false);
+    const init = fetchMock.mock.calls.at(-1)![1] as RequestInit;
+    expect(init.credentials).toBe("include");
   });
 
-  it("attaches Authorization from the auth-token getter", async () => {
-    setAuthTokenGetter(async () => "jwt-from-clerk");
+  it("never attaches an Authorization header (no bearer tokens, cookie auth only)", async () => {
+    document.cookie = "dmt_csrf=whatever";
     await api.health();
-    const h = headersFromLastCall();
-    expect(h.get("Authorization")).toBe("Bearer jwt-from-clerk");
+    expect(headersFromLastCall().has("Authorization")).toBe(false);
+    document.cookie = "dmt_csrf=; Max-Age=0";
   });
 
-  it("omits Authorization when getter resolves to null (no session)", async () => {
-    setAuthTokenGetter(async () => null);
-    await api.health();
-    const h = headersFromLastCall();
-    expect(h.has("Authorization")).toBe(false);
+  it("attaches the CSRF header from the cookie on state-changing requests", async () => {
+    document.cookie = "dmt_csrf=csrf-token-abc";
+    await api.auth.signout(); // POST
+    expect(headersFromLastCall().get("X-CSRF-Token")).toBe("csrf-token-abc");
+    document.cookie = "dmt_csrf=; Max-Age=0";
   });
 
-  it("re-invokes the getter on every request (fresh JWT per call)", async () => {
-    let n = 0;
-    setAuthTokenGetter(async () => `jwt-${++n}`);
-    await api.health();
-    await api.health();
-    await api.health();
-    // Each call should carry a different token — proves we're not caching.
-    const tokens = fetchMock.mock.calls.map((c) => {
-      const init = c[1] as RequestInit;
-      return new Headers(init.headers).get("Authorization");
-    });
-    expect(tokens).toEqual([
-      "Bearer jwt-1",
-      "Bearer jwt-2",
-      "Bearer jwt-3",
-    ]);
+  it("omits the CSRF header on safe (GET) requests", async () => {
+    document.cookie = "dmt_csrf=csrf-token-abc";
+    await api.health(); // GET
+    expect(headersFromLastCall().has("X-CSRF-Token")).toBe(false);
+    document.cookie = "dmt_csrf=; Max-Age=0";
   });
 
   it("api.me targets /api/v1/users/me", async () => {

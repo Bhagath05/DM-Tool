@@ -16,19 +16,19 @@ require_permission composes require_tenant and asserts a specific slug.
 from __future__ import annotations
 
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 import structlog
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db import rls as _rls
 from aicmo.db.session import get_db
 from aicmo.modules.brands.models import Brand
 from aicmo.modules.orgs.models import Organization, OrganizationMember
-from aicmo.modules.users.service import get_or_create_from_clerk
+from aicmo.modules.users.models import User
 from aicmo.tenancy.context import TenantContext
 from aicmo.tenancy.exceptions import (
     BrandInactive,
@@ -73,24 +73,20 @@ def require_tenant(brand_optional: bool = False) -> Callable:
         # is false (the default).
         await _rls.set_bypass(session, on=True)
 
-        # 1. Lazy-create the User row. The webhook path also creates it,
-        # but lazy-create is the safety net for race conditions and dev
-        # environments without webhook tunnels.
-        user = await get_or_create_from_clerk(
-            session,
-            clerk_user_id=auth.user_id,
-            email=auth.email,
-            display_name=auth.display_name,
-            avatar_url=auth.avatar_url,
-        )
+        # 1. Load the authenticated user. `require_user` already resolved an
+        # active session → active user, so the row exists; loading by its id
+        # is authentication-free here (authorization follows below). No lazy
+        # create, no email-based linking — identity comes only from the session.
+        user = await session.get(User, auth.user_uuid)
+        if user is None:
+            # Session valid but the account vanished mid-request → unauthenticated.
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
         # 2. Resolve the active organization.
         org_id = parse_org_header(request)
         if org_id is None:
             # Auto-resolve when the user has exactly one active membership.
-            single = await _single_active_membership_org(
-                session, user_id=user.id
-            )
+            single = await _single_active_membership_org(session, user_id=user.id)
             if single is None:
                 raise MissingTenant(
                     detail="X-Organization-Id header required (user has 0 or multiple memberships)"
@@ -98,9 +94,7 @@ def require_tenant(brand_optional: bool = False) -> Callable:
             org_id = single
 
         # 3. Validate the user is a member of that org.
-        member = await _load_active_member(
-            session, user_id=user.id, org_id=org_id
-        )
+        member = await _load_active_member(session, user_id=user.id, org_id=org_id)
         if member is None:
             raise TenantMismatch()
 
@@ -126,17 +120,11 @@ def require_tenant(brand_optional: bool = False) -> Callable:
                 raise BrandInactive()
 
         if brand_id is None and not brand_optional:
-            raise MissingTenant(
-                detail="X-Brand-Id header required (org has 0 or multiple brands)"
-            )
+            raise MissingTenant(detail="X-Brand-Id header required (org has 0 or multiple brands)")
 
         # 6. Compute permissions + role slugs.
-        permissions = await compute_permissions_for_member(
-            session, member_id=member.id
-        )
-        role_slugs = await compute_role_slugs_for_member(
-            session, member_id=member.id
-        )
+        permissions = await compute_permissions_for_member(session, member_id=member.id)
+        role_slugs = await compute_role_slugs_for_member(session, member_id=member.id)
 
         # 7. Best-effort: persist last_active_brand_id if it changed.
         # Not in the request transaction — the next request will use
@@ -145,7 +133,7 @@ def require_tenant(brand_optional: bool = False) -> Callable:
             member.last_active_brand_id = brand_id
             try:
                 await session.flush()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass  # purely cosmetic, never break the request
 
         # 8. Bind tenant context to structlog so every downstream log
@@ -172,9 +160,7 @@ def require_tenant(brand_optional: bool = False) -> Callable:
         # 9. RLS readiness — resolution is done. Switch bypass OFF and pin
         # the per-request org/user GUCs so the handler body runs under
         # org-scoped RLS. No-op when DB_RLS_ENABLED is false.
-        await _rls.set_request_context(
-            session, organization_id=org_id, user_uuid=user.id
-        )
+        await _rls.set_request_context(session, organization_id=org_id, user_uuid=user.id)
 
         return TenantContext(
             user_id=auth.user_id,
@@ -199,9 +185,7 @@ RequireTenantOrgOnly = Depends(require_tenant(brand_optional=True))
 # ---------------------------------------------------------------------
 
 
-def require_permission(
-    slug: str, *, brand_optional: bool = False
-) -> Callable:
+def require_permission(slug: str, *, brand_optional: bool = False) -> Callable:
     """Asserts the resolved tenant carries the given permission slug.
 
     `brand_optional=True` for org-level permission checks (e.g.
@@ -261,13 +245,9 @@ async def _load_active_member(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def _only_active_brand(
-    session: AsyncSession, *, org_id: uuid.UUID
-) -> uuid.UUID | None:
+async def _only_active_brand(session: AsyncSession, *, org_id: uuid.UUID) -> uuid.UUID | None:
     """If the org has exactly one active brand, return its id."""
-    stmt = select(Brand.id).where(
-        Brand.organization_id == org_id, Brand.status == "active"
-    )
+    stmt = select(Brand.id).where(Brand.organization_id == org_id, Brand.status == "active")
     rows = (await session.execute(stmt)).scalars().all()
     if len(rows) == 1:
         return rows[0]

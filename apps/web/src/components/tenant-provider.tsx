@@ -24,7 +24,6 @@
  *    user-click → setState → effect → header cache → next fetch
  */
 
-import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
   createContext,
@@ -37,8 +36,6 @@ import {
 } from "react";
 
 import { api } from "@/lib/api";
-import { getAuthToken } from "@/lib/auth-token";
-import { isClerkActive } from "@/lib/clerk-config";
 import {
   type ActiveTenant,
   type BrandSummary,
@@ -126,61 +123,8 @@ export function TenantProvider({
   children: React.ReactNode;
   enforceSuggestedRoute?: boolean;
 }) {
-  if (!isClerkActive()) {
-    return (
-      <TenantProviderImpl enforceSuggestedRoute={enforceSuggestedRoute}>
-        {children}
-      </TenantProviderImpl>
-    );
-  }
   return (
-    <TenantProviderClerkGate enforceSuggestedRoute={enforceSuggestedRoute}>
-      {children}
-    </TenantProviderClerkGate>
-  );
-}
-
-function TenantProviderClerkGate({
-  children,
-  enforceSuggestedRoute,
-}: {
-  children: React.ReactNode;
-  enforceSuggestedRoute: boolean;
-}) {
-  const { isLoaded, isSignedIn } = useAuth();
-  if (!isLoaded) {
-    return (
-      <TenantContext.Provider
-        value={{
-          status: "loading",
-          error: null,
-          user: null,
-          activeOrg: null,
-          activeBrand: null,
-          activeMembership: null,
-          memberships: [],
-          permissions: [],
-          roleSlugs: [],
-          can: () => false,
-          canAll: () => false,
-          canAny: () => false,
-          environment: ENVIRONMENT,
-          suggestedRoute: null,
-          switchOrg: async () => {},
-          switchBrand: async () => {},
-          refresh: async () => {},
-          active: null,
-        }}
-      >
-        {children}
-      </TenantContext.Provider>
-    );
-  }
-  return (
-    <TenantProviderImpl
-      enforceSuggestedRoute={enforceSuggestedRoute}
-      clerkSignedIn={isSignedIn}
-    >
+    <TenantProviderImpl enforceSuggestedRoute={enforceSuggestedRoute}>
       {children}
     </TenantProviderImpl>
   );
@@ -189,11 +133,9 @@ function TenantProviderClerkGate({
 function TenantProviderImpl({
   children,
   enforceSuggestedRoute = false,
-  clerkSignedIn = false,
 }: {
   children: React.ReactNode;
   enforceSuggestedRoute?: boolean;
-  clerkSignedIn?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<TenantStatus>("loading");
@@ -356,30 +298,12 @@ function TenantProviderImpl({
     [enforceSuggestedRoute, router],
   );
 
-  // Initial load on mount. When Clerk is active and the user is signed in,
-  // wait briefly for ClerkTokenBridge to attach a JWT before /me — otherwise
-  // hybrid mode resolves the demo-user and the sidebar shows dev-user@pending.local.
+  // Initial load on mount. The HttpOnly session cookie (if present) is sent
+  // automatically; GET /me resolves the signed-in user, or returns 401 which
+  // TenantProvider surfaces as an unauthenticated state.
   useEffect(() => {
-    let cancelled = false;
-
-    const boot = async () => {
-      if (isClerkActive() && clerkSignedIn) {
-        for (let i = 0; i < 20 && !cancelled; i++) {
-          const token = await getAuthToken();
-          if (token) break;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      }
-      if (!cancelled) {
-        await loadMe();
-      }
-    };
-
-    void boot();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMe, clerkSignedIn]);
+    void loadMe();
+  }, [loadMe]);
 
   // Cleanup: drop Sentry tags on unmount so a sign-out doesn't leak the
   // previous user's identity into any subsequent errors.

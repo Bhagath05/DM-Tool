@@ -1,18 +1,37 @@
 "use client";
 
-import Link from "next/link";
-
-import { SignUp } from "@clerk/nextjs";
+import { useState } from "react";
 
 import { AuthShell } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
-import { clerkAppearance } from "@/lib/clerk-appearance";
-import { getAuthMode, isClerkActive } from "@/lib/clerk-config";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { api, ApiError } from "@/lib/api";
 
 export default function SignUpPage() {
-  // See sign-in/page.tsx for the mode-aware fallback rationale.
-  if (!isClerkActive()) {
-    return <Fallback action="sign up" />;
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      await api.auth.signup(email, password, displayName || undefined);
+      // Enumeration-safe: always shows the same "check your email" state.
+      setDone(true);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
+      setPending(false);
+    }
   }
 
   return (
@@ -23,75 +42,65 @@ export default function SignUpPage() {
       altHref="/sign-in"
       altLabel="Sign in"
     >
-      <SignUp appearance={clerkAppearance} />
+      {done ? (
+        <div
+          role="status"
+          className="w-full max-w-sm rounded-lg border border-border bg-card p-5 text-sm"
+        >
+          <p className="font-medium">Check your email</p>
+          <p className="mt-1 text-muted-foreground">
+            If that email can be registered, we&apos;ve sent a verification link.
+            Click it to activate your account, then sign in.
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              type="text"
+              autoComplete="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={10}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              At least 10 characters.
+            </p>
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-bad">
+              {error}
+            </p>
+          )}
+          <Button type="submit" disabled={pending} className="w-full">
+            {pending ? "Creating account…" : "Create account"}
+          </Button>
+        </form>
+      )}
     </AuthShell>
-  );
-}
-
-function Fallback({ action }: { action: string }) {
-  const mode = getAuthMode();
-  const isDemo = mode === "demo";
-
-  return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-center">
-        <h1 className="text-xl font-semibold">
-          {isDemo ? "Demo mode" : "Auth not configured"}
-        </h1>
-        {isDemo ? (
-          <>
-            <p className="text-sm text-muted-foreground">
-              Sign-up is disabled while the app is in demo mode. Open the
-              dashboard directly to explore the product — no account
-              needed.
-            </p>
-            <Button asChild>
-              <Link href={"/dashboard" as never}>Open dashboard</Link>
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              To enable real authentication, set{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                AUTH_MODE=clerk
-              </code>{" "}
-              in both <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{" "}
-              and{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                apps/web/.env.local
-              </code>{" "}
-              and restart.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm text-muted-foreground">
-              Clerk publishable + secret keys aren&apos;t set, so the{" "}
-              {action} form can&apos;t render. Set the four{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                CLERK_*
-              </code>{" "}
-              variables in{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{" "}
-              and restart{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                pnpm dev
-              </code>
-              .
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Get keys at{" "}
-              <a
-                href="https://dashboard.clerk.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                dashboard.clerk.com
-              </a>
-              .
-            </p>
-          </>
-        )}
-      </div>
-    </div>
   );
 }

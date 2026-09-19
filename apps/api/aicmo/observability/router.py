@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from aicmo.auth.clerk import AuthContext, require_user
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.config import get_settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -35,9 +35,7 @@ async def sentry_test_authed(
     paired with tenant headers — gets attached. Use this to verify
     user.id + organization_id + brand_id show up in the captured event.
     """
-    raise RuntimeError(
-        f"Sentry verification (authed as clerk_user_id={auth.user_id})"
-    )
+    raise RuntimeError(f"Sentry verification (authed as clerk_user_id={auth.user_id})")
 
 
 @router.get("/sentry-config")

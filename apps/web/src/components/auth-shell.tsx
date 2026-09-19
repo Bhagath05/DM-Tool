@@ -4,10 +4,10 @@ import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 
 /**
- * Premium, responsive shell around Clerk's <SignIn>/<SignUp>. Two columns on
- * desktop (brand story + form), single column on mobile. Uses DM Tool design
- * tokens only — it wraps Clerk, it does not replace it. All auth logic stays in
- * Clerk (sign-in, sign-up, forgot-password, reset, Google, session).
+ * Premium, responsive shell around the first-party auth forms (sign-in,
+ * sign-up, verify-email, forgot/reset-password). Two columns on desktop (brand
+ * story + form), single column on mobile. Uses DM Tool design tokens only; the
+ * form itself is passed in as children.
  */
 
 const VALUE_PROPS = [

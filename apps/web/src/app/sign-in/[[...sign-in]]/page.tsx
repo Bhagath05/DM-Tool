@@ -1,21 +1,48 @@
 "use client";
 
-import Link from "next/link";
-
-import { SignIn } from "@clerk/nextjs";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 import { AuthShell } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
-import { clerkAppearance } from "@/lib/clerk-appearance";
-import { getAuthMode, isClerkActive } from "@/lib/clerk-config";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { api, ApiError } from "@/lib/api";
 
 export default function SignInPage() {
-  // <SignIn /> internally calls useSession(), which throws when
-  // <ClerkProvider /> isn't mounted. Mode-aware render:
-  //   - clerk-active     → branded shell + real Clerk UI
-  //   - demo (intentional) or clerk-misconfigured → friendly fallback
-  if (!isClerkActive()) {
-    return <Fallback action="sign in" />;
+  return (
+    <Suspense fallback={null}>
+      <SignInInner />
+    </Suspense>
+  );
+}
+
+function SignInInner() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      await api.auth.signin(email, password);
+      const dest = params.get("redirect_url") || "/dashboard";
+      router.push(dest as never);
+      router.refresh();
+    } catch (err) {
+      // Generic, enumeration-safe message straight from the backend.
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
+      setPending(false);
+    }
   }
 
   return (
@@ -26,75 +53,46 @@ export default function SignInPage() {
       altHref="/sign-up"
       altLabel="Create an account"
     >
-      <SignIn appearance={clerkAppearance} />
-    </AuthShell>
-  );
-}
-
-function Fallback({ action }: { action: string }) {
-  const mode = getAuthMode();
-  const isDemo = mode === "demo";
-
-  return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-center">
-        <h1 className="text-xl font-semibold">
-          {isDemo ? "Demo mode" : "Auth not configured"}
-        </h1>
-        {isDemo ? (
-          <>
-            <p className="text-sm text-muted-foreground">
-              Sign-in is disabled while the app is in demo mode. Open the
-              dashboard directly to explore the product — no account
-              needed.
-            </p>
-            <Button asChild>
-              <Link href={"/dashboard" as never}>Open dashboard</Link>
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              To enable real authentication, set{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                AUTH_MODE=clerk
-              </code>{" "}
-              in both <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{" "}
-              and{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                apps/web/.env.local
-              </code>{" "}
-              and restart.
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm text-muted-foreground">
-              Clerk publishable + secret keys aren&apos;t set, so the{" "}
-              {action} form can&apos;t render. Set the four{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                CLERK_*
-              </code>{" "}
-              variables in{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>{" "}
-              and restart{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                pnpm dev
-              </code>
-              .
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Get keys at{" "}
-              <a
-                href="https://dashboard.clerk.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                dashboard.clerk.com
-              </a>
-              .
-            </p>
-          </>
+      <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <a
+              href="/forgot-password"
+              className="text-xs text-muted-foreground underline"
+            >
+              Forgot password?
+            </a>
+          </div>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-bad">
+            {error}
+          </p>
         )}
-      </div>
-    </div>
+        <Button type="submit" disabled={pending} className="w-full">
+          {pending ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

@@ -2,7 +2,7 @@
 
 Every protected route receives one of these. It carries:
 
-- user identity (both Clerk's `sub` and our UUID)
+- user identity (the DM user id: `user_id` string + `user_uuid`)
 - the active organization
 - the active brand (None for org-level routes like /settings/team)
 - the member's role slug + computed permission set
@@ -27,7 +27,7 @@ class TenantContext:
 
     # Active tenant scope.
     organization_id: uuid.UUID
-    brand_id: uuid.UUID | None       # None on org-level endpoints
+    brand_id: uuid.UUID | None  # None on org-level endpoints
     member_id: uuid.UUID
 
     # Authorisation envelope. Computed by tenancy.dependencies.require_tenant

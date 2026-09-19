@@ -18,23 +18,17 @@ vi.mock("next/navigation", () => ({
     new URLSearchParams(searchToken ? `token=${searchToken}` : ""),
 }));
 
+// First-party sign-in state — the page probes GET /auth/session.
 let signedIn = false;
-vi.mock("@clerk/nextjs", () => ({
-  SignedIn: ({ children }: { children: React.ReactNode }) =>
-    signedIn ? <>{children}</> : null,
-  SignedOut: ({ children }: { children: React.ReactNode }) =>
-    signedIn ? null : <>{children}</>,
-}));
-
-let clerkActive = true;
-vi.mock("@/lib/clerk-config", () => ({
-  isClerkActive: () => clerkActive,
-}));
+const sessionMock = vi.fn();
 
 const previewMock = vi.fn();
 const acceptMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   api: {
+    auth: {
+      session: () => sessionMock(),
+    },
     team: {
       previewInvite: (t: string) => previewMock(t),
       acceptInvite: (t: string) => acceptMock(t),
@@ -64,8 +58,13 @@ describe("AcceptInvitePage", () => {
     vi.clearAllMocks();
     searchToken = "tok_abcdef_0123456789";
     signedIn = false;
-    clerkActive = true;
     previewMock.mockResolvedValue(PREVIEW);
+    // GET /auth/session resolves when signed in, rejects (401) otherwise.
+    sessionMock.mockImplementation(() =>
+      signedIn
+        ? Promise.resolve({ id: "u", email: "new@acme.com" })
+        : Promise.reject(new Error("401")),
+    );
   });
 
   afterEach(() => {

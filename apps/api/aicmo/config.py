@@ -29,18 +29,36 @@ class Settings(BaseSettings):
     # proxy → 1. Increase only if you add a trusted CDN/WAF in front.
     trusted_proxy_hops: int = 1
 
-    # AUTH_MODE — single source of truth for which auth backend is in
-    # effect:
-    #   "demo"   → no Clerk verification ever. Every request resolves to
-    #              a stable dev user. Public-demo product flow.
-    #   "clerk"  → strict Clerk auth. Missing/invalid JWT → 401. Refuses
-    #              to boot without Clerk env vars.
-    #   "hybrid" → both. No Authorization header → demo user (landing →
-    #              Open Dashboard works anonymously). Bearer token →
-    #              verified as a Clerk JWT (real signed-in user). Lets
-    #              the demo journey AND real sign-in coexist. Like
-    #              "clerk", refuses to boot without Clerk env vars.
-    auth_mode: Literal["demo", "clerk", "hybrid"] = "demo"
+    # --- First-party authentication (DM Tool is the system of record) ---
+    # Authentication is first-party server-side sessions only — no Clerk, no
+    # demo bypass, no JWT. There is intentionally no AUTH_MODE flag.
+    # Session cookie. `secure` defaults on; local http dev sets
+    # SESSION_COOKIE_SECURE=false. SameSite=lax is correct for a same-site
+    # deploy (localhost:3000 → localhost:8000, or app + api under one domain);
+    # a cross-site split (separate frontend/api domains) needs
+    # SESSION_COOKIE_SAMESITE=none with secure=true.
+    session_cookie_name: str = "dmt_session"
+    session_cookie_secure: bool = True
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    session_cookie_domain: str = ""  # empty → host-only cookie
+    session_ttl_seconds: int = 60 * 60 * 24 * 14  # 14 days
+    # Rotate the session token when a still-valid session is older than this
+    # (defence against fixation / long-lived stolen tokens).
+    session_rotate_after_seconds: int = 60 * 60 * 24  # 1 day
+    # CSRF double-submit token. This cookie is NOT HttpOnly (the SPA reads it
+    # and echoes it in a header); the session cookie stays HttpOnly.
+    csrf_cookie_name: str = "dmt_csrf"
+    csrf_header_name: str = "X-CSRF-Token"
+    # Single-use email token lifetimes.
+    email_verify_ttl_seconds: int = 60 * 60 * 24  # 24h
+    password_reset_ttl_seconds: int = 60 * 60  # 1h
+    # Require a verified email before sign-in succeeds.
+    auth_require_verified_email: bool = True
+    # Login throttle (brute-force / credential-stuffing) — counted per account
+    # and per source IP within a rolling window.
+    login_attempt_window_seconds: int = 15 * 60
+    login_max_attempts_per_account: int = 10
+    login_max_attempts_per_ip: int = 50
 
     database_url: str = "postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo"
     db_pool_size: int = Field(default=10)
@@ -234,16 +252,6 @@ class Settings(BaseSettings):
     s3_region: str = Field(default="")
     s3_endpoint_url: str = Field(default="")  # S3-compatible (AWS/R2/MinIO)
 
-    clerk_jwt_issuer: str = Field(default="")
-    clerk_jwks_url: str = Field(default="")
-    clerk_secret_key: str = Field(default="")
-    # Optional. When set, JWT verification enforces `aud` matches this value.
-    # Left empty (default), aud-verification stays OFF — standard Clerk session
-    # tokens carry no `aud`, so requiring it would reject every valid token.
-    # NOT required by validate_production_secrets(); issuer + signature + expiry
-    # are always enforced regardless.
-    clerk_jwt_audience: str = Field(default="")
-
     anthropic_api_key: str = Field(default="")
     openai_api_key: str = Field(default="")
     google_api_key: str = Field(default="")
@@ -267,7 +275,7 @@ class Settings(BaseSettings):
     media_dir: str = Field(default="./media")
     media_signing_secret: str = Field(
         default="",
-        description="HMAC key for signed media URLs. Falls back to clerk_secret_key if empty.",
+        description="HMAC key for signed media URLs. Required in production.",
     )
     image_render_daily_cap: int = Field(
         default=20,
@@ -362,29 +370,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # -----------------------------------------------------------------
-    # Phase 10.2c — Clerk webhook signature verification.
-    #
-    # Clerk signs webhook payloads with Svix (HMAC-SHA256 over
-    # `${msg_id}.${timestamp}.${body}` using a base64-decoded shared
-    # secret). The secret has format `whsec_<base64>`.
-    #
-    # Empty in dev = webhook receiver returns 503. We never accept
-    # unverified webhook payloads — better to drop events than to
-    # ingest forged ones.
-    # -----------------------------------------------------------------
-    clerk_webhook_signing_secret: str = Field(
-        default="",
-        description=(
-            "Svix signing secret from the Clerk dashboard. Empty disables "
-            "the webhook endpoint (503). Format: 'whsec_<base64>'."
-        ),
-    )
-    clerk_webhook_tolerance_seconds: int = Field(
-        default=300,
-        description="Reject webhook payloads older than this (replay defence).",
-    )
-
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
@@ -434,20 +419,20 @@ def _looks_like_placeholder(value: str) -> bool:
 def validate_production_secrets(settings: "Settings") -> None:
     """Refuse to boot in production with placeholder / missing secrets.
 
-    Runs from main.py at module load, after assert_auth_config_valid().
-    No-op outside production — dev + staging stay unchanged so the demo
-    flow keeps working with `replace_me` placeholders.
+    Runs from main.py at module load. No-op outside production — dev + staging
+    stay unchanged so local development works with `replace_me` placeholders.
     """
     if settings.api_env != "production":
         return
 
     errors: list[str] = []
 
-    # Auth posture: prod must enforce real Clerk verification.
-    if settings.auth_mode != "clerk":
+    # Auth posture: first-party session cookies MUST be Secure in production,
+    # otherwise the session token can leak over plaintext HTTP.
+    if not settings.session_cookie_secure:
         errors.append(
-            f"AUTH_MODE must be 'clerk' in production (got {settings.auth_mode!r}). "
-            "demo/hybrid expose unsigned access paths."
+            "SESSION_COOKIE_SECURE must be true in production — a non-Secure "
+            "session cookie can be sent over plaintext HTTP and stolen."
         )
 
     # Redis is a HARD production dependency: the Arq worker, the job queue,
@@ -467,12 +452,6 @@ def validate_production_secrets(settings: "Settings") -> None:
 
     # Required secret bundles in prod. Each tuple is (env_name, value).
     required = [
-        ("CLERK_SECRET_KEY", settings.clerk_secret_key),
-        ("CLERK_JWT_ISSUER", settings.clerk_jwt_issuer),
-        ("CLERK_JWKS_URL", settings.clerk_jwks_url),
-        # CLERK_JWT_AUDIENCE is intentionally NOT here: standard Clerk session
-        # tokens carry no `aud`, so requiring it would reject every valid token.
-        # It stays opt-in (verified only when configured — see clerk.py).
         ("IP_HASH_PEPPER", settings.ip_hash_pepper),
         ("MEDIA_SIGNING_SECRET", settings.media_signing_secret),
         ("SENTRY_DSN", settings.sentry_dsn),

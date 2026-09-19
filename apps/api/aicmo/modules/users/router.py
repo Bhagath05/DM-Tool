@@ -13,20 +13,17 @@ from the headers, but failure (missing headers, no memberships) is fine
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.auth.clerk import AuthContext, require_user
-from aicmo.auth.clerk_profile import (
-    fetch_clerk_user_profile,
-    is_placeholder_email,
-)
+from aicmo.auth.dependencies import AuthContext, require_user
 from aicmo.db.session import get_db
+from aicmo.modules.users.models import User
 from aicmo.modules.users.schemas import MeResponse
-from aicmo.modules.users.service import build_me_response, get_or_create_from_clerk
+from aicmo.modules.users.service import build_me_response
 from aicmo.tenancy.context import TenantContext
-from aicmo.tenancy.exceptions import TenantError
 from aicmo.tenancy.dependencies import require_tenant
+from aicmo.tenancy.exceptions import TenantError
 
 log = structlog.get_logger()
 
@@ -42,38 +39,20 @@ async def get_me(
     """Return the user + their memberships + the resolved active tenant
     (if headers carried one). Never errors for an authenticated user.
     """
-    # Always reconcile the user row.
-    email = auth.email
-    display_name = auth.display_name
-    avatar_url = auth.avatar_url
-
-    if auth.user_id != "dev-user" and is_placeholder_email(email):
-        fetched = await fetch_clerk_user_profile(auth.user_id)
-        email = email or fetched[0]
-        display_name = display_name or fetched[1]
-        avatar_url = avatar_url or fetched[2]
-
-    user = await get_or_create_from_clerk(
-        session,
-        clerk_user_id=auth.user_id,
-        email=email,
-        display_name=display_name,
-        avatar_url=avatar_url,
-    )
+    # The first-party session already resolved an active user; load the row.
+    user = await session.get(User, auth.user_uuid)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     # Best-effort tenant resolution. We invoke require_tenant manually
     # because Depends would 4xx and our /me contract is "never 4xx".
     active: TenantContext | None = None
     try:
         resolver = require_tenant(brand_optional=True)
-        active = await resolver(
-            request=request, auth=auth, session=session
-        )
+        active = await resolver(request=request, auth=auth, session=session)
     except TenantError:
         active = None  # legitimate — no headers yet, or no memberships
 
-    response = await build_me_response(
-        session, user=user, active=active
-    )
+    response = await build_me_response(session, user=user, active=active)
     await session.commit()
     return response

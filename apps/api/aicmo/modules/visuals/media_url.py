@@ -25,7 +25,7 @@ _DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 def _signing_key() -> bytes:
     settings = get_settings()
-    secret = settings.media_signing_secret or settings.clerk_secret_key
+    secret = settings.media_signing_secret or "dev-media-secret"
     if not secret:
         # Dev fallback so the system runs without explicit config. NOT
         # safe for production — but neither is dev mode in general.
@@ -34,13 +34,11 @@ def _signing_key() -> bytes:
 
 
 def _sign(rendered_id: uuid.UUID | str, exp: int) -> str:
-    msg = f"{rendered_id}:{exp}".encode("utf-8")
+    msg = f"{rendered_id}:{exp}".encode()
     return hmac.new(_signing_key(), msg, hashlib.sha256).hexdigest()[:32]
 
 
-def make_signed_url(
-    rendered_id: uuid.UUID, *, ttl_seconds: int = _DEFAULT_TTL_SECONDS
-) -> str:
+def make_signed_url(rendered_id: uuid.UUID, *, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> str:
     """Build the public-facing URL the frontend embeds in <img>."""
     exp = int(time.time()) + ttl_seconds
     sig = _sign(rendered_id, exp)
@@ -56,9 +54,7 @@ def make_signed_url(
     return f"/api/v1/media/{rendered_id}?exp={exp}&sig={sig}"
 
 
-def verify_signed_url(
-    rendered_id: uuid.UUID, exp: int, sig: str
-) -> tuple[bool, str | None]:
+def verify_signed_url(rendered_id: uuid.UUID, exp: int, sig: str) -> tuple[bool, str | None]:
     """Returns (ok, reason_if_not_ok)."""
     if exp < int(time.time()):
         return False, "expired"

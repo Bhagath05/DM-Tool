@@ -1,61 +1,40 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
-// Inline the AUTH_MODE check rather than import from lib/ — Next.js
-// middleware runs at the edge and module-level imports add to the edge
-// bundle size. This duplicates the logic from lib/clerk-config.ts, but
-// the duplication is trivial (two env reads). Keep both in sync.
-const rawMode = process.env.NEXT_PUBLIC_AUTH_MODE;
-const authMode: "demo" | "clerk" | "hybrid" =
-  rawMode === "clerk" ? "clerk" : rawMode === "hybrid" ? "hybrid" : "demo";
+// First-party auth gate. The security boundary is the backend (`require_user`
+// validates the session on every request); this middleware is only a UX
+// redirect so an unauthenticated user lands on /sign-in instead of a blank
+// protected page. It checks presence of the HttpOnly session cookie — it does
+// NOT validate it (it can't; that's the backend's job).
+const SESSION_COOKIE = "dmt_session";
 
-const PLACEHOLDER_RX = /^(pk_test_replace_me|)$/;
-const hasValidClerkKey = !PLACEHOLDER_RX.test(
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "",
-);
+const PUBLIC_PREFIXES = [
+  "/sign-in",
+  "/sign-up",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+  // Invite acceptance must be reachable while logged out — the token is the
+  // credential; the accept action still requires a signed-in user server-side.
+  "/invites",
+];
 
-// Three-state middleware behaviour:
-//   demo                              → pure pass-through, no Clerk
-//   clerk + key                       → Clerk session + ENFORCE auth.protect
-//   hybrid + key                      → Clerk session available, NO protect
-//                                       (anonymous /dashboard works as demo)
-//   anything + no key                 → pure pass-through (degraded but safe)
-const clerkSessionActive =
-  (authMode === "clerk" || authMode === "hybrid") && hasValidClerkKey;
-const enforceAuth = authMode === "clerk" && hasValidClerkKey;
+function isPublic(pathname: string): boolean {
+  if (pathname === "/") return true;
+  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+}
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  // Invite acceptance must be reachable while logged out — the invitee
-  // may not have an account yet and needs to preview the invite before
-  // signing in. The token is the credential; the accept action itself
-  // still requires a signed-in user (UI `<SignedIn>` gate + backend
-  // `POST /invites/accept` → require_user + RBAC).
-  "/invites(.*)",
-]);
+export default function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (isPublic(pathname)) return NextResponse.next();
 
-// In clerk mode: protect non-public routes (forces sign-in).
-const strictMiddleware = clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    await auth.protect();
+  if (!req.cookies.has(SESSION_COOKIE)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/sign-in";
+    url.searchParams.set("redirect_url", pathname);
+    return NextResponse.redirect(url);
   }
-});
-
-// In hybrid mode: mount Clerk session helpers but DO NOT call
-// `auth.protect()`. This lets anonymous visitors reach /dashboard
-// (where the backend resolves them as demo-user) AND lets signed-in
-// visitors carry a valid session into the same routes.
-const openMiddleware = clerkMiddleware(async () => {
-  /* no-op — Clerk just attaches its session helpers to the request */
-});
-
-export default enforceAuth
-  ? strictMiddleware
-  : clerkSessionActive
-  ? openMiddleware
-  : () => NextResponse.next();
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [

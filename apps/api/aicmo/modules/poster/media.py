@@ -20,11 +20,7 @@ _DEFAULT_TTL = 7 * 24 * 3600  # a week — covers preview + publish
 
 def _secret() -> bytes:
     s = get_settings()
-    raw = (
-        getattr(s, "media_signing_secret", "")
-        or getattr(s, "clerk_secret_key", "")
-        or "poster-dev-secret"
-    )
+    raw = getattr(s, "media_signing_secret", "") or "poster-dev-secret"
     return raw.encode()
 
 
@@ -54,5 +50,5 @@ def verify(k: str, exp: int, sig: str) -> str | None:
         return None
     try:
         return _unb64(k)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
