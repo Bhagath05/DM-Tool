@@ -148,6 +148,7 @@ async def generate_brief(
                 ),
             ),
         ],
+        task="creative_generation",
         max_tokens=1600,
     )
     data: CreativeBriefResult = result.data

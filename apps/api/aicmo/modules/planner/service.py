@@ -92,6 +92,7 @@ async def generate_daily_plan(
             response_schema=DailyPlan,
             system=prompts.SYSTEM_PROMPT,
             messages=[LLMMessage(role="user", content=user_prompt)],
+            task="strategy_reasoning",
             # GPT-5.x is a reasoning model: max_completion_tokens includes hidden
             # reasoning, so a low cap can truncate before the JSON completes. Match
             # the content-generation range (2200-4500 for the same model) with

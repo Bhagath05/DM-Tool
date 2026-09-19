@@ -198,8 +198,12 @@ async def _llm_plan(instruction: str, doc: dict[str, Any]) -> EditPlan:
     )
     router = get_llm_router()
     result = await router.generate(
-        response_schema=LlmEditPlan, system=SYSTEM_PROMPT,
-        messages=[LLMMessage(role="user", content=user)], temperature=0.3, max_tokens=1200,
+        response_schema=LlmEditPlan,
+        system=SYSTEM_PROMPT,
+        messages=[LLMMessage(role="user", content=user)],
+        task="creative_generation",
+        temperature=0.3,
+        max_tokens=1200,
     )
     plan = result.data
     ops, dropped = _validate_ops([c for o in plan.ops if (c := _to_canonical(o))], doc)

@@ -115,6 +115,7 @@ async def _llm_plan(
         response_schema=CampaignStrategy,
         system=SYSTEM_PROMPT,
         messages=[LLMMessage(role="user", content=user)],
+        task="strategy_reasoning",
         temperature=0.7,
         max_tokens=2048,
     )

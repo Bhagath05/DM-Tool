@@ -100,6 +100,7 @@ async def compose(
                         ),
                     )
                 ],
+                task="creative_generation",
                 temperature=0.8,
                 max_tokens=1700,
             )

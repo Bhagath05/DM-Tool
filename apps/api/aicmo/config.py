@@ -261,6 +261,20 @@ class Settings(BaseSettings):
     # LLM_DEFAULT_MODEL. This is the canonical default so an unset env var
     # can never silently fall back to a weaker model.
     llm_default_model: str = "gpt-5.6"
+    # Optional per-task provider/model map (Phase B). Empty = no overrides;
+    # known tasks without an entry use the global defaults above.
+    # Format: "task:provider/model,task2:provider/model"
+    # Example: "business_research:google/gemini-2.5-flash,intelligence:openai/gpt-5.6"
+    llm_task_models: str = Field(default="")
+
+    @field_validator("llm_task_models", mode="after")
+    @classmethod
+    def _validate_llm_task_models(cls, v: str) -> str:
+        """Fail closed on malformed LLM_TASK_MODELS at settings load."""
+        from aicmo.llm.policy import parse_llm_task_models
+
+        parse_llm_task_models(v)  # raises LLMTaskPolicyError on bad input
+        return v
 
     # Lead-capture security
     turnstile_site_key: str = Field(default="")

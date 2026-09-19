@@ -50,6 +50,7 @@ async def generate_strategy(
                 ),
             ),
         ],
+        task="strategy_reasoning",
         max_tokens=4096,
     )
     return result.data

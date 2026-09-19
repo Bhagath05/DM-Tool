@@ -182,6 +182,7 @@ async def compose_intelligence(
             response_schema=_IntelligenceNarrative,
             system=INTELLIGENCE_SYSTEM_PROMPT,
             messages=[LLMMessage(role="user", content=user_prompt)],
+            task="intelligence",
             temperature=0.5,
             max_tokens=5000,
         )

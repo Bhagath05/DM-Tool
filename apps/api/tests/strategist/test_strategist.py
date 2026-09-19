@@ -110,6 +110,7 @@ async def test_generate_strategy_calls_llm_with_our_schema(monkeypatch):
     kwargs = fake_router.generate.await_args.kwargs
     assert kwargs["response_schema"] is MarketingStrategy
     assert kwargs["system"] == prompts.SYSTEM_PROMPT
+    assert kwargs["task"] == "strategy_reasoning"
     assert "Brew & Bloom Cafe" in kwargs["messages"][0].content
 
 

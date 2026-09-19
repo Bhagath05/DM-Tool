@@ -71,6 +71,7 @@ async def generate_campaign(
         response_schema=CampaignCalendar,
         system=SYSTEM_PROMPT,
         messages=[LLMMessage(role="user", content=user_prompt)],
+        task="creative_generation",
         temperature=_TEMPERATURE,
         max_tokens=_MAX_TOKENS,
     )

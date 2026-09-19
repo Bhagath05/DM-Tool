@@ -146,6 +146,7 @@ async def generate_agent_report(
             response_schema=_AgentNarrative,
             system=INTELLIGENCE_SYSTEM_PROMPT,
             messages=[LLMMessage(role="user", content=user_prompt)],
+            task="intelligence",
             temperature=0.45,
             max_tokens=4000,
         )

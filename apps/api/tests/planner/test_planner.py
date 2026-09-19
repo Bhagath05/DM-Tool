@@ -107,6 +107,7 @@ async def test_generate_daily_plan_calls_llm_with_our_schema(monkeypatch):
     kwargs = fake_router.generate.await_args.kwargs
     assert kwargs["response_schema"] is DailyPlan
     assert kwargs["system"] == prompts.SYSTEM_PROMPT
+    assert kwargs["task"] == "strategy_reasoning"
 
 
 def test_plan_schema_validates():

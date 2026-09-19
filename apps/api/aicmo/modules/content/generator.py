@@ -96,6 +96,7 @@ async def generate_content(
         response_schema=schema,
         system=SYSTEM_PROMPT,
         messages=[LLMMessage(role="user", content=user_prompt)],
+        task="creative_generation",
         temperature=_TEMPERATURE,
         max_tokens=_MAX_TOKENS_BY_TYPE.get(content_type, 2200),
     )

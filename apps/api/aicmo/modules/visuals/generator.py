@@ -69,6 +69,7 @@ async def generate_visual(
         response_schema=schema,
         system=SYSTEM_PROMPT,
         messages=[LLMMessage(role="user", content=user_prompt)],
+        task="creative_generation",
         temperature=_TEMPERATURE,
         max_tokens=_MAX_TOKENS_BY_TYPE.get(visual_type, 2800),
     )

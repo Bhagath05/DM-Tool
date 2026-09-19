@@ -69,6 +69,7 @@ async def generate_ad(
         response_schema=schema,
         system=SYSTEM_PROMPT,
         messages=[LLMMessage(role="user", content=user_prompt)],
+        task="creative_generation",
         temperature=_TEMPERATURE,
         max_tokens=_MAX_TOKENS,
     )
