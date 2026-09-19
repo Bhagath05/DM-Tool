@@ -16,6 +16,8 @@ from aicmo.modules.advisor import intelligence
 from aicmo.modules.advisor.brain import BusinessBrain
 from aicmo.modules.advisor.schemas import DataSourceRef, ExecuteRecommendationRequest
 from aicmo.modules.advisor.signals import IntelligenceSignals
+from aicmo.modules.business_brain.providers import local_market, local_website
+from aicmo.modules.business_brain.schemas import EvidenceCandidate, StartWebsiteResearchRequest
 from aicmo.modules.content import generator as content_generator
 from aicmo.modules.creative import brief_service
 from aicmo.modules.creative.brief_schemas import CreativeBriefResult
@@ -38,6 +40,27 @@ def _tenant() -> TenantContext:
         brand_id=uuid.uuid4(),
         member_id=uuid.uuid4(),
     )
+
+
+def _evidence_pair() -> list[EvidenceCandidate]:
+    return [
+        EvidenceCandidate(
+            kind="fact",
+            category="business",
+            claim="The business sells specialty coffee downtown.",
+            confidence=80,
+            source_url="https://example.com",
+            source_type="website",
+        ),
+        EvidenceCandidate(
+            kind="observation",
+            category="audience",
+            claim="Homepage copy speaks to remote workers.",
+            confidence=70,
+            source_url="https://example.com",
+            source_type="website",
+        ),
+    ]
 
 
 def _strategy_payload() -> dict:
@@ -90,6 +113,43 @@ def _profile(**over):
     )
     base.update(over)
     return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_business_brain_website_hypotheses_use_business_research(monkeypatch):
+    captured: dict = {}
+
+    class _Router:
+        async def generate(self, **kw):
+            captured.update(kw)
+            return SimpleNamespace(data=SimpleNamespace(items=[]))
+
+    monkeypatch.setattr("aicmo.llm.get_llm_router", lambda: _Router())
+    await local_website._maybe_llm_hypotheses(
+        signals={},
+        final_url="https://example.com",
+        base=_evidence_pair(),
+    )
+    assert captured["task"] == "business_research"
+    assert captured.get("provider") is None
+    assert captured.get("model") is None
+
+
+@pytest.mark.asyncio
+async def test_business_brain_market_hypotheses_use_business_research(monkeypatch):
+    captured: dict = {}
+
+    class _Router:
+        async def generate(self, **kw):
+            captured.update(kw)
+            return SimpleNamespace(data=SimpleNamespace(items=[]))
+
+    monkeypatch.setattr("aicmo.llm.get_llm_router", lambda: _Router())
+    await local_market._maybe_market_hypotheses(
+        claims=["Claim one about customers.", "Claim two about positioning."],
+        business_website="https://example.com",
+    )
+    assert captured["task"] == "business_research"
 
 
 @pytest.mark.asyncio
@@ -312,6 +372,9 @@ async def test_trends_analyzer_remains_without_task():
 
 def test_api_request_schemas_cannot_select_task_or_provider():
     """User/API input must not carry task/provider/model selection knobs."""
+    assert "task" not in StartWebsiteResearchRequest.model_fields
+    assert "provider" not in StartWebsiteResearchRequest.model_fields
+    assert "model" not in StartWebsiteResearchRequest.model_fields
     assert "task" not in ExecuteRecommendationRequest.model_fields
     assert "provider" not in ExecuteRecommendationRequest.model_fields
     assert "model" not in ExecuteRecommendationRequest.model_fields

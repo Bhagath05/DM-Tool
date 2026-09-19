@@ -52,6 +52,10 @@ async def shutdown(ctx: dict) -> None:
 # appends its `@tenant_job`-decorated functions here so the worker
 # discovers them. Phase 0 ships only the reference job.
 from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
+from aicmo.modules.business_brain.tasks import (  # noqa: E402
+    run_business_brain_research,
+    run_business_brain_website_research,
+)
 from aicmo.modules.integrations.tasks import collect_metrics_cron  # noqa: E402
 from aicmo.modules.operations.tasks import operations_cycle_cron  # noqa: E402
 from aicmo.modules.publishing.tasks import (  # noqa: E402
@@ -69,6 +73,8 @@ ALL_JOBS: list = [
     render_design_video,
     evaluate_advisor_outcomes,
     publish_due_scheduled_posts,
+    run_business_brain_research,
+    run_business_brain_website_research,
 ]
 
 # P0-3 + P0-4: time-driven jobs. `run_at_startup=False`; arq fires them at the

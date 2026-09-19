@@ -33,6 +33,7 @@ import { api, type BusinessProfile } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ChipsField, ColorsField, Field } from "./_components/field-editors";
+import { BusinessBrainPanel } from "./_components/business-brain-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -150,16 +151,19 @@ export default function BrandBrainPage() {
 
   if (profile === null || !draft) {
     return (
-      <EmptyState
-        icon={Brain}
-        title="Let's learn about your business"
-        description="Give us your website and we'll figure out your products, customers, brand and voice — then you just check we got it right."
-        action={
-          <Button asChild>
-            <a href="/brand-brain/discover">Learn about my business</a>
-          </Button>
-        }
-      />
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <EmptyState
+          icon={Brain}
+          title="Let's learn about your business"
+          description="Give us your website and we'll figure out your products, customers, brand and voice — then you just check we got it right."
+          action={
+            <Button asChild>
+              <a href="/brand-brain/discover">Learn about my business</a>
+            </Button>
+          }
+        />
+        <BusinessBrainPanel />
+      </div>
     );
   }
 
@@ -200,6 +204,8 @@ export default function BrandBrainPage() {
           ) : undefined
         }
       />
+
+      <BusinessBrainPanel />
 
       <CompletenessBar score={completeness} />
 

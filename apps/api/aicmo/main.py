@@ -26,6 +26,7 @@ from aicmo.modules.billing.router import (
 from aicmo.modules.brands.router import brand_router
 from aicmo.modules.brands.router import org_router as brands_org_router
 from aicmo.modules.bundles.router import router as bundles_router
+from aicmo.modules.business_brain.router import router as business_brain_router
 from aicmo.modules.campaigns.router import router as campaigns_router
 from aicmo.modules.coach.router import router as coach_router
 from aicmo.modules.competitors.router import router as competitors_router
@@ -246,6 +247,7 @@ async def readyz() -> JSONResponse:
 
 app.include_router(onboarding_router, prefix="/api/v1")
 app.include_router(discovery_router, prefix="/api/v1")
+app.include_router(business_brain_router, prefix="/api/v1")
 app.include_router(trends_router, prefix="/api/v1")
 # Phase 6.2B — ops routes (literal paths) BEFORE the base router so
 # /content/folders + /content/search aren't captured as /content/{content_id}.

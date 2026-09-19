@@ -490,6 +490,162 @@ export interface StartScratchDiscoveryPayload {
   industry?: string;
 }
 
+// ---------- Business Brain ----------
+
+export type BusinessBrainEvidenceKind =
+  | "fact"
+  | "observation"
+  | "hypothesis"
+  | "recommendation";
+
+export type BusinessBrainResearchStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed";
+
+export interface BusinessBrainResearchJob {
+  id: string;
+  kind: string;
+  input_url: string;
+  normalized_url: string;
+  status: BusinessBrainResearchStatus;
+  error_category: string | null;
+  error_message: string | null;
+  provider: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  source_count: number;
+  evidence_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessBrainResearchStart {
+  id: string;
+  status: BusinessBrainResearchStatus;
+  reused_existing: boolean;
+}
+
+export interface BusinessBrainEvidenceItem {
+  id: string;
+  kind: BusinessBrainEvidenceKind;
+  category: string;
+  claim: string;
+  confidence: number;
+  status: string;
+  claim_key?: string | null;
+  superseded_by_id?: string | null;
+  source_url: string | null;
+  source_type: string;
+  snippet: string | null;
+  research_job_id: string | null;
+  discovered_at: string;
+  retrieved_at?: string | null;
+  created_at: string;
+}
+
+export interface BusinessBrainEvidenceList {
+  items: BusinessBrainEvidenceItem[];
+  known_count: number;
+  unknown_categories: string[];
+}
+
+export interface BusinessBrainSummary {
+  profile_present: boolean;
+  business_name: string | null;
+  website: string | null;
+  industry: string | null;
+  known: string[];
+  unknown: string[];
+  evidence_counts: Record<string, number>;
+  latest_job: BusinessBrainResearchJob | null;
+  latest_website_job?: BusinessBrainResearchJob | null;
+  latest_competitor_job?: BusinessBrainResearchJob | null;
+  latest_market_job?: BusinessBrainResearchJob | null;
+  icp_count: number;
+  competitor_candidate_count?: number;
+  market_signal_count?: number;
+  limitations?: string[];
+}
+
+export interface BusinessBrainCompetitorCandidate {
+  name: string;
+  reason: string;
+  source_url: string | null;
+  confidence: number;
+  status: "candidate" | "supported" | "rejected" | "unknown";
+  evidence_kinds: BusinessBrainEvidenceKind[];
+}
+
+export interface BusinessBrainCompetitorResearch {
+  status:
+    | "ok"
+    | "INSUFFICIENT_EVIDENCE"
+    | "NOT_CONFIGURED"
+    | "PROVIDER_UNAVAILABLE"
+    | "running"
+    | "queued"
+    | "failed";
+  message: string | null;
+  latest_job: BusinessBrainResearchJob | null;
+  candidates: BusinessBrainCompetitorCandidate[];
+}
+
+export interface BusinessBrainMarketSignal {
+  signal_kind: string;
+  claim: string;
+  evidence_kind: BusinessBrainEvidenceKind;
+  confidence: number;
+  source_url: string | null;
+  source_type: string;
+}
+
+export interface BusinessBrainMarketResearch {
+  status:
+    | "ok"
+    | "INSUFFICIENT_EVIDENCE"
+    | "NOT_CONFIGURED"
+    | "PROVIDER_UNAVAILABLE"
+    | "running"
+    | "queued"
+    | "failed";
+  message: string | null;
+  latest_job: BusinessBrainResearchJob | null;
+  signals: BusinessBrainMarketSignal[];
+}
+
+export interface BusinessBrainIcp {
+  id: string;
+  name: string;
+  description: string;
+  industries: string[];
+  company_size: string | null;
+  geography: string[];
+  buyer_roles: string[];
+  pain_points: string[];
+  buying_signals: string[];
+  exclusions: string[];
+  confidence: number;
+  status: string;
+  evidence_ids: string[];
+  created_at: string;
+}
+
+export interface BusinessBrainIcpList {
+  items: BusinessBrainIcp[];
+  status: "ok" | "INSUFFICIENT_EVIDENCE";
+  message: string | null;
+}
+
+export interface BusinessBrainIcpGenerate {
+  items: BusinessBrainIcp[];
+  status: "ok" | "INSUFFICIENT_EVIDENCE";
+  message: string | null;
+}
+
 // ---------- Trends ----------
 
 /**
@@ -3252,6 +3408,42 @@ export const api = {
       request<BusinessProfile>(`/api/v1/discovery/${id}/apply`, {
         method: "POST",
         body: JSON.stringify(payload),
+      }),
+  },
+  /**
+   * Business Brain — evidence-backed research layer around Brand Brain.
+   * Permission: settings.manage for research / ICP generate.
+   */
+  businessBrain: {
+    summary: () => request<BusinessBrainSummary>("/api/v1/business-brain"),
+    evidence: (kind?: string) =>
+      request<BusinessBrainEvidenceList>(
+        `/api/v1/business-brain/evidence${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`,
+      ),
+    startWebsiteResearch: (website_url: string) =>
+      request<BusinessBrainResearchStart>("/api/v1/business-brain/research/website", {
+        method: "POST",
+        body: JSON.stringify({ website_url }),
+      }),
+    startCompetitorResearch: (competitor_urls: string[] = []) =>
+      request<BusinessBrainResearchStart>("/api/v1/business-brain/research/competitors", {
+        method: "POST",
+        body: JSON.stringify({ competitor_urls }),
+      }),
+    startMarketResearch: () =>
+      request<BusinessBrainResearchStart>("/api/v1/business-brain/research/market", {
+        method: "POST",
+      }),
+    getResearch: (id: string) =>
+      request<BusinessBrainResearchJob>(`/api/v1/business-brain/research/${id}`),
+    listCompetitors: () =>
+      request<BusinessBrainCompetitorResearch>("/api/v1/business-brain/competitors"),
+    listMarket: () =>
+      request<BusinessBrainMarketResearch>("/api/v1/business-brain/market"),
+    listIcps: () => request<BusinessBrainIcpList>("/api/v1/business-brain/icps"),
+    generateIcps: () =>
+      request<BusinessBrainIcpGenerate>("/api/v1/business-brain/icps/generate", {
+        method: "POST",
       }),
   },
   coach: {

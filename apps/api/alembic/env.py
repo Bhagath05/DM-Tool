@@ -37,6 +37,12 @@ from aicmo.modules.billing.plan_models import (  # noqa: F401
 )
 from aicmo.modules.brands.models import Brand  # noqa: F401
 from aicmo.modules.bundles.models import Bundle  # noqa: F401
+from aicmo.modules.business_brain.models import (  # noqa: F401
+    BrainEvidence,
+    BrainIcp,
+    BrainIcpEvidence,
+    BrainResearchJob,
+)
 from aicmo.modules.campaigns.models import CampaignPlan  # noqa: F401
 from aicmo.modules.content.models import GeneratedContent  # noqa: F401
 from aicmo.modules.content.ops_models import (  # noqa: F401

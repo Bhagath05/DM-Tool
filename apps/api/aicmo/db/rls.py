@@ -74,6 +74,11 @@ ORG_SCOPED_TABLES: tuple[str, ...] = (
     "creative_design",
     "creative_design_revision",
     "brand_asset",
+    # Business Brain foundation (Phase 1).
+    "brain_research_jobs",
+    "brain_evidence",
+    "brain_icps",
+    "brain_icp_evidence",
     # (creative_format, objective_kind, layout_primitive are non-tenant
     #  catalogs — excluded, like `plan`.)
 )
