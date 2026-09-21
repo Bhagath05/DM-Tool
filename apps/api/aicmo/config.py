@@ -430,6 +430,25 @@ def _looks_like_placeholder(value: str) -> bool:
     return any(token in value for token in _PLACEHOLDER_TOKENS)
 
 
+# Transactional email providers that actually deliver mail (mirrors
+# aicmo.modules.crm.email_providers.get_email_provider). Empty/"stub" = the
+# record-only dev adapter, which never delivers.
+_SUPPORTED_EMAIL_PROVIDERS: frozenset[str] = frozenset({"resend"})
+
+
+def email_delivery_configured(settings: "Settings") -> bool:
+    """True iff a real transactional email provider is fully configured, so
+    auth verification / password-reset emails are delivered rather than only
+    written to the log. Drives both the production boot guard and the runtime
+    sender selection so the two never disagree."""
+    provider = (settings.email_provider or "").strip().lower()
+    if provider not in _SUPPORTED_EMAIL_PROVIDERS:
+        return False
+    return bool((settings.email_api_key or "").strip()) and bool(
+        (settings.email_from or "").strip()
+    )
+
+
 def validate_production_secrets(settings: "Settings") -> None:
     """Refuse to boot in production with placeholder / missing secrets.
 
@@ -477,6 +496,17 @@ def validate_production_secrets(settings: "Settings") -> None:
     for name, value in required:
         if _looks_like_placeholder(value):
             errors.append(f"{name} is missing or a placeholder.")
+
+    # Transactional email MUST be wired in production. With no provider the
+    # verification / password-reset links only reach the logs, so real users
+    # can never verify their address (and sign-in requires a verified email).
+    # Fail closed rather than silently onboard accounts that can never sign in.
+    if not email_delivery_configured(settings):
+        errors.append(
+            "Email delivery is not configured — set EMAIL_PROVIDER (e.g. 'resend') "
+            "+ EMAIL_API_KEY + EMAIL_FROM so verification/reset emails are actually "
+            "sent, not just logged."
+        )
 
     # LLM providers — at least one real key must be set. Empty is fine if
     # the provider isn't in use, but the configured default provider's key

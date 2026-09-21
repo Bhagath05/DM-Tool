@@ -95,6 +95,14 @@ from aicmo.config import validate_production_secrets  # noqa: E402
 
 validate_production_secrets(settings)
 
+# Select the transactional email sender from configuration at the composition
+# root, so auth verification/reset flows use the right adapter from the first
+# request. A real provider is used ONLY when fully configured; otherwise the dev
+# log adapter (never sends real mail). Tests override via `set_email_sender`.
+from aicmo.auth.email import build_email_sender, set_email_sender  # noqa: E402
+
+set_email_sender(build_email_sender(settings))
+
 # ---------------------------------------------------------------------
 # Sentry init MUST happen before FastAPI is constructed so its
 # integrations can wrap exception handlers + middleware. No-op when
