@@ -37,7 +37,6 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.auth.dependencies import AuthContext, require_user
@@ -262,20 +261,16 @@ async def accept_invite_endpoint(
     """Requires bearer token (a user must be signed in to be added to
     an org), but does NOT require X-Organization-Id — the invitee
     isn't a member of any org yet (the invite IS the membership)."""
-    # Load the User row by clerk_user_id. Mirror of the lazy-create
-    # in `require_tenant`, simplified — accept-invite is the only path
-    # that needs an authenticated user but no tenant scope.
-    user_stmt = select(User).where(User.clerk_user_id == auth.user_id)
-    user = (await session.execute(user_stmt)).scalar_one_or_none()
+    # Resolve the authenticated first-party user by internal User.id.
+    # `require_user` has already validated the session → an active User, so this
+    # is a direct load. (The former clerk_user_id lookup + lazy-create produced a
+    # phantom user for first-party accounts, whose clerk_user_id is NULL, so the
+    # invite membership never reached the real signed-in user.)
+    user = await session.get(User, auth.user_uuid)
     if user is None:
-        # Lazy-create — same shape as tenancy.dependencies._get_or_create_user
-        user = User(
-            clerk_user_id=auth.user_id,
-            email=f"{auth.user_id}@pending.local",
-            status="active",
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
-        session.add(user)
-        await session.flush()
 
     try:
         return await service.accept_invite(

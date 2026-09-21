@@ -211,7 +211,7 @@ async def oauth_callback(
 
     tenant = await service.resolve_tenant_for_oauth(
         session,
-        clerk_user_id=user_id,
+        user_id=user_id,
         brand_id=uuid.UUID(brand_id_str),
     )
 

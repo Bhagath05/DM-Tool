@@ -403,7 +403,10 @@ async def _maybe_create_business_profile(
 
     profile = BusinessProfile(
         id=uuid.uuid4(),
-        user_id=actor_user.clerk_user_id,
+        # Internal first-party identity. (Was `actor_user.clerk_user_id`, which
+        # is NULL for first-party users → NOT-NULL violation that rolled back the
+        # whole workspace-creation transaction.)
+        user_id=str(actor_user.id),
         organization_id=organization_id,
         brand_id=brand_id,
         business_name=payload.organization_name.strip(),

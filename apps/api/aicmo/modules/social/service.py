@@ -341,13 +341,22 @@ async def top_winning_patterns_for_context(
 async def resolve_tenant_for_oauth(
     session: AsyncSession,
     *,
-    clerk_user_id: str,
+    user_id: str,
     brand_id: uuid.UUID,
 ) -> TenantContext:
-    """Build tenant context from signed OAuth state (unauthenticated callback)."""
-    user = (
-        await session.execute(select(User).where(User.clerk_user_id == clerk_user_id))
-    ).scalar_one_or_none()
+    """Build tenant context from signed OAuth state (unauthenticated callback).
+
+    `user_id` is the internal DM ``User.id`` (a UUID string) carried in the
+    signed state — resolved by ``User.id``, never by the legacy
+    ``clerk_user_id`` (NULL for first-party users).
+    """
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
+        ) from exc
+    user = await session.get(User, user_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
@@ -381,7 +390,7 @@ async def resolve_tenant_for_oauth(
         session, member_id=member.id
     )
     return TenantContext(
-        user_id=clerk_user_id,
+        user_id=str(user.id),
         user_uuid=user.id,
         organization_id=brand.organization_id,
         brand_id=brand_id,
