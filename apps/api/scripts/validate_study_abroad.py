@@ -343,7 +343,7 @@ async def run_intelligence(session, tenant, profile) -> tuple:
     from aicmo.modules.advisor.signals import gather_intelligence_signals
 
     ctx = await gather_intelligence_signals(
-        session, profile=profile, brand_id=tenant.brand_id
+        session, profile=profile, tenant=tenant
     )
     report = await compose_intelligence(session, profile=profile, tenant=tenant)
     return ctx, report

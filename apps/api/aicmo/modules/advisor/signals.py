@@ -24,7 +24,9 @@ from aicmo.modules.analytics import service as analytics_service
 from aicmo.modules.marketing_analytics import service as marketing_analytics_service
 from aicmo.modules.marketing_analytics.schemas import AdvisorAnalyticsSignal
 from aicmo.modules.marketing_analytics.signal_prompt import signal_to_prompt_block
+from aicmo.modules.marketing_brain.schemas import MarketingBrainContext
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -47,30 +49,48 @@ class IntelligenceSignals:
     activity_signals: int = 0
     # Phase 4 — read-only computed platform analytics feed (marketing_analytics).
     analytics_signal: AdvisorAnalyticsSignal | None = None
+    # Phase A — unified Marketing Brain context (BB evidence + ICP + learning…).
+    # Optional: composition failures must never abort intelligence.
+    marketing_brain: MarketingBrainContext | None = None
 
 
 async def gather_intelligence_signals(
     session: AsyncSession,
     *,
     profile: BusinessProfileResponse,
-    brand_id: uuid.UUID,
+    tenant: TenantContext | None = None,
+    brand_id: uuid.UUID | None = None,
 ) -> IntelligenceSignals:
-    """Load Business Brain → Outcomes → Connectors → Content → Leads → Analytics."""
+    """Load profile brain → Marketing Brain context → Outcomes → Connectors → …
+
+    Prefer `tenant=` so brand scope is authorization-derived. `brand_id=` remains
+    for legacy script callers but must match `tenant.brand_id` when both are set.
+    """
+    resolved_brand = _resolve_brand_id(tenant=tenant, brand_id=brand_id)
     brain = load_business_brain(profile)
     _, setup_steps = brain_completeness(brain)
 
-    outcome_ctx = await load_outcome_context(session, brand_id=brand_id)
-    connector_ctx = await load_connector_context(session, brand_id=brand_id)
-    content_ctx = await load_content_intelligence(session, brand_id=brand_id)
-    lead_ctx = await load_lead_context(session, brand_id=brand_id)
-    overview = await analytics_service.overview(session, brand_id=brand_id)
+    marketing_brain: MarketingBrainContext | None = None
+    if tenant is not None and tenant.brand_id is not None:
+        try:
+            from aicmo.modules.marketing_brain.service import build_context
+
+            marketing_brain = await build_context(session, tenant=tenant)
+        except Exception as e:  # never abort advisor for a context compose miss
+            log.warning("advisor.marketing_brain_context_failed", error=str(e)[:200])
+
+    outcome_ctx = await load_outcome_context(session, brand_id=resolved_brand)
+    connector_ctx = await load_connector_context(session, brand_id=resolved_brand)
+    content_ctx = await load_content_intelligence(session, brand_id=resolved_brand)
+    lead_ctx = await load_lead_context(session, brand_id=resolved_brand)
+    overview = await analytics_service.overview(session, brand_id=resolved_brand)
 
     # Phase 4 — read-only, computed platform analytics. Wrapped so an analytics
     # failure can never break recommendation generation; degrades to None.
     analytics_signal = None
     try:
         analytics_signal = await marketing_analytics_service.advisor_signal(
-            session, brand_id=brand_id
+            session, brand_id=resolved_brand
         )
     except Exception as e:  # never abort the advisor for an analytics read
         log.warning("advisor.analytics_signal_failed", error=str(e)[:200])
@@ -112,7 +132,20 @@ async def gather_intelligence_signals(
         has_lead_intel=lead_ctx.get("has_data", False),
         activity_signals=activity_signals,
         analytics_signal=analytics_signal,
+        marketing_brain=marketing_brain,
     )
+
+
+def _resolve_brand_id(*, tenant: TenantContext | None, brand_id: uuid.UUID | None) -> uuid.UUID:
+    if tenant is not None and tenant.brand_id is not None:
+        if brand_id is not None and brand_id != tenant.brand_id:
+            raise ValueError(
+                "brand_id does not match tenant.brand_id — refusing cross-brand context"
+            )
+        return tenant.brand_id
+    if brand_id is not None:
+        return brand_id
+    raise ValueError("gather_intelligence_signals requires tenant.brand_id or brand_id")
 
 
 def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int) -> str:
@@ -123,8 +156,22 @@ def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int
         "=== 1. BUSINESS BRAIN (required) ===",
         brain_to_prompt_block(signals.brain),
         "",
-        "=== 2. HISTORICAL OUTCOMES (what worked / failed) ===",
     ]
+    if signals.marketing_brain is not None:
+        from aicmo.modules.marketing_brain.service import context_to_prompt_block
+
+        parts.extend(
+            [
+                context_to_prompt_block(signals.marketing_brain),
+                "",
+            ]
+        )
+    parts.extend(
+        [
+            "=== 2. HISTORICAL OUTCOMES (what worked / failed) ===",
+        ]
+    )
+
     outcomes = signals.outcome_context.get("recent_outcomes") or []
     failures = signals.outcome_context.get("failed_outcomes") or []
     if outcomes or failures:

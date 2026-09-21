@@ -103,7 +103,7 @@ async def compose_intelligence(
     now = datetime.now(UTC)
     generated_at = now.isoformat()
 
-    ctx = await gather_intelligence_signals(session, profile=profile, brand_id=tenant.brand_id)
+    ctx = await gather_intelligence_signals(session, profile=profile, tenant=tenant)
 
     if not ctx.brain_complete:
         return IntelligenceReport(
