@@ -98,7 +98,7 @@ def test_boot_guard_requires_secrets_when_video_live(monkeypatch):
         anthropic_api_key="sk-ant-real", llm_default_provider="anthropic",
         integration_token_key="a-real-fernet-key-44chars-xxxxxxxxxxxxxxxxxx=",
         redis_url="redis://red-real:6379/0",  # prod Redis (boot guard rejects localhost)
-        email_provider="resend", email_api_key="re-x", email_from="DM Tool <hi@x.com>",
+        smtp_host="mail.dmtool.internal", smtp_from="DM Tool <no-reply@x.com>", smtp_tls="starttls",
         video_enabled=True, video_default_provider="veo3",  # but no vertex creds
     )
     with pytest.raises(SystemExit) as exc:

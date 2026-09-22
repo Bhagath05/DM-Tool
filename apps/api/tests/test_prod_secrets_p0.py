@@ -24,11 +24,11 @@ def _prod_settings(**over) -> Settings:
         # A real managed Redis — production's hard dependency for the worker,
         # job queue and cache.
         redis_url="redis://red-abc123:6379/0",
-        # Transactional email must be wired in production so verification /
-        # reset links are actually delivered (not just logged).
-        email_provider="resend",
-        email_api_key="re-real-key",
-        email_from="DM Tool <hi@dm.example>",
+        # DM Tool's own SMTP transport must be wired (TLS-safe) in production so
+        # verification / reset links are actually delivered (not just logged).
+        smtp_host="mail.dmtool.internal",
+        smtp_from="DM Tool <no-reply@dm.example>",
+        smtp_tls="starttls",
     )
     base.update(over)
     return Settings(**base)
@@ -40,12 +40,19 @@ def test_prod_requires_integration_token_key():
     assert "INTEGRATION_TOKEN_KEY" in str(exc.value)
 
 
-def test_prod_requires_email_delivery():
-    # Production must fail closed when no transactional email provider is wired,
+def test_prod_requires_smtp_delivery():
+    # Production must fail closed when DM Tool's own SMTP transport isn't wired,
     # otherwise verification/reset links only reach the logs.
     with pytest.raises(SystemExit) as exc:
-        validate_production_secrets(_prod_settings(email_provider=""))
-    assert "Email delivery is not configured" in str(exc.value)
+        validate_production_secrets(_prod_settings(smtp_host=""))
+    assert "SMTP" in str(exc.value)
+
+
+def test_prod_requires_tls_smtp():
+    # TLS must not be silently downgraded in production.
+    with pytest.raises(SystemExit) as exc:
+        validate_production_secrets(_prod_settings(smtp_tls="none"))
+    assert "TLS" in str(exc.value)
 
 
 def test_prod_passes_with_all_secrets():

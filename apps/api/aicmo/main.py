@@ -95,14 +95,6 @@ from aicmo.config import validate_production_secrets  # noqa: E402
 
 validate_production_secrets(settings)
 
-# Select the transactional email sender from configuration at the composition
-# root, so auth verification/reset flows use the right adapter from the first
-# request. A real provider is used ONLY when fully configured; otherwise the dev
-# log adapter (never sends real mail). Tests override via `set_email_sender`.
-from aicmo.auth.email import build_email_sender, set_email_sender  # noqa: E402
-
-set_email_sender(build_email_sender(settings))
-
 # ---------------------------------------------------------------------
 # Sentry init MUST happen before FastAPI is constructed so its
 # integrations can wrap exception handlers + middleware. No-op when
@@ -133,6 +125,13 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("api.startup", env=settings.api_env)
+    # Wire the transactional email sender once per application lifecycle, at the
+    # lifespan boundary (NOT at import) so tests can inject their own sender
+    # without app construction clobbering it. The SMTP adapter is used only when
+    # DM Tool's SMTP transport is configured; otherwise the dev log adapter.
+    from aicmo.auth.email import build_email_sender, set_email_sender
+
+    set_email_sender(build_email_sender(settings))
     # Phase 0 — open one ARQ redis pool for the process so request
     # handlers can enqueue tenant-scoped jobs. Optional + guarded: if
     # Redis is unavailable, the web app still serves (enqueue degrades to

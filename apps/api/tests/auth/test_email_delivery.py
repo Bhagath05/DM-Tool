@@ -1,15 +1,19 @@
-"""Auth transactional email delivery — sender selection + security invariants.
+"""Auth transactional email — self-hosted SMTP delivery + security invariants.
 
-Covers: dev LogEmailSender, config-driven production selection, fail-closed
-production guard, verification/reset delivery through the shared provider, and
-the two security invariants that matter most for the production adapter — the
-link/token is never logged, and the persisted token is a hash, never the raw.
+Covers: dev LogEmailSender, config-driven SMTP selection, fail-closed production
+guard (SMTP + TLS), verification/reset delivery through DM Tool's own SMTP
+transport, TLS handling (STARTTLS/implicit/no-downgrade), and the invariants
+that matter — link/token never logged, SMTP credentials never logged, persisted
+token hashed (never raw), enumeration-safe responses, and a test-injected sender
+not being clobbered by app import. No third-party provider; SMTP is mocked.
 """
 
 from __future__ import annotations
 
+import smtplib
 import uuid
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,24 +21,34 @@ import pytest
 from aicmo.auth import email as auth_email
 from aicmo.auth.email import (
     LogEmailSender,
-    ProductionEmailSender,
+    SelfHostedSMTPEmailSender,
     build_email_sender,
+    get_email_sender,
+    set_email_sender,
 )
-from aicmo.config import email_delivery_configured
+from aicmo.email import smtp as smtp_mod
+from aicmo.email.smtp import (
+    SmtpDeliveryError,
+    SmtpNotConfiguredError,
+    smtp_configured,
+    smtp_production_problems,
+)
 
 _LINK = "https://app.example.com/verify-email?token=SUPER-SECRET-TOKEN-123"
+_SECRET_PW = "smtp-p@ssw0rd-never-log"
 
 
-def _cfg(provider="", api_key="", from_email=""):
+def _cfg(host="", from_addr="", username="", password="", tls="starttls", port=587):
     return SimpleNamespace(
-        email_provider=provider, email_api_key=api_key, email_from=from_email
+        smtp_host=host, smtp_port=port, smtp_username=username,
+        smtp_password=password, smtp_tls=tls, smtp_from=from_addr,
     )
 
 
-# --- 1. Dev default: LogEmailSender is selected and it logs the link ---------
+# --- 1/2. Dev default: LogEmailSender selected, logs the link ----------------
 def test_dev_default_uses_log_sender():
     assert isinstance(build_email_sender(_cfg()), LogEmailSender)
-    assert email_delivery_configured(_cfg()) is False
+    assert smtp_configured(_cfg()) is False
 
 
 @pytest.mark.asyncio
@@ -42,101 +56,184 @@ async def test_log_sender_emits_link_to_log(monkeypatch):
     fake_log = MagicMock()
     monkeypatch.setattr(auth_email, "log", fake_log)
     await LogEmailSender().send_verification(to="a@example.com", link=_LINK)
-    # Dev channel intentionally logs the link so local flows are testable.
     kwargs = fake_log.info.call_args.kwargs
     assert kwargs.get("link") == _LINK and kwargs.get("delivery") == "log"
 
 
-# --- 2/3. Config-driven selection -------------------------------------------
-def test_production_config_selects_production_sender():
-    cfg = _cfg(provider="resend", api_key="re_live_xxx", from_email="DM Tool <hi@x.com>")
-    assert email_delivery_configured(cfg) is True
-    assert isinstance(build_email_sender(cfg), ProductionEmailSender)
+# --- 3/4. Config-driven SMTP selection --------------------------------------
+def test_smtp_config_selects_self_hosted_smtp_sender():
+    cfg = _cfg(host="mail.dmtool.internal", from_addr="DM Tool <no-reply@dmtool.app>")
+    assert smtp_configured(cfg) is True
+    assert isinstance(build_email_sender(cfg), SelfHostedSMTPEmailSender)
 
 
-def test_incomplete_or_stub_provider_falls_back_to_log():
-    # Selected but missing key/from → do NOT accidentally send; fall back to log.
-    assert isinstance(build_email_sender(_cfg("resend", "", "hi@x.com")), LogEmailSender)
-    assert isinstance(build_email_sender(_cfg("resend", "re_x", "")), LogEmailSender)
-    # "stub"/unknown provider → log adapter.
-    assert isinstance(build_email_sender(_cfg("stub")), LogEmailSender)
-    assert isinstance(build_email_sender(_cfg("sendgrid", "k", "f@x.com")), LogEmailSender)
+def test_incomplete_smtp_falls_back_to_log():
+    assert isinstance(build_email_sender(_cfg(host="mail.x", from_addr="")), LogEmailSender)
+    assert isinstance(build_email_sender(_cfg(host="", from_addr="f@x")), LogEmailSender)
 
 
-# --- 4. Production fail-closed when email is unconfigured --------------------
-def test_missing_email_config_fails_closed_in_production(monkeypatch):
+# --- 5/6. Production fail-closed (SMTP required + TLS required) --------------
+def test_missing_smtp_fails_closed_in_production(monkeypatch):
     from aicmo.config import get_settings, validate_production_secrets
 
     monkeypatch.setenv("API_ENV", "production")
     get_settings.cache_clear()
     with pytest.raises(SystemExit) as exc:
         validate_production_secrets(get_settings())
-    assert "Email delivery is not configured" in str(exc.value)
+    assert "SMTP" in str(exc.value)
     get_settings.cache_clear()
 
 
-# --- 5/6/7. Production sender delivers through the provider, never logs -------
-class _CapturingProvider:
-    name = "capture"
-
-    def __init__(self) -> None:
-        self.sent: list = []
-
-    async def send(self, request):
-        from aicmo.modules.crm.email_providers import EmailSendResult
-
-        self.sent.append(request)
-        return EmailSendResult(
-            provider="capture", message_id="m1", status="queued", delivered=False
-        )
+def test_production_rejects_non_tls_smtp():
+    problems = smtp_production_problems(_cfg(host="h", from_addr="f@x", tls="none"))
+    assert any("TLS" in p for p in problems)
+    # Fully configured + TLS → no problems.
+    assert smtp_production_problems(_cfg(host="h", from_addr="f@x", tls="starttls")) == []
 
 
-def _install_capturing_provider(monkeypatch) -> _CapturingProvider:
-    cap = _CapturingProvider()
-    monkeypatch.setattr(
-        "aicmo.modules.crm.email_providers.get_email_provider", lambda: cap
-    )
-    return cap
+# --- 7/8/9. Delivery through SMTP; link/token never logged -------------------
+def _patch_send_email(monkeypatch) -> list:
+    sent: list = []
+
+    async def _fake_send(settings, *, to, subject, html):
+        sent.append({"to": to, "subject": subject, "html": html})
+
+    monkeypatch.setattr("aicmo.email.smtp.send_email", _fake_send)
+    return sent
 
 
 @pytest.mark.asyncio
-async def test_production_sender_sends_verification_through_provider(monkeypatch):
-    cap = _install_capturing_provider(monkeypatch)
-    await ProductionEmailSender().send_verification(to="user@example.com", link=_LINK)
-    assert len(cap.sent) == 1
-    req = cap.sent[0]
-    assert req.to_email == "user@example.com"
-    assert "verify" in req.subject.lower()
-    assert _LINK in req.html  # the link travels only inside the email body
+async def test_verification_delivered_through_smtp(monkeypatch):
+    sent = _patch_send_email(monkeypatch)
+    await SelfHostedSMTPEmailSender().send_verification(to="user@example.com", link=_LINK)
+    assert len(sent) == 1
+    assert sent[0]["to"] == "user@example.com"
+    assert "verify" in sent[0]["subject"].lower()
+    assert _LINK in sent[0]["html"]  # link travels only inside the message body
 
 
 @pytest.mark.asyncio
-async def test_production_sender_sends_password_reset_through_provider(monkeypatch):
-    cap = _install_capturing_provider(monkeypatch)
-    await ProductionEmailSender().send_password_reset(to="user@example.com", link=_LINK)
-    assert len(cap.sent) == 1
-    req = cap.sent[0]
-    assert req.to_email == "user@example.com"
-    assert "reset" in req.subject.lower()
-    assert _LINK in req.html
+async def test_password_reset_delivered_through_smtp(monkeypatch):
+    sent = _patch_send_email(monkeypatch)
+    await SelfHostedSMTPEmailSender().send_password_reset(to="user@example.com", link=_LINK)
+    assert len(sent) == 1 and "reset" in sent[0]["subject"].lower()
+    assert _LINK in sent[0]["html"]
 
 
 @pytest.mark.asyncio
-async def test_production_sender_never_logs_link_or_token(monkeypatch):
-    _install_capturing_provider(monkeypatch)
+async def test_smtp_sender_never_logs_link_or_token(monkeypatch):
+    _patch_send_email(monkeypatch)
     fake_log = MagicMock()
     monkeypatch.setattr(auth_email, "log", fake_log)
-    await ProductionEmailSender().send_verification(to="user@example.com", link=_LINK)
-    await ProductionEmailSender().send_password_reset(to="user@example.com", link=_LINK)
-    # Inspect EVERY log call's args + kwargs — the link and its token must never
-    # appear anywhere in the structured log for the production adapter.
+    await SelfHostedSMTPEmailSender().send_verification(to="user@example.com", link=_LINK)
+    await SelfHostedSMTPEmailSender().send_password_reset(to="user@example.com", link=_LINK)
     for call in fake_log.mock_calls:
         blob = repr(call)
-        assert _LINK not in blob
-        assert "SUPER-SECRET-TOKEN-123" not in blob
+        assert _LINK not in blob and "SUPER-SECRET-TOKEN-123" not in blob
 
 
-# --- 6 (persistence). Raw token is never stored — only its hash --------------
+# --- 11/12/13. SMTP TLS handling (mocked transport, no network) -------------
+class _FakeSMTP:
+    instances: ClassVar[list] = []
+
+    def __init__(self, host, port, timeout=None, context=None):
+        self.host, self.port = host, port
+        self.calls: list = []
+        _FakeSMTP.instances.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def ehlo(self):
+        self.calls.append("ehlo")
+
+    def starttls(self, context=None):
+        self.calls.append("starttls")
+
+    def login(self, user, password):
+        self.calls.append(("login", user, password))
+
+    def send_message(self, msg):
+        self.calls.append(("send", msg["To"], msg["Subject"]))
+
+
+@pytest.mark.asyncio
+async def test_smtp_starttls_and_login(monkeypatch):
+    _FakeSMTP.instances = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    cfg = _cfg(host="mail.x", from_addr="DM <n@x>", username="u", password=_SECRET_PW)
+    await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+    inst = _FakeSMTP.instances[-1]
+    assert "starttls" in inst.calls  # TLS upgrade happened
+    assert ("login", "u", _SECRET_PW) in inst.calls
+    assert any(c[0] == "send" for c in inst.calls if isinstance(c, tuple))
+
+
+@pytest.mark.asyncio
+async def test_smtp_implicit_tls_uses_smtp_ssl(monkeypatch):
+    _FakeSMTP.instances = []
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
+    cfg = _cfg(host="mail.x", from_addr="DM <n@x>", tls="tls", port=465)
+    await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+    assert _FakeSMTP.instances and _FakeSMTP.instances[-1].port == 465
+
+
+@pytest.mark.asyncio
+async def test_smtp_starttls_never_downgrades(monkeypatch):
+    class _NoTLS(_FakeSMTP):
+        def starttls(self, context=None):
+            raise smtplib.SMTPNotSupportedError("STARTTLS not supported")
+
+    monkeypatch.setattr(smtplib, "SMTP", _NoTLS)
+    cfg = _cfg(host="mail.x", from_addr="DM <n@x>")
+    with pytest.raises(SmtpDeliveryError):
+        await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+
+
+@pytest.mark.asyncio
+async def test_smtp_credentials_never_logged(monkeypatch):
+    _FakeSMTP.instances = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    fake_log = MagicMock()
+    monkeypatch.setattr(smtp_mod, "log", fake_log)
+    cfg = _cfg(host="mail.x", from_addr="DM <n@x>", username="secret-user", password=_SECRET_PW)
+    await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+    for call in fake_log.mock_calls:
+        blob = repr(call)
+        assert _SECRET_PW not in blob and "secret-user" not in blob
+
+
+@pytest.mark.asyncio
+async def test_authenticated_smtp_rejects_plaintext_tls_none(monkeypatch):
+    # Credentials must NEVER cross a plaintext connection: tls=none + a
+    # username/password is refused BEFORE any socket is opened.
+    def _no_connect(*a, **k):
+        raise AssertionError("must not open an SMTP connection for tls=none + credentials")
+
+    monkeypatch.setattr(smtplib, "SMTP", _no_connect)
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _no_connect)
+    cfg = _cfg(host="mail.x", from_addr="DM <n@x>", username="u", password=_SECRET_PW, tls="none")
+    with pytest.raises(SmtpNotConfiguredError):
+        await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_smtp_tls_none_still_allowed(monkeypatch):
+    # A trusted unauthenticated local/private relay may still use tls=none —
+    # the refusal above is scoped to authenticated sends only.
+    _FakeSMTP.instances = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    cfg = _cfg(host="localhost", from_addr="DM <n@x>", tls="none")  # no credentials
+    await smtp_mod.send_email(cfg, to="r@x", subject="s", html="<p>hi</p>")
+    inst = _FakeSMTP.instances[-1]
+    assert "starttls" not in inst.calls  # no TLS negotiated on a trusted local relay
+    assert any(isinstance(c, tuple) and c[0] == "send" for c in inst.calls)
+
+
+# --- 6 (persistence). Raw token never stored — only its hash -----------------
 @pytest.mark.asyncio
 async def test_issue_token_persists_hash_not_raw():
     from tests._dbtest import async_dsn, pg_reachable
@@ -162,17 +259,13 @@ async def test_issue_token_persists_hash_not_raw():
             )
             raw = await issue_token(s, user_id=user, purpose="verify", ttl_seconds=3600)
             await s.commit()
-
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            row = (
+            stored = (
                 await s.execute(
                     text("SELECT token_hash FROM email_tokens WHERE user_id=:u"), {"u": user}
                 )
-            ).one()
-        stored = row[0]
-        assert stored == hash_token(raw)  # hash at rest
-        assert stored != raw  # never the raw token
-        assert raw not in stored
+            ).one()[0]
+        assert stored == hash_token(raw) and stored != raw and raw not in stored
     finally:
         async with eng.begin() as conn:
             await conn.execute(text("DELETE FROM email_tokens WHERE user_id=:u"), {"u": user})
@@ -180,15 +273,20 @@ async def test_issue_token_persists_hash_not_raw():
         await eng.dispose()
 
 
-# --- 8. Enumeration-safe responses unchanged --------------------------------
+# --- 8 (isolation). App import must NOT overwrite a test-injected sender ------
+def test_app_import_does_not_overwrite_injected_sender():
+    sentinel = LogEmailSender()
+    set_email_sender(sentinel)
+    import aicmo.main  # noqa: F401 — importing the app must not mutate the sender
+    assert get_email_sender() is sentinel
+
+
+# --- Enumeration-safe responses unchanged -----------------------------------
 def test_enumeration_safe_messages_do_not_reveal_existence():
     from aicmo.auth.router import _RESET_OK, _SIGNUP_OK
 
     assert "If that email" in _SIGNUP_OK.message
     assert "If an account exists" in _RESET_OK.message
-    # Must not assert or deny that the address is registered.
     for msg in (_SIGNUP_OK.message, _RESET_OK.message):
         low = msg.lower()
-        assert "already registered" not in low
-        assert "does not exist" not in low
-        assert "no account" not in low
+        assert "already registered" not in low and "does not exist" not in low
