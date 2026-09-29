@@ -96,8 +96,9 @@ async def send_auth_email(ctx: dict[str, Any], user_id: str, purpose: str) -> No
         raise
     except SmtpNotConfiguredError:
         _log("failed", "permanent_not_configured", retry_scheduled=False)
-        note_permanent_auth_email_failure(
-            purpose=purpose, user_id=user_id, classification="not_configured"
+        await note_permanent_auth_email_failure(
+            purpose=purpose, user_id=user_id, classification="not_configured",
+            job_id=job_id, attempt=job_try,
         )
         return
     except SmtpDeliveryError as exc:
@@ -108,8 +109,9 @@ async def send_auth_email(ctx: dict[str, Any], user_id: str, purpose: str) -> No
             raise Retry(defer=delay) from None
         classification = "transient_exhausted" if transient else "permanent"
         _log("failed", classification, retry_scheduled=False)
-        note_permanent_auth_email_failure(
-            purpose=purpose, user_id=user_id, classification=classification
+        await note_permanent_auth_email_failure(
+            purpose=purpose, user_id=user_id, classification=classification,
+            job_id=job_id, attempt=job_try,
         )
         return
 

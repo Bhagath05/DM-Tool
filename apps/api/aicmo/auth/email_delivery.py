@@ -138,19 +138,51 @@ async def deliver_auth_email(
     )
 
 
-def note_permanent_auth_email_failure(
-    *, purpose: str, user_id: str, classification: str
+async def note_permanent_auth_email_failure(
+    *,
+    purpose: str,
+    user_id: str,
+    classification: str,
+    job_id: str | None = None,
+    attempt: int | None = None,
 ) -> None:
-    """Bounce/suppression extension point (minimal, deliberate stub).
+    """Terminal auth-email delivery failure funnel: structured log + the shared
+    operational alert, and the bounce/suppression extension point.
 
-    A permanent delivery failure (malformed recipient, 5xx rejection,
-    unconfigured SMTP, or retries exhausted) lands here. Today it only emits a
-    structured event; when the self-hosted MTA and its bounce/DSN pipeline are
-    provisioned this is where a suppression list would be updated. Never logs a
-    token, link, or SMTP credential."""
-    log.warning(
-        "auth.email.permanent_failure",
-        email_type=purpose,
-        user_id=user_id,
-        classification=classification,
-    )
+    Called EXACTLY once per terminal job state — a permanent failure (malformed
+    recipient, 5xx rejection, unconfigured SMTP) or an exhausted retry budget —
+    never per retry attempt, so a single ops alert fires with no duplicates. The
+    ``user_id`` stays in the structured log (where a future suppression list will
+    read it) but is deliberately kept OUT of the alert payload, which carries
+    only safe operational context. Never logs/alerts a token, link, email
+    address, or SMTP credential. Alerting is best-effort: any failure in the
+    alert path is swallowed here so it can never affect auth/delivery."""
+    try:
+        # user_id lands in the log for the future bounce/suppression hook; it is
+        # NOT forwarded to the alert (no unnecessary identifier in the alert).
+        log.warning(
+            "auth.email.permanent_failure",
+            email_type=purpose,
+            user_id=user_id,
+            classification=classification,
+            job_id=job_id,
+            attempt=attempt,
+        )
+        # Reuse the existing operational alert path (logs + Sentry + Slack).
+        from aicmo.observability.alerts import alert
+
+        await alert(
+            "Auth email delivery failed permanently",
+            level="error",
+            event="auth.email.permanent_failure",
+            email_type=purpose,
+            job_id=job_id,
+            attempt=attempt,
+            classification=classification,
+        )
+    except Exception:  # alerting must never affect the caller
+        log.warning(
+            "auth.email.alert_emit_failed",
+            email_type=purpose,
+            classification=classification,
+        )

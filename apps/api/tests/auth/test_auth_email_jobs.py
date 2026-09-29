@@ -100,6 +100,15 @@ def _install_worker_session(monkeypatch) -> _WorkerSession:
     return sess
 
 
+def _record_terminal(monkeypatch, store: list) -> None:
+    """Replace the terminal-failure funnel (now async) with an async recorder."""
+
+    async def _rec(**kwargs):
+        store.append(kwargs)
+
+    monkeypatch.setattr(tasks, "note_permanent_auth_email_failure", _rec)
+
+
 # --- 1. Auth email is queued, not sent synchronously ------------------------
 @pytest.mark.asyncio
 async def test_auth_email_is_enqueued_not_sent_sync(monkeypatch):
@@ -166,7 +175,7 @@ async def test_retry_is_bounded(monkeypatch):
 
     recorded: list = []
     monkeypatch.setattr(tasks, "_issue_and_send", boom)
-    monkeypatch.setattr(tasks, "note_permanent_auth_email_failure", lambda **k: recorded.append(k))
+    _record_terminal(monkeypatch, recorded)
     # On the final permitted attempt a transient failure must NOT raise Retry.
     await tasks.send_auth_email({"job_id": "j", "job_try": AUTH_EMAIL_MAX_TRIES}, str(uuid.uuid4()), "verify")
     assert recorded and recorded[-1]["classification"] == "transient_exhausted"
@@ -182,7 +191,7 @@ async def test_permanent_failure_does_not_retry(monkeypatch):
 
     recorded: list = []
     monkeypatch.setattr(tasks, "_issue_and_send", boom)
-    monkeypatch.setattr(tasks, "note_permanent_auth_email_failure", lambda **k: recorded.append(k))
+    _record_terminal(monkeypatch, recorded)
     # Even on the FIRST attempt, a permanent failure must not schedule a retry.
     await tasks.send_auth_email({"job_id": "j", "job_try": 1}, str(uuid.uuid4()), "reset")
     assert recorded and recorded[-1]["classification"] == "permanent"
@@ -197,7 +206,7 @@ async def test_unconfigured_smtp_is_permanent(monkeypatch):
 
     recorded: list = []
     monkeypatch.setattr(tasks, "_issue_and_send", boom)
-    monkeypatch.setattr(tasks, "note_permanent_auth_email_failure", lambda **k: recorded.append(k))
+    _record_terminal(monkeypatch, recorded)
     await tasks.send_auth_email({"job_id": "j", "job_try": 1}, str(uuid.uuid4()), "verify")
     assert recorded and recorded[-1]["classification"] == "not_configured"
 
