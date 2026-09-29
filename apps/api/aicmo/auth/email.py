@@ -79,8 +79,14 @@ class SelfHostedSMTPEmailSender:
     SMTP server (`aicmo.email.smtp`). No third-party provider. NEVER logs the
     link or token — only a non-sensitive delivery event (recipient + kind)."""
 
-    def __init__(self, *, product_name: str = "DM Tool") -> None:
+    def __init__(self, *, product_name: str = "DM Tool", raising: bool = False) -> None:
         self._product = product_name
+        # When False (default), a delivery failure is logged and swallowed so the
+        # synchronous request path stays enumeration-safe. When True (used by the
+        # ARQ delivery worker), the failure is re-raised so the worker can
+        # classify it and schedule a bounded retry. Either way the link/token is
+        # never logged.
+        self._raising = raising
 
     async def _deliver(self, *, to: str, subject: str, html: str, kind: str) -> None:
         # Lazy imports keep auth decoupled from the config/email modules at
@@ -95,6 +101,8 @@ class SelfHostedSMTPEmailSender:
             # never in our logs. Record the failure without it. (Enumeration-safe:
             # the router still returns its generic response; ops alerts on this.)
             log.warning("auth.email.delivery_failed", kind=kind, to=to)
+            if self._raising:
+                raise
             return
         log.info("auth.email.sent", kind=kind, to=to)
 
@@ -115,7 +123,7 @@ class SelfHostedSMTPEmailSender:
         )
 
 
-def build_email_sender(settings: Settings) -> EmailSender:
+def build_email_sender(settings: Settings, *, raising: bool = False) -> EmailSender:
     """Select the process email sender from configuration.
 
     The self-hosted SMTP adapter is used ONLY when DM Tool's SMTP transport is
@@ -123,10 +131,16 @@ def build_email_sender(settings: Settings) -> EmailSender:
     and staging environments never accidentally send real mail. Called once at
     the FastAPI lifespan boundary — tests may still override via
     `set_email_sender`.
+
+    `raising=True` (used by the ARQ delivery worker) makes the SMTP adapter
+    propagate delivery failures so the worker can retry; the request path leaves
+    it False so responses stay enumeration-safe.
     """
     from aicmo.email.smtp import smtp_configured
 
-    return SelfHostedSMTPEmailSender() if smtp_configured(settings) else LogEmailSender()
+    if smtp_configured(settings):
+        return SelfHostedSMTPEmailSender(raising=raising)
+    return LogEmailSender()
 
 
 _sender: EmailSender = LogEmailSender()

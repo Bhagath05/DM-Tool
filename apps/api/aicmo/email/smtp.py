@@ -44,7 +44,52 @@ class SmtpNotConfiguredError(RuntimeError):
 
 
 class SmtpDeliveryError(RuntimeError):
-    """SMTP transport / handshake / auth / send failure."""
+    """SMTP transport / handshake / auth / send failure.
+
+    ``transient`` marks a failure worth retrying (connection/timeout/4xx) versus
+    a permanent one (auth, unsupported capability, TLS, 5xx). Callers that don't
+    care may ignore it; the async delivery worker uses it to bound retries."""
+
+    def __init__(self, *args: object, transient: bool = True) -> None:
+        super().__init__(*args)
+        self.transient = transient
+
+
+def _smtp_reply_code(exc: object) -> int | None:
+    """Best-effort extraction of a numeric SMTP reply code from an exception."""
+    code = getattr(exc, "smtp_code", None)
+    if isinstance(code, int):
+        return code
+    # SMTPRecipientsRefused/SMTPSenderRefused carry {addr: (code, msg)} or (code, msg).
+    for attr in ("recipients", "sender"):
+        info = getattr(exc, attr, None)
+        codes: list[int] = []
+        if isinstance(info, dict):
+            for value in info.values():
+                if isinstance(value, tuple) and value and isinstance(value[0], int):
+                    codes.append(value[0])
+        elif isinstance(info, tuple) and info and isinstance(info[0], int):
+            codes.append(info[0])
+        if codes:
+            return min(codes)
+    return None
+
+
+def is_transient_smtp_error(exc: BaseException) -> bool:
+    """Classify an SMTP failure as transient (retry) vs permanent (give up).
+
+    Permanent: authentication, unsupported-capability, TLS, and 5xx replies.
+    Transient: connection/timeout/network problems and 4xx replies. Unknown is
+    treated as transient so a *bounded* retry can recover, then stop."""
+    if isinstance(exc, (smtplib.SMTPAuthenticationError, smtplib.SMTPNotSupportedError, ssl.SSLError)):
+        return False
+    code = _smtp_reply_code(exc)
+    if code is not None and code >= 400:
+        return code < 500
+    return isinstance(
+        exc,
+        (TimeoutError, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, OSError),
+    ) or not isinstance(exc, smtplib.SMTPResponseException)
 
 
 @dataclass(frozen=True)
@@ -132,7 +177,7 @@ def _send_blocking(cfg: SmtpConfig, msg: EmailMessage) -> None:
             client.starttls(context=context)
             client.ehlo()
         elif cfg.tls != "none":
-            raise SmtpDeliveryError(f"Unknown SMTP TLS mode: {cfg.tls!r}")
+            raise SmtpDeliveryError(f"Unknown SMTP TLS mode: {cfg.tls!r}", transient=False)
         if cfg.username:
             client.login(cfg.username, cfg.password)
         client.send_message(msg)
@@ -163,5 +208,5 @@ async def send_email(settings: Settings, *, to: str, subject: str, html: str) ->
     except (smtplib.SMTPException, OSError, ssl.SSLError) as exc:
         # Failure event only — never the body/link or credentials.
         log.warning("email.smtp.delivery_failed", to=to, host=cfg.host, error=type(exc).__name__)
-        raise SmtpDeliveryError(str(exc)) from exc
+        raise SmtpDeliveryError(str(exc), transient=is_transient_smtp_error(exc)) from exc
     log.info("email.smtp.sent", to=to, host=cfg.host)

@@ -6,7 +6,7 @@ Or:        uv run arq aicmo.queue.worker.WorkerSettings
 
 from __future__ import annotations
 
-from arq import cron
+from arq import cron, func
 from arq.connections import RedisSettings
 
 from aicmo.config import get_settings, validate_worker_secrets
@@ -51,6 +51,8 @@ async def shutdown(ctx: dict) -> None:
 # Central job registry. Every feature module that adds a `tasks.py`
 # appends its `@tenant_job`-decorated functions here so the worker
 # discovers them. Phase 0 ships only the reference job.
+from aicmo.auth.email_delivery import AUTH_EMAIL_JOB, AUTH_EMAIL_MAX_TRIES  # noqa: E402
+from aicmo.auth.tasks import send_auth_email  # noqa: E402
 from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
 from aicmo.modules.business_brain.tasks import (  # noqa: E402
     run_business_brain_research,
@@ -75,6 +77,9 @@ ALL_JOBS: list = [
     publish_due_scheduled_posts,
     run_business_brain_research,
     run_business_brain_website_research,
+    # System job (not tenant-scoped): resilient auth-email delivery with a
+    # bounded retry budget for transient SMTP failures.
+    func(send_auth_email, name=AUTH_EMAIL_JOB, max_tries=AUTH_EMAIL_MAX_TRIES),
 ]
 
 # P0-3 + P0-4: time-driven jobs. `run_at_startup=False`; arq fires them at the

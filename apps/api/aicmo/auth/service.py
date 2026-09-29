@@ -17,12 +17,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.auth import email_tokens, sessions, throttle
-from aicmo.auth.email import get_email_sender
+from aicmo.auth.email_delivery import deliver_auth_email
 from aicmo.auth.models import UserSession
 from aicmo.auth.password import hash_password, needs_rehash, verify_password
 from aicmo.config import Settings
@@ -66,29 +67,29 @@ async def signup(
     password: str,
     display_name: str | None,
     settings: Settings,
+    pool: Any | None = None,
 ) -> None:
     """Create a new unverified account and send a verification link.
 
     Enumeration-safe: returns None regardless of whether the email was new.
     If the email already exists we do NOT create a second row or change the
     existing password — we just (re)send the appropriate email.
+
+    `pool` is the ARQ pool (from the request). When present, verification email
+    is enqueued for the worker (the worker mints the token + sends); when None
+    (dev / tests / queue outage) delivery falls back to synchronous send.
     """
     _validate_password(password)
     norm = _normalize_email(email)
     existing = await get_user_by_email(session, email=norm)
-    sender = get_email_sender()
 
     if existing is not None:
         # Don't reveal existence. If they never verified, resend verification;
         # otherwise nudge them to sign in / reset. Never mutate credentials.
         if existing.email_verified_at is None and existing.status == "active":
-            raw = await email_tokens.issue_token(
-                session,
-                user_id=existing.id,
-                purpose="verify",
-                ttl_seconds=settings.email_verify_ttl_seconds,
+            await deliver_auth_email(
+                session, pool, user_id=existing.id, purpose="verify", settings=settings
             )
-            await sender.send_verification(to=norm, link=_verify_link(settings, raw))
         return
 
     user = User(
@@ -99,13 +100,9 @@ async def signup(
     )
     session.add(user)
     await session.flush()
-    raw = await email_tokens.issue_token(
-        session,
-        user_id=user.id,
-        purpose="verify",
-        ttl_seconds=settings.email_verify_ttl_seconds,
+    await deliver_auth_email(
+        session, pool, user_id=user.id, purpose="verify", settings=settings
     )
-    await sender.send_verification(to=norm, link=_verify_link(settings, raw))
 
 
 # ---------------------------------------------------------------------
@@ -197,20 +194,23 @@ _DUMMY_HASH = hash_password(uuid.uuid4().hex)
 # ---------------------------------------------------------------------
 
 
-async def request_password_reset(session: AsyncSession, *, email: str, settings: Settings) -> None:
+async def request_password_reset(
+    session: AsyncSession,
+    *,
+    email: str,
+    settings: Settings,
+    pool: Any | None = None,
+) -> None:
     """Enumeration-safe: always returns None. Sends a reset link only if the
-    account exists and is active."""
+    account exists and is active. Delivery is enqueued through the ARQ worker
+    when `pool` is provided, else sent synchronously (dev / queue outage)."""
     norm = _normalize_email(email)
     user = await get_user_by_email(session, email=norm)
     if user is None or user.status != "active":
         return
-    raw = await email_tokens.issue_token(
-        session,
-        user_id=user.id,
-        purpose="reset",
-        ttl_seconds=settings.password_reset_ttl_seconds,
+    await deliver_auth_email(
+        session, pool, user_id=user.id, purpose="reset", settings=settings
     )
-    await get_email_sender().send_password_reset(to=norm, link=_reset_link(settings, raw))
 
 
 async def reset_password(
@@ -262,16 +262,3 @@ async def disable_account(session: AsyncSession, *, user: User) -> None:
     user.status = "suspended"
     await sessions.revoke_all_for_user(session, user_id=user.id)
     await session.flush()
-
-
-# ---------------------------------------------------------------------
-#  Link builders
-# ---------------------------------------------------------------------
-
-
-def _verify_link(settings: Settings, raw_token: str) -> str:
-    return f"{settings.public_base_url.rstrip('/')}/verify-email?token={raw_token}"
-
-
-def _reset_link(settings: Settings, raw_token: str) -> str:
-    return f"{settings.public_base_url.rstrip('/')}/reset-password?token={raw_token}"

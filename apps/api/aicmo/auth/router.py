@@ -43,6 +43,7 @@ from aicmo.auth.service import WeakPassword
 from aicmo.config import get_settings
 from aicmo.db.session import get_db
 from aicmo.modules.users.models import User
+from aicmo.queue.deps import get_arq_pool
 
 log = structlog.get_logger()
 
@@ -67,6 +68,7 @@ def _client_ip(request: Request) -> str | None:
 async def signup(
     payload: SignupRequest,
     session: AsyncSession = Depends(get_db),
+    pool=Depends(get_arq_pool),
 ) -> GenericMessage:
     try:
         await service.signup(
@@ -75,6 +77,7 @@ async def signup(
             password=payload.password,
             display_name=payload.display_name,
             settings=get_settings(),
+            pool=pool,
         )
     except WeakPassword as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -159,8 +162,11 @@ async def verify_email(
 async def request_password_reset(
     payload: RequestPasswordResetRequest,
     session: AsyncSession = Depends(get_db),
+    pool=Depends(get_arq_pool),
 ) -> GenericMessage:
-    await service.request_password_reset(session, email=payload.email, settings=get_settings())
+    await service.request_password_reset(
+        session, email=payload.email, settings=get_settings(), pool=pool
+    )
     await session.commit()
     return _RESET_OK
 
