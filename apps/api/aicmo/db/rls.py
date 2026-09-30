@@ -82,6 +82,9 @@ ORG_SCOPED_TABLES: tuple[str, ...] = (
     # Agent runtime (Phase 2) — conversational history, org-scoped.
     "agent_conversations",
     "agent_messages",
+    # Belief / learning memory (Phase 3A) — org-scoped knowledge graph.
+    "beliefs",
+    "belief_evidence",
     # (creative_format, objective_kind, layout_primitive are non-tenant
     #  catalogs — excluded, like `plan`.)
 )

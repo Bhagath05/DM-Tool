@@ -375,6 +375,10 @@ app.include_router(design_router, prefix="/api/v1")
 from aicmo.modules.agent.router import router as agent_router  # noqa: E402
 
 app.include_router(agent_router)
+
+# Phase 3A — belief / learning memory. No router yet (server-side + future agent
+# only); import the models so they register on Base.metadata.
+import aicmo.modules.belief.models  # noqa: E402, F401
 # SaaS foundation — identity, tenancy, RBAC. Mounted at /api/v1 alongside everything else.
 # First-party authentication (signup/signin/signout/verify/reset/change/…).
 # Its routes already carry the /api/v1/auth prefix.
