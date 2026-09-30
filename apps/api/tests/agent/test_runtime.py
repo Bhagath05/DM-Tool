@@ -316,7 +316,13 @@ async def test_audit_metadata_is_safe():
     assert kw["request_id"] == "req-123"
     assert kw["prompt_token_count"] == 20 and kw["completion_token_count"] == 40  # two LLM calls
     meta = kw["metadata"]
-    assert set(meta.keys()) == {"conversation_id", "tools_consulted", "actions_blocked", "evidence_status"}
+    assert set(meta.keys()) == {
+        "conversation_id",
+        "tools_consulted",
+        "beliefs_consulted",
+        "actions_blocked",
+        "evidence_status",
+    }
     blob = str(kw).lower()
     for secret in ("password", "smtp", "session_token", "api_key", "chain_of_thought", "content="):
         assert secret not in blob

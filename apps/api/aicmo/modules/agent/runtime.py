@@ -26,6 +26,7 @@ from aicmo.agent.types import (
 )
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
+from aicmo.modules.agent import beliefs as agent_beliefs
 from aicmo.modules.agent.models import AgentConversation, AgentMessage
 from aicmo.modules.agent.prompts import PLANNING_SYSTEM, SYNTHESIS_SYSTEM, untrusted_block
 from aicmo.modules.agent.schemas import (
@@ -150,15 +151,23 @@ async def run_turn(
     # 1. persist the user's message
     await _add_message(session, conversation=conversation, role="user", content=user_text)
 
-    # 2. build the canonical marketing context (read-only, tenant-scoped)
+    # 2. build the canonical marketing context (read-only, tenant-scoped) + the
+    # bounded, relevant belief memory (Phase 3B) — one resolver call per turn.
     ctx = await mb_service.build_context(session, tenant=tenant)
     context_block = mb_service.context_to_prompt_block(ctx)
+    belief_ctx = await agent_beliefs.build_belief_context(session, tenant=tenant, user_text=user_text)
+    belief_messages: list[LLMMessage] = (
+        [LLMMessage(role="user", content=untrusted_block("BELIEF MEMORY", belief_ctx.block))]
+        if belief_ctx.block
+        else []
+    )
 
     # 3. plan
     history = await _recent_history(session, conversation.id)
     plan_messages: list[LLMMessage] = [
         LLMMessage(role="user", content=_tool_catalog(registry)),
         LLMMessage(role="user", content=untrusted_block("MARKETING CONTEXT", context_block)),
+        *belief_messages,
         *history,
         LLMMessage(role="user", content=f"User question: {user_text}"),
     ]
@@ -221,6 +230,7 @@ async def run_turn(
     # 5. synthesize an answer from the (untrusted) data
     synth_messages: list[LLMMessage] = [
         LLMMessage(role="user", content=untrusted_block("MARKETING CONTEXT", context_block)),
+        *belief_messages,
         *(LLMMessage(role="user", content=b) for b in tool_result_blocks),
         LLMMessage(role="user", content=f"Answer this question using ONLY the data above: {user_text}"),
     ]
@@ -236,6 +246,10 @@ async def run_turn(
     prompt_tokens += synth_res.usage.input_tokens
     completion_tokens += synth_res.usage.output_tokens
 
+    # Surface consulted beliefs through the existing evidence mechanism (no
+    # second evidence representation; no DB ids exposed).
+    evidence.extend(belief_ctx.evidence)
+
     reasoning = ReasoningSummary(
         intent=plan.intent,
         tools_consulted=tools_consulted,
@@ -248,6 +262,7 @@ async def run_turn(
     # 6. persist the assistant message with SAFE metadata only
     assistant_meta = {
         "tools_consulted": tools_consulted,
+        "beliefs_consulted": belief_ctx.beliefs_consulted,
         "evidence_status": synth.evidence_status,
         "confidence": synth.confidence,
         "actions_blocked": [b.model_dump() for b in actions_blocked],
@@ -270,6 +285,7 @@ async def run_turn(
         metadata={
             "conversation_id": str(conversation.id),
             "tools_consulted": tools_consulted,
+            "beliefs_consulted": belief_ctx.beliefs_consulted,
             "actions_blocked": [b.reason for b in actions_blocked],
             "evidence_status": synth.evidence_status,
         },
