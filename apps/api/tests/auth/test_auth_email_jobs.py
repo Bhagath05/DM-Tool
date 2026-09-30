@@ -66,14 +66,27 @@ class _FakePool:
         return object()
 
 
-class _GetSession:
-    """Minimal session whose .get returns a fixed user."""
+class _SuppressionResult:
+    def __init__(self, suppressed: bool):
+        self._suppressed = suppressed
 
-    def __init__(self, user):
+    def first(self):
+        return ("row",) if self._suppressed else None
+
+
+class _GetSession:
+    """Minimal session: .get returns a fixed user; .execute answers the
+    suppression lookup (not suppressed by default)."""
+
+    def __init__(self, user, *, suppressed: bool = False):
         self._user = user
+        self._suppressed = suppressed
 
     async def get(self, model, pk):
         return self._user
+
+    async def execute(self, *a, **k):
+        return _SuppressionResult(self._suppressed)
 
 
 class _WorkerSession:

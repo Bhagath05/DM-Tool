@@ -50,9 +50,16 @@ class SmtpDeliveryError(RuntimeError):
     a permanent one (auth, unsupported capability, TLS, 5xx). Callers that don't
     care may ignore it; the async delivery worker uses it to bound retries."""
 
-    def __init__(self, *args: object, transient: bool = True) -> None:
+    def __init__(
+        self, *args: object, transient: bool = True, recipient_rejected: bool = False
+    ) -> None:
         super().__init__(*args)
         self.transient = transient
+        # True only when the server permanently rejected the RECIPIENT address
+        # itself (mailbox unavailable/does not exist) — the sole signal that the
+        # destination, not our infrastructure, is undeliverable. Drives
+        # suppression; never set for auth/TLS/config failures.
+        self.recipient_rejected = recipient_rejected
 
 
 def _smtp_reply_code(exc: object) -> int | None:
@@ -90,6 +97,21 @@ def is_transient_smtp_error(exc: BaseException) -> bool:
         exc,
         (TimeoutError, ConnectionError, smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, OSError),
     ) or not isinstance(exc, smtplib.SMTPResponseException)
+
+
+def is_recipient_rejection(exc: BaseException) -> bool:
+    """True when the SMTP server permanently rejected the RECIPIENT address —
+    the address itself is undeliverable (bad/closed mailbox), as opposed to an
+    auth/TLS/config problem on our side. This is the only signal that warrants
+    suppressing the destination."""
+    recipients = getattr(exc, "recipients", None)
+    if isinstance(recipients, dict) and recipients:
+        codes = [
+            v[0] for v in recipients.values() if isinstance(v, tuple) and v and isinstance(v[0], int)
+        ]
+        # Every listed recipient was permanently (5xx) refused.
+        return bool(codes) and all(code >= 500 for code in codes)
+    return False
 
 
 @dataclass(frozen=True)
@@ -208,5 +230,9 @@ async def send_email(settings: Settings, *, to: str, subject: str, html: str) ->
     except (smtplib.SMTPException, OSError, ssl.SSLError) as exc:
         # Failure event only — never the body/link or credentials.
         log.warning("email.smtp.delivery_failed", to=to, host=cfg.host, error=type(exc).__name__)
-        raise SmtpDeliveryError(str(exc), transient=is_transient_smtp_error(exc)) from exc
+        raise SmtpDeliveryError(
+            str(exc),
+            transient=is_transient_smtp_error(exc),
+            recipient_rejected=is_recipient_rejection(exc),
+        ) from exc
     log.info("email.smtp.sent", to=to, host=cfg.host)

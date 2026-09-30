@@ -107,11 +107,20 @@ async def send_auth_email(ctx: dict[str, Any], user_id: str, purpose: str) -> No
             delay = backoff_seconds(job_try)
             _log("retry", "transient", retry_scheduled=True, retry_delay_seconds=delay)
             raise Retry(defer=delay) from None
-        classification = "transient_exhausted" if transient else "permanent"
+        # Distinguish a bad DESTINATION (recipient rejected → suppress) from a
+        # permanent OUR-side failure (auth/TLS/config → alert only) and from an
+        # exhausted transient budget (address may still recover → alert only).
+        recipient_rejected = not transient and getattr(exc, "recipient_rejected", False)
+        if transient:
+            classification = "transient_exhausted"
+        elif recipient_rejected:
+            classification = "recipient_rejected"
+        else:
+            classification = "permanent"
         _log("failed", classification, retry_scheduled=False)
         await note_permanent_auth_email_failure(
             purpose=purpose, user_id=user_id, classification=classification,
-            job_id=job_id, attempt=job_try,
+            job_id=job_id, attempt=job_try, recipient_rejected=recipient_rejected,
         )
         return
 

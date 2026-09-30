@@ -34,6 +34,7 @@ import structlog
 
 from aicmo.auth import email_tokens
 from aicmo.auth.email import EmailSender, get_email_sender
+from aicmo.auth.suppression import is_email_suppressed, suppress_email
 from aicmo.modules.users.models import User
 
 if TYPE_CHECKING:
@@ -82,12 +83,23 @@ async def _issue_and_send(
     Returns False when the user no longer exists (caller decides whether that is
     a transient not-yet-committed race or a permanent miss). The recipient is
     read from the user row — never supplied by a caller — and the raw token
-    lives only inside the emailed link, never in a return value or a log."""
+    lives only inside the emailed link, never in a return value or a log.
+
+    Before minting a token it checks the suppression list against the user's
+    CURRENT normalized email and skips sending a suppressed (permanently
+    undeliverable) address — resolving the destination server-side so an old
+    suppressed address never blocks a new one. Skipping returns True (handled,
+    nothing to retry) and never changes the enumeration-safe HTTP response."""
     if purpose not in AUTH_EMAIL_PURPOSES:
         raise ValueError(f"unknown auth email purpose: {purpose!r}")
     user = await session.get(User, user_id)
     if user is None:
         return False
+    if await is_email_suppressed(session, user.email):
+        # Permanently-undeliverable destination — don't mint a token or send.
+        # Log the non-sensitive event only (no email address, no token).
+        log.info("auth.email.suppressed_skip", email_type=purpose)
+        return True
     ttl = (
         settings.email_verify_ttl_seconds
         if purpose == "verify"
@@ -145,21 +157,28 @@ async def note_permanent_auth_email_failure(
     classification: str,
     job_id: str | None = None,
     attempt: int | None = None,
+    recipient_rejected: bool = False,
 ) -> None:
     """Terminal auth-email delivery failure funnel: structured log + the shared
-    operational alert, and the bounce/suppression extension point.
+    operational alert, and (only on a recipient rejection) the suppression write.
 
     Called EXACTLY once per terminal job state — a permanent failure (malformed
     recipient, 5xx rejection, unconfigured SMTP) or an exhausted retry budget —
     never per retry attempt, so a single ops alert fires with no duplicates. The
-    ``user_id`` stays in the structured log (where a future suppression list will
-    read it) but is deliberately kept OUT of the alert payload, which carries
-    only safe operational context. Never logs/alerts a token, link, email
-    address, or SMTP credential. Alerting is best-effort: any failure in the
-    alert path is swallowed here so it can never affect auth/delivery."""
+    ``user_id`` stays in the structured log (where the suppression path reads it)
+    but is deliberately kept OUT of the alert payload, which carries only safe
+    operational context. Never logs/alerts a token, link, email address, or SMTP
+    credential.
+
+    Suppression is written ONLY when ``recipient_rejected`` is set — i.e. the
+    server said the destination MAILBOX is permanently bad. Auth/TLS/config
+    ("permanent" but our-side) failures and exhausted-transient failures alert
+    but never suppress, so a single misconfiguration can't suppress everyone.
+    Alerting and suppression are best-effort: any failure in either is swallowed
+    here so it can never affect auth/delivery."""
     try:
-        # user_id lands in the log for the future bounce/suppression hook; it is
-        # NOT forwarded to the alert (no unnecessary identifier in the alert).
+        # user_id lands in the log for the suppression path; it is NOT forwarded
+        # to the alert (no unnecessary identifier in the alert).
         log.warning(
             "auth.email.permanent_failure",
             email_type=purpose,
@@ -186,3 +205,34 @@ async def note_permanent_auth_email_failure(
             email_type=purpose,
             classification=classification,
         )
+
+    if recipient_rejected:
+        await _record_suppression(user_id=user_id, classification=classification)
+
+
+async def _record_suppression(*, user_id: str, classification: str) -> None:
+    """Record the user's CURRENT destination address as suppressed. Best-effort:
+    opens its own session, resolves the live email server-side, and never lets a
+    failure propagate. Idempotent via ``suppress_email``. Stores no secrets."""
+    from aicmo.db.session import SessionLocal
+
+    try:
+        uid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        return
+    try:
+        async with SessionLocal() as session:
+            user = await session.get(User, uid)
+            if user is None:
+                return
+            await suppress_email(
+                session,
+                email=user.email,
+                user_id=uid,
+                reason="permanent_bounce",
+                source="auth_email_delivery",
+                meta={"classification": classification},
+            )
+            await session.commit()
+    except Exception:  # suppression must never affect the caller
+        log.warning("auth.email.suppress_write_failed", classification=classification)

@@ -20,9 +20,10 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aicmo.db.base import Base, TimestampMixin
@@ -77,6 +78,46 @@ class EmailToken(Base, TimestampMixin):
     token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmailSuppression(Base, TimestampMixin):
+    """A permanently-undeliverable auth email DESTINATION.
+
+    Written only on a terminal recipient rejection (the mailbox itself is bad),
+    never on transient failures or on our-side SMTP/config problems. The auth
+    delivery path checks this table (by the user's CURRENT normalized email)
+    before sending and skips a suppressed address — so an old suppressed address
+    can never block a new one after an email change (the identity is the email,
+    not the user). Holds NO token, URL, or SMTP credential.
+
+    `email` is the normalized (lowercased) destination and is the unique
+    idempotency key: repeated permanent failures upsert the same row. `user_id`
+    is a best-effort reference (SET NULL on user delete) so a future MTA
+    bounce/DSN for an address without a known user can reuse the same table.
+    """
+
+    __tablename__ = "email_suppressions"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_email_suppressions_email"),
+        Index("ix_email_suppressions_user_id", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Normalized (lowercased) destination address — the suppression identity.
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    # Why the address is suppressed (e.g. "permanent_bounce"). Free-form so a
+    # future MTA bounce pipeline can add its own reasons; never a secret.
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Which subsystem recorded it (e.g. "auth_email_delivery", later "mta_dsn").
+    source: Mapped[str] = mapped_column(String(48), nullable=False)
+    # Optional non-sensitive metadata for future bounce handling (e.g. a DSN
+    # status code). NEVER a token, link, email body, or credential.
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
 
 class LoginAttempt(Base):
