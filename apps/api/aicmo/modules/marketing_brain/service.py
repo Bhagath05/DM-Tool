@@ -42,6 +42,98 @@ _PROMPT_ICP_CAP = 5
 _PROMPT_LEARNING_CAP = 6
 
 
+def build_profile_snapshot(profile_row) -> MarketingBrainProfileSnapshot:
+    """Map a BusinessProfile row → snapshot. None → present=False. Never
+    fabricates: empty stays empty. Reused by build_context and the get_business_profile tool."""
+    if profile_row is None:
+        return MarketingBrainProfileSnapshot(present=False)
+    primary_goal = profile_row.primary_goal_text or (
+        profile_row.goals[0] if profile_row.goals else None
+    )
+    return MarketingBrainProfileSnapshot(
+        present=True,
+        business_name=profile_row.business_name,
+        website=profile_row.website,
+        industry=profile_row.industry,
+        business_type=profile_row.business_type,
+        target_audience=profile_row.target_audience,
+        location=profile_row.business_location,
+        competitors=list(profile_row.competitors or []),
+        monthly_budget_band=profile_row.monthly_budget_band,
+        primary_goal=primary_goal,
+        products=list(profile_row.products or []),
+        services=list(profile_row.services or []),
+        pricing=profile_row.pricing,
+        goals=list(profile_row.goals or []),
+        channels=list(profile_row.preferred_platforms or []),
+    )
+
+
+def to_recommendation_refs(rows) -> list[MarketingBrainRecommendationRef]:
+    """Map advisor recommendation rows → safe refs (no raw ORM objects leak)."""
+    return [
+        MarketingBrainRecommendationRef(
+            id=r.id,
+            title=r.title,
+            status=r.status,
+            source_surface=r.source_surface,
+            confidence=r.confidence,
+            impact_category=r.impact_category,
+            expected_result=r.expected_result,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            completed_at=r.completed_at,
+            skipped_at=r.skipped_at,
+            outcome_summary=r.outcome_summary,
+        )
+        for r in rows
+    ]
+
+
+def to_outcome_items(outcome_ctx: dict) -> list[MarketingBrainOutcomeItem]:
+    """Map the outcome-context dict → safe outcome items (successes + failures)."""
+    items: list[MarketingBrainOutcomeItem] = []
+    for o in outcome_ctx.get("recent_outcomes") or []:
+        items.append(
+            MarketingBrainOutcomeItem(
+                title=str(o.get("title") or ""),
+                delta_summary=o.get("delta_summary"),
+                effectiveness_score=o.get("effectiveness_score"),
+                source_surface=o.get("source_surface"),
+                kind="evaluated_success",
+            )
+        )
+    for o in outcome_ctx.get("failed_outcomes") or []:
+        items.append(
+            MarketingBrainOutcomeItem(
+                title=str(o.get("title") or ""),
+                delta_summary=o.get("delta_summary") or o.get("reason"),
+                kind="failed_or_skipped",
+            )
+        )
+    return items
+
+
+def to_learning_items(rows) -> list[MarketingBrainLearningItem]:
+    """Map learning-insight rows → safe items."""
+    return [
+        MarketingBrainLearningItem(
+            id=row.id,
+            category=row.category,
+            observation=row.observation,
+            recommendation=row.recommendation,
+            expected_result=row.expected_result,
+            confidence=row.confidence,
+            direction=row.direction,
+            status=row.status,
+            learned_at=row.learned_at,
+            expires_at=row.expires_at,
+            evidence=list(row.evidence or []),
+        )
+        for row in rows
+    ]
+
+
 async def build_context(
     session: AsyncSession,
     *,
@@ -90,31 +182,7 @@ async def build_context(
     )
 
     profile_row = await onboarding_service.get_profile_or_none(session, brand_id)
-    if profile_row is None:
-        profile = MarketingBrainProfileSnapshot(present=False)
-    else:
-        primary_goal = profile_row.primary_goal_text or (
-            profile_row.goals[0] if profile_row.goals else None
-        )
-        profile = MarketingBrainProfileSnapshot(
-            present=True,
-            business_name=profile_row.business_name,
-            website=profile_row.website,
-            industry=profile_row.industry,
-            business_type=profile_row.business_type,
-            target_audience=profile_row.target_audience,
-            location=profile_row.business_location,
-            competitors=list(profile_row.competitors or []),
-            monthly_budget_band=profile_row.monthly_budget_band,
-            primary_goal=primary_goal,
-            # Existing profile data the snapshot previously dropped — surfaced
-            # only when present (empty stays empty; never fabricated).
-            products=list(profile_row.products or []),
-            services=list(profile_row.services or []),
-            pricing=profile_row.pricing,
-            goals=list(profile_row.goals or []),
-            channels=list(profile_row.preferred_platforms or []),
-        )
+    profile = build_profile_snapshot(profile_row)
 
     analytics_snap: MarketingBrainAnalyticsSnapshot | None = None
     try:
@@ -133,44 +201,10 @@ async def build_context(
         analytics_snap = None
 
     rec_rows = await load_brand_memory(session, brand_id=brand_id, days=90)
-    recommendations = [
-        MarketingBrainRecommendationRef(
-            id=r.id,
-            title=r.title,
-            status=r.status,
-            source_surface=r.source_surface,
-            confidence=r.confidence,
-            impact_category=r.impact_category,
-            expected_result=r.expected_result,
-            created_at=r.created_at,
-            updated_at=r.updated_at,
-            completed_at=r.completed_at,
-            skipped_at=r.skipped_at,
-            outcome_summary=r.outcome_summary,
-        )
-        for r in rec_rows[:_RECOMMENDATION_LIMIT]
-    ]
+    recommendations = to_recommendation_refs(rec_rows[:_RECOMMENDATION_LIMIT])
 
     outcome_ctx = await load_outcome_context(session, brand_id=brand_id)
-    outcomes: list[MarketingBrainOutcomeItem] = []
-    for o in outcome_ctx.get("recent_outcomes") or []:
-        outcomes.append(
-            MarketingBrainOutcomeItem(
-                title=str(o.get("title") or ""),
-                delta_summary=o.get("delta_summary"),
-                effectiveness_score=o.get("effectiveness_score"),
-                source_surface=o.get("source_surface"),
-                kind="evaluated_success",
-            )
-        )
-    for o in outcome_ctx.get("failed_outcomes") or []:
-        outcomes.append(
-            MarketingBrainOutcomeItem(
-                title=str(o.get("title") or ""),
-                delta_summary=o.get("delta_summary") or o.get("reason"),
-                kind="failed_or_skipped",
-            )
-        )
+    outcomes = to_outcome_items(outcome_ctx)
 
     # Cross-domain lessons that influence business understanding — not BB facts.
     learning_rows = await active_insights_for_module(
@@ -179,22 +213,7 @@ async def build_context(
         module="business_understanding",
         limit=_LEARNING_LIMIT,
     )
-    learning_insights = [
-        MarketingBrainLearningItem(
-            id=row.id,
-            category=row.category,
-            observation=row.observation,
-            recommendation=row.recommendation,
-            expected_result=row.expected_result,
-            confidence=row.confidence,
-            direction=row.direction,
-            status=row.status,
-            learned_at=row.learned_at,
-            expires_at=row.expires_at,
-            evidence=list(row.evidence or []),
-        )
-        for row in learning_rows
-    ]
+    learning_insights = to_learning_items(learning_rows)
 
     research = MarketingBrainResearchSnapshot(
         latest_website_job=summary.latest_website_job,
