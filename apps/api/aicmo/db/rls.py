@@ -79,6 +79,9 @@ ORG_SCOPED_TABLES: tuple[str, ...] = (
     "brain_evidence",
     "brain_icps",
     "brain_icp_evidence",
+    # Agent runtime (Phase 2) — conversational history, org-scoped.
+    "agent_conversations",
+    "agent_messages",
     # (creative_format, objective_kind, layout_primitive are non-tenant
     #  catalogs — excluded, like `plan`.)
 )

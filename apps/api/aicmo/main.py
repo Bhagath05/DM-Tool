@@ -368,6 +368,13 @@ from aicmo.modules.growth.router import router as growth_router  # noqa: E402
 
 app.include_router(growth_router, prefix="/api/v1")
 app.include_router(design_router, prefix="/api/v1")
+
+# Phase 2 — read-only conversational agent. Importing the router also registers
+# the agent_conversations / agent_messages ORM models on Base.metadata. The
+# router already carries the full /api/v1/agent prefix.
+from aicmo.modules.agent.router import router as agent_router  # noqa: E402
+
+app.include_router(agent_router)
 # SaaS foundation — identity, tenancy, RBAC. Mounted at /api/v1 alongside everything else.
 # First-party authentication (signup/signin/signout/verify/reset/change/…).
 # Its routes already carry the /api/v1/auth prefix.

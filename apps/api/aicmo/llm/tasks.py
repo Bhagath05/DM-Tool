@@ -15,6 +15,8 @@ LLMTask = Literal[
     "creative_generation",
     "intelligence",
     "agent_reasoning",
+    "agent_plan",
+    "agent_summarize",
 ]
 
 KNOWN_LLM_TASKS: frozenset[str] = frozenset(
@@ -24,6 +26,8 @@ KNOWN_LLM_TASKS: frozenset[str] = frozenset(
         "creative_generation",
         "intelligence",
         "agent_reasoning",
+        "agent_plan",
+        "agent_summarize",
     }
 )
 
