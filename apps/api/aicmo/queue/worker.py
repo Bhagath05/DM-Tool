@@ -54,6 +54,7 @@ async def shutdown(ctx: dict) -> None:
 from aicmo.auth.email_delivery import AUTH_EMAIL_JOB, AUTH_EMAIL_MAX_TRIES  # noqa: E402
 from aicmo.auth.tasks import send_auth_email  # noqa: E402
 from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
+from aicmo.modules.belief.tasks import form_brand_beliefs  # noqa: E402
 from aicmo.modules.business_brain.tasks import (  # noqa: E402
     run_business_brain_research,
     run_business_brain_website_research,
@@ -74,6 +75,7 @@ ALL_JOBS: list = [
     generate_video_stub,
     render_design_video,
     evaluate_advisor_outcomes,
+    form_brand_beliefs,
     publish_due_scheduled_posts,
     run_business_brain_research,
     run_business_brain_website_research,
