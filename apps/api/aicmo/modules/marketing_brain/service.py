@@ -107,6 +107,13 @@ async def build_context(
             competitors=list(profile_row.competitors or []),
             monthly_budget_band=profile_row.monthly_budget_band,
             primary_goal=primary_goal,
+            # Existing profile data the snapshot previously dropped — surfaced
+            # only when present (empty stays empty; never fabricated).
+            products=list(profile_row.products or []),
+            services=list(profile_row.services or []),
+            pricing=profile_row.pricing,
+            goals=list(profile_row.goals or []),
+            channels=list(profile_row.preferred_platforms or []),
         )
 
     analytics_snap: MarketingBrainAnalyticsSnapshot | None = None
@@ -253,11 +260,23 @@ def context_to_prompt_block(ctx: MarketingBrainContext) -> str:
         f"Unknown: {', '.join(ctx.unknown) if ctx.unknown else '(none)'}",
     ]
     if ctx.profile.present:
+        p = ctx.profile
         lines.append(
-            f"Profile: {ctx.profile.business_name or 'unnamed'} | "
-            f"industry={ctx.profile.industry or 'unknown'} | "
-            f"audience={ctx.profile.target_audience or 'unknown'}"
+            f"Profile: {p.business_name or 'unnamed'} | "
+            f"industry={p.industry or 'unknown'} | "
+            f"audience={p.target_audience or 'unknown'}"
         )
+        # Surface business/offer/channel context only when the owner provided it.
+        if p.products:
+            lines.append(f"Products: {', '.join(p.products[:10])}")
+        if p.services:
+            lines.append(f"Services: {', '.join(p.services[:10])}")
+        if p.pricing:
+            lines.append(f"Pricing: {p.pricing[:200]}")
+        if p.channels:
+            lines.append(f"Preferred channels: {', '.join(p.channels[:10])}")
+        if p.goals:
+            lines.append(f"Goals: {', '.join(p.goals[:6])}")
     else:
         lines.append("Profile: MISSING — no business profile for this brand.")
 

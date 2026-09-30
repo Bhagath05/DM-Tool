@@ -22,7 +22,9 @@ from aicmo.modules.business_brain.schemas import (
 
 
 class MarketingBrainProfileSnapshot(BaseModel):
-    """Canonical onboarding profile fields — None means unknown, not fabricated."""
+    """Canonical onboarding profile fields — None / empty means unknown, never
+    fabricated. Lists are surfaced only from real profile data; an empty list is
+    honest absence, not a guess."""
 
     present: bool
     business_name: str | None = None
@@ -34,6 +36,14 @@ class MarketingBrainProfileSnapshot(BaseModel):
     competitors: list[str] = Field(default_factory=list)
     monthly_budget_band: str | None = None
     primary_goal: str | None = None
+    # BUSINESS: what the business sells + how it prices (existing profile data,
+    # previously dropped). Empty/None when the owner hasn't provided them.
+    products: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+    pricing: str | None = None
+    goals: list[str] = Field(default_factory=list)
+    # MARKETING: the owner's preferred channels/platforms.
+    channels: list[str] = Field(default_factory=list)
 
 
 class MarketingBrainAnalyticsSnapshot(BaseModel):
