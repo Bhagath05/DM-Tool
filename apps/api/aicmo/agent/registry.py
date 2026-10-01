@@ -97,7 +97,9 @@ class ToolRegistry:
             raise ToolOutputError(f"handler for {tool.name!r} returned an invalid result") from exc
 
     # --- authorization (fail closed) --------------------------------------
-    def _authorize(self, tool: ToolDefinition, ctx: ExecutionContext) -> None:
+    def _authorize_scope_and_permission(
+        self, tool: ToolDefinition, ctx: ExecutionContext
+    ) -> None:
         # 1. tenant scope — derived ONLY from the server-built context.
         if tool.tenant_scope in (TenantScope.BRAND, TenantScope.ORG):
             if ctx.tenant is None:
@@ -109,13 +111,17 @@ class ToolRegistry:
             raise ToolPermissionError(
                 f"tool {tool.name!r} requires permission {tool.permission!r}"
             )
-        # 3. consequential boundary — the registry NEVER auto-executes these.
-        #    Phase 2 routes them through autonomy.evaluate_policy + human approval.
+
+    def _authorize(self, tool: ToolDefinition, ctx: ExecutionContext) -> None:
+        self._authorize_scope_and_permission(tool, ctx)
+        # 3. consequential boundary — the public execute path NEVER auto-executes
+        #    these. They must go through autonomy.evaluate_policy + the master
+        #    switch + a human approval, which then calls `execute_consequential`.
         if tool.operation_class == OperationClass.CONSEQUENTIAL:
             raise ConsequentialExecutionError(
                 f"tool {tool.name!r} is CONSEQUENTIAL — it must go through "
-                "autonomy.evaluate_policy + the master switch + human approval "
-                "(Phase 2). The registry does not auto-execute it."
+                "autonomy.evaluate_policy + the master switch + human approval. "
+                "The registry does not auto-execute it."
             )
 
     # --- execution ---------------------------------------------------------
@@ -135,6 +141,44 @@ class ToolRegistry:
             "agent.tool.executed",
             tool=tool.name,
             operation_class=tool.operation_class.value,
+            organization_id=str(ctx.tenant.organization_id),
+            brand_id=str(ctx.tenant.brand_id) if ctx.tenant.brand_id else None,
+        )
+        return ToolResult(
+            tool=tool.name,
+            operation_class=tool.operation_class,
+            provenance=tool.provenance,
+            provenance_note=tool.provenance_note,
+            data=validated_output,
+        )
+
+    async def execute_consequential(
+        self, name: str, raw_input: dict | None, ctx: ExecutionContext
+    ) -> ToolResult:
+        """Execute a CONSEQUENTIAL tool AFTER a human approval cleared it.
+
+        This path is NEVER reachable from the conversational agent runtime (which
+        only ever calls ``execute_tool`` and hard-filters to READ before that).
+        It is called ONLY by the approval service, and only once it has verified
+        an APPROVED, unexpired, fingerprint-matching, same-tenant approval.
+
+        It still re-applies tenant-scope + permission authorization from the
+        server-derived ``ctx`` (never from input) and re-validates input/output.
+        Resolving a non-consequential tool here is a hard error — a WRITE/READ
+        tool can never be run through the consequential path."""
+        tool = self.resolve_tool(name)
+        if tool.operation_class != OperationClass.CONSEQUENTIAL:
+            raise ToolError(
+                f"tool {tool.name!r} is not CONSEQUENTIAL; refuse to run it via the "
+                "approved-consequential path"
+            )
+        self._authorize_scope_and_permission(tool, ctx)
+        validated_input = self.validate_input(tool, raw_input)
+        result = await tool.handler(ctx, validated_input)
+        validated_output = self.validate_output(tool, result)
+        log.info(
+            "agent.tool.executed_consequential",
+            tool=tool.name,
             organization_id=str(ctx.tenant.organization_id),
             brand_id=str(ctx.tenant.brand_id) if ctx.tenant.brand_id else None,
         )

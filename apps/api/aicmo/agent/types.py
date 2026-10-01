@@ -131,6 +131,10 @@ class ToolDefinition:
     idempotency: Idempotency = Idempotency.NOT_REQUIRED
     provenance: bool = False  # does the result carry source/evidence references?
     provenance_note: str | None = None
+    # For CONSEQUENTIAL tools: the autonomy-policy action type this maps to, so
+    # the approval pipeline can snapshot the policy decision. Declarative only —
+    # the model can never set or override it.
+    autonomy_action_type: str | None = None
 
     def metadata(self) -> dict[str, Any]:
         """Safe declarative metadata for tool discovery.
@@ -148,6 +152,7 @@ class ToolDefinition:
             "idempotency": self.idempotency.value,
             "provenance": self.provenance,
             "provenance_note": self.provenance_note,
+            "autonomy_action_type": self.autonomy_action_type,
             "input_schema": self.input_schema.model_json_schema(),
             "output_schema": self.output_schema.__name__,
         }

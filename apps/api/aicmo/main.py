@@ -382,6 +382,14 @@ import aicmo.modules.belief.models  # noqa: E402, F401
 from aicmo.modules.belief.router import router as belief_router  # noqa: E402
 
 app.include_router(belief_router)
+
+# Phase 4A — approval-gated consequential execution. Importing the model
+# registers agent_action_approvals on Base.metadata; the router mounts the
+# propose/approve/reject/execute pipeline (human approval, server-enforced).
+import aicmo.modules.agent_actions.models  # noqa: E402, F401
+from aicmo.modules.agent_actions.router import router as agent_actions_router  # noqa: E402
+
+app.include_router(agent_actions_router)
 # SaaS foundation — identity, tenancy, RBAC. Mounted at /api/v1 alongside everything else.
 # First-party authentication (signup/signin/signout/verify/reset/change/…).
 # Its routes already carry the /api/v1/auth prefix.

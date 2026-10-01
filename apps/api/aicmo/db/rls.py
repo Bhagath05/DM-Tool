@@ -85,6 +85,9 @@ ORG_SCOPED_TABLES: tuple[str, ...] = (
     # Belief / learning memory (Phase 3A) — org-scoped knowledge graph.
     "beliefs",
     "belief_evidence",
+    # Approval-gated consequential actions (Phase 4A) — org-scoped human-approval
+    # gate for agent-proposed consequential tool calls.
+    "agent_action_approvals",
     # (creative_format, objective_kind, layout_primitive are non-tenant
     #  catalogs — excluded, like `plan`.)
 )
