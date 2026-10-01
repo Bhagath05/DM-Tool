@@ -137,6 +137,7 @@ async def _seed_outcome(session, *, org, brand, user, surface, score, status="ev
     from aicmo.modules.advisor.models import AdvisorOutcome, AdvisorRecommendation
 
     rec = AdvisorRecommendation(
+        id=uuid.uuid4(),  # AdvisorRecommendation.id has no default; real callers set it
         organization_id=org, brand_id=brand, user_id=str(user), record_type="opportunity",
         title="t", source_surface=surface, source_fingerprint=uuid.uuid4().hex,
     )

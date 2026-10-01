@@ -74,8 +74,10 @@ class AdvisorOutcome(Base, TimestampMixin):
         unique=True,
         index=True,
     )
+    # Values: "pending" | "evaluated" | "insufficient_data" (17 chars). The
+    # column must be wide enough for the longest value; varchar(32) leaves margin.
     evaluation_status: Mapped[str] = mapped_column(
-        String(16), index=True, default="pending"
+        String(32), index=True, default="pending"
     )
     baseline_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     outcome_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
