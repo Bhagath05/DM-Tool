@@ -2944,6 +2944,43 @@ export interface BeliefReadResponse {
   includes_history: boolean;
 }
 
+// --- Agent consequential-action approvals (Phase 4A/4B/4C) -----------------
+export type AgentActionStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "executed"
+  | "failed";
+
+export interface ApprovalView {
+  id: string;
+  tool_name: string;
+  operation_class: string;
+  status: AgentActionStatus;
+  /** Server-validated tool input — safe to display, never secrets. */
+  arguments: Record<string, unknown>;
+  action_fingerprint: string;
+  autonomy_action_type: string | null;
+  policy_mode: string | null;
+  reason: string | null;
+  expected_effect: string | null;
+  requested_by_user_id: string;
+  decided_by_user_id: string | null;
+  decided_at: string | null;
+  decision_reason: string | null;
+  expires_at: string;
+  executed_at: string | null;
+  result: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  approval_required: boolean;
+}
+
+export interface ApprovalListResponse {
+  items: ApprovalView[];
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -3563,6 +3600,34 @@ export const api = {
         `/api/v1/beliefs${qs ? `?${qs}` : ""}`,
       );
     },
+  },
+  agentActions: {
+    /**
+     * Human approval surface for agent-proposed CONSEQUENTIAL actions. Read +
+     * approve/reject/execute; tenant is resolved server-side from the session.
+     * The browser NEVER calls a consequential service directly — only this
+     * approval API, which drives the server-side state machine + execution.
+     */
+    list: (status?: AgentActionStatus) =>
+      request<ApprovalListResponse>(
+        `/api/v1/agent/actions${status ? `?status=${status}` : ""}`,
+      ),
+    get: (id: string) => request<ApprovalView>(`/api/v1/agent/actions/${id}`),
+    approve: (id: string, reason?: string) =>
+      request<ApprovalView>(`/api/v1/agent/actions/${id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    reject: (id: string, reason?: string) =>
+      request<ApprovalView>(`/api/v1/agent/actions/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason ?? null }),
+      }),
+    execute: (id: string) =>
+      request<ApprovalView>(`/api/v1/agent/actions/${id}/execute`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
   },
   system: {
     /** Storage capability — whether durable object storage is configured. */

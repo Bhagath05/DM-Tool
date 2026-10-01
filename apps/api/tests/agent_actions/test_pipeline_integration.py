@@ -166,7 +166,7 @@ async def test_full_approval_lifecycle():
 
         # 4. approve (real actor) → execute → EXECUTED, handler called ONCE.
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            approved = await service.approve(s, tenant=t_a, approval_id=pid, reason="LGTM")
+            approved = await service.approve(s, tenant=t_a, approval_id=pid, reason="LGTM", registry=reg)
             assert approved.status == ApprovalStatus.APPROVED.value
             assert approved.decided_by_user_id == user_a
             await s.commit()
@@ -194,7 +194,7 @@ async def test_full_approval_lifecycle():
         # 16. state transitions enforced — cannot approve an executed approval.
         async with AsyncSession(eng, expire_on_commit=False) as s:
             with pytest.raises(service.ApprovalStateError):
-                await service.approve(s, tenant=t_a, approval_id=pid)
+                await service.approve(s, tenant=t_a, approval_id=pid, registry=reg)
             await s.rollback()
 
         # 5. rejected blocks execution.
@@ -231,7 +231,7 @@ async def test_full_approval_lifecycle():
             await s.commit()
             tamper_id = r.id
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            await service.approve(s, tenant=t_a, approval_id=tamper_id)
+            await service.approve(s, tenant=t_a, approval_id=tamper_id, registry=reg)
             await s.commit()
         async with AsyncSession(eng, expire_on_commit=False) as s:
             victim = await service.get_approval(s, tenant=t_a, approval_id=tamper_id)
@@ -313,7 +313,7 @@ async def test_full_approval_lifecycle():
             await s.commit()
             np_id = r.id
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            await service.approve(s, tenant=t_a, approval_id=np_id)
+            await service.approve(s, tenant=t_a, approval_id=np_id, registry=reg)
             await s.commit()
         async with AsyncSession(eng, expire_on_commit=False) as s:
             before = calls["n"]
@@ -328,7 +328,7 @@ async def test_full_approval_lifecycle():
             await s.commit()
             stale_id = r.id
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            await service.approve(s, tenant=t_a, approval_id=stale_id)
+            await service.approve(s, tenant=t_a, approval_id=stale_id, registry=reg)
             await s.commit()
         async with AsyncSession(eng, expire_on_commit=False) as s:
             empty_registry = ToolRegistry()  # tool no longer registered
@@ -342,7 +342,7 @@ async def test_full_approval_lifecycle():
             await s.commit()
             bad_id = r.id
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            await service.approve(s, tenant=t_a, approval_id=bad_id)
+            await service.approve(s, tenant=t_a, approval_id=bad_id, registry=reg)
             await s.commit()
         async with AsyncSession(eng, expire_on_commit=False) as s:
             bad_reg = _registry({"n": 0}, bad_shape=True)
@@ -361,7 +361,7 @@ async def test_full_approval_lifecycle():
             await s.commit()
             fail_id = r.id
         async with AsyncSession(eng, expire_on_commit=False) as s:
-            await service.approve(s, tenant=t_a, approval_id=fail_id)
+            await service.approve(s, tenant=t_a, approval_id=fail_id, registry=reg)
             await s.commit()
         async with AsyncSession(eng, expire_on_commit=False) as s:
             fail_reg = _registry({"n": 0}, publish_status="failed", post_id=None)

@@ -78,6 +78,7 @@ def _view(row: AgentActionApproval) -> ApprovalView:
             "tool_name": row.tool_name,
             "operation_class": row.operation_class,
             "status": row.status,
+            "arguments": row.action_input or {},
             "action_fingerprint": row.action_fingerprint,
             "autonomy_action_type": row.autonomy_action_type,
             "policy_mode": row.policy_mode,
@@ -267,12 +268,58 @@ async def list_approvals(
 # ---------------------------------------------------------------------
 #  Human decision
 # ---------------------------------------------------------------------
+def _assert_binding_current(
+    tenant: TenantContext, row: AgentActionApproval, registry: ToolRegistry
+) -> None:
+    """Fail closed unless the approval still binds its EXACT action under the
+    CURRENT tool definition: the tool must still be a registered consequential
+    tool, the stored input must still satisfy its schema, and the recomputed
+    fingerprint must equal the stored one. Does NOT change state — a drifted
+    action simply cannot be approved; it must be re-proposed."""
+    try:
+        tool = registry.resolve_tool(row.tool_name)
+    except ToolNotFoundError as exc:
+        raise ApprovalStateError(
+            f"tool {row.tool_name!r} is no longer registered — a new approval is required"
+        ) from exc
+    if tool.operation_class != OperationClass.CONSEQUENTIAL:
+        raise ApprovalStateError(f"tool {row.tool_name!r} is no longer a consequential action")
+    try:
+        registry.validate_input(tool, row.action_input)
+    except ToolError as exc:
+        raise ApprovalStateError("stored action input no longer matches the tool schema") from exc
+    expected_fp = fp.fingerprint_action(
+        organization_id=tenant.organization_id,
+        brand_id=row.brand_id,
+        tool_name=tool.name,
+        operation_class=tool.operation_class.value,
+        action_input=row.action_input,
+    )
+    if expected_fp != row.action_fingerprint:
+        raise ApprovalStateError(
+            "action fingerprint no longer matches — a new approval is required"
+        )
+
+
 async def approve(
-    session: AsyncSession, *, tenant: TenantContext, approval_id: uuid.UUID, reason: str | None = None
+    session: AsyncSession,
+    *,
+    tenant: TenantContext,
+    approval_id: uuid.UUID,
+    reason: str | None = None,
+    registry: ToolRegistry | None = None,
 ) -> AgentActionApproval:
     """Record a HUMAN approval of the exact action. The actor is the
-    authenticated user from the server-derived tenant — never model-supplied."""
+    authenticated user from the server-derived tenant — never model-supplied.
+
+    Before transitioning, re-validate that the action still binds exactly (tool
+    exists + input still valid + fingerprint unchanged). A human can only approve
+    the precise action that was proposed; drift fails closed."""
+    registry = registry or get_action_registry()
     row = await get_approval(session, tenant=tenant, approval_id=approval_id)
+    # Re-validate the binding BEFORE the state check so a drifted action cannot be
+    # approved even while still PENDING.
+    _assert_binding_current(tenant, row, registry)
     before = {"status": row.status}
     _transition(row, ApprovalStatus.APPROVED)  # raises if not PENDING
     row.decided_by_user_id = tenant.user_uuid
@@ -394,7 +441,7 @@ async def execute_approved(
     except ToolError as exc:
         await _fail(session, tenant, row, reason=type(exc).__name__, request_id=request_id)
         raise ApprovalStateError(f"execution authorization/validation failed: {type(exc).__name__}") from exc
-    except Exception as exc:  # noqa: BLE001 — record the failure, never claim success
+    except Exception as exc:  # record the failure, never claim success
         await _fail(session, tenant, row, reason="execution_error", request_id=request_id)
         log.warning("agent_action.execution_error", approval_id=str(row.id), error=str(exc)[:200])
         return row

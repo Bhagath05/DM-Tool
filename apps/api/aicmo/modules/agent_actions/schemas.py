@@ -36,6 +36,9 @@ class ApprovalView(BaseModel):
     tool_name: str
     operation_class: str
     status: str
+    # The server-VALIDATED tool input (what the action will run with). Safe to
+    # display: it passed the tool's extra='forbid' schema and the secret scan.
+    arguments: dict = Field(default_factory=dict)
     action_fingerprint: str
     autonomy_action_type: str | None = None
     policy_mode: str | None = None
