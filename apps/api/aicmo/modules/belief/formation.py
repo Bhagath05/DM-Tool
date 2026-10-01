@@ -11,6 +11,22 @@ CONTROLLED fields (action kind + measurement window) — no free-text outcome
 content is interpolated, so outcome text can never become instructions, and no
 causal claim is asserted (only a measured association). Confidence/status are
 derived by the existing deterministic system; the pipeline never sets them.
+
+After a belief is created or refreshed, ``reconcile.reconcile_belief`` runs a
+deterministic cross-belief contradiction / supersession pass (Phase 3D) so a new
+active belief that opposes an existing one on a *comparable* slice supersedes the
+weaker/older one — preserving history, never deleting it.
+
+Deferred (Phase 3D, by design): *semantic candidate normalization.* An LLM could
+propose nicer wording for the statement, but the entire injection-safety model of
+this pipeline rests on statements being fully server-templated from controlled
+fields. Introducing an LLM-authored statement — even one the server re-validates
+— widens the attack surface for marginal copy-quality gain, so it is explicitly
+NOT done here. A future safe implementation MUST let the LLM influence *only*
+wording, with the server retaining sole authority over tenant/brand, evidence
+ids, scope, confidence, status, relation, and supersession, and MUST re-run the
+secret scan + a no-causality check over any proposed text. See
+docs/product/BELIEF_LEARNING.md.
 """
 
 from __future__ import annotations
@@ -24,6 +40,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.advisor.models import AdvisorOutcome, AdvisorRecommendation
+from aicmo.modules.belief import reconcile as belief_reconcile
 from aicmo.modules.belief import service as belief_service
 from aicmo.modules.belief.enums import BeliefCategory, EvidenceRefKind, EvidenceRelation
 from aicmo.modules.belief.models import Belief, BeliefEvidence
@@ -189,6 +206,12 @@ async def form_belief_from_outcome(
         )
         result = FormationResult(status="created", outcome_id=outcome_id, belief_id=belief.id)
 
+    # Cross-belief reconciliation: if this now-active belief opposes an existing
+    # one on a comparable slice, supersede the weaker/older (history preserved).
+    reconciliation = await belief_reconcile.reconcile_belief(
+        session, tenant=tenant, belief_id=belief.id
+    )
+
     # Provenance is inherent (belief_evidence → outcome); log a safe event too.
     log.info(
         "belief.formed",
@@ -197,6 +220,8 @@ async def form_belief_from_outcome(
         outcome_id=str(outcome_id),
         organization_id=str(tenant.organization_id),
         brand_id=str(brand_id),
+        reconciled=reconciliation.status,
+        superseded=len(reconciliation.superseded_ids),
     )
     return result
 

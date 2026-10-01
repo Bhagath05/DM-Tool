@@ -2900,6 +2900,50 @@ export interface SecuritySession {
   created_at: string;
 }
 
+// --- Belief memory (read-only) --------------------------------------------
+export type BeliefStatus =
+  | "active"
+  | "superseded"
+  | "contradicted"
+  | "unvalidated"
+  | "retired";
+
+export interface BeliefEvidenceCard {
+  kind: string;
+  relation: "supports" | "contradicts";
+  note: string | null;
+}
+
+export interface BeliefCard {
+  id: string;
+  category: string;
+  subject: string;
+  statement: string;
+  scope: Record<string, string>;
+  status: BeliefStatus;
+  /** Freshness-adjusted confidence to show today. */
+  confidence: number;
+  /** What the evidence supported when the belief was established. */
+  original_confidence: number;
+  confidence_reason: string;
+  freshness_reason: string | null;
+  evidence_count: number;
+  evidence: BeliefEvidenceCard[];
+  established_at: string;
+  last_validated_at: string | null;
+  valid_until: string | null;
+  is_current: boolean;
+  superseded_by_id: string | null;
+}
+
+export interface BeliefReadResponse {
+  as_of: string;
+  active: BeliefCard[];
+  historical: BeliefCard[];
+  truncated: boolean;
+  includes_history: boolean;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -3503,6 +3547,22 @@ export const api = {
       ),
     analyticsSummary: () =>
       request<AnalyticsSummary>("/api/v1/coach/analytics-summary"),
+  },
+  beliefs: {
+    /**
+     * "What DM Tool believes" — the tenant's evidence-backed beliefs. Read-only;
+     * current/active by default, historical (superseded/contradicted/expired)
+     * only when requested. Tenant is resolved server-side from the session.
+     */
+    list: (opts?: { includeHistory?: boolean; category?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.includeHistory) params.set("include_history", "true");
+      if (opts?.category) params.set("category", opts.category);
+      const qs = params.toString();
+      return request<BeliefReadResponse>(
+        `/api/v1/beliefs${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
   system: {
     /** Storage capability — whether durable object storage is configured. */

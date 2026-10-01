@@ -120,9 +120,10 @@ async def build_belief_context(
         "NOT universal truths. Confidence is evidence-derived.",
     ]
     for b in active:
+        conf = b.effective_confidence if b.effective_confidence is not None else b.confidence
         lines.append(
             f"- [{b.category}] {b.statement[:240]} "
-            f"(confidence {b.confidence}%; {b.confidence_reason[:120]}; "
+            f"(confidence {conf}%; {b.confidence_reason[:120]}; "
             f"status={b.status}; {b.evidence_count} evidence; scope: {_scope_str(b)})"
         )
     if historical and history:
@@ -138,7 +139,7 @@ async def build_belief_context(
         EvidenceRef(
             label=f"belief:{b.category}:{b.subject_key}",
             source=b.confidence_reason or None,
-            confidence=b.confidence,
+            confidence=(b.effective_confidence if b.effective_confidence is not None else b.confidence),
             status=b.status,
         )
         for b in active

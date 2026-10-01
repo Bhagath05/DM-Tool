@@ -56,6 +56,12 @@ class BeliefView(BaseModel):
     status: BeliefStatus
     confidence: int
     confidence_reason: str
+    # Resolver-time freshness (Phase 3D). ``effective_confidence`` decays the
+    # stored ``confidence`` by age WITHOUT mutating it; optional so callers that
+    # build a view directly (e.g. tests) need not supply it — consumers fall back
+    # to ``confidence`` when it is absent.
+    effective_confidence: int | None = None
+    freshness_reason: str | None = None
     evidence_count: int
     validated_at: datetime | None
     valid_from: datetime
@@ -75,3 +81,48 @@ class BeliefResolution(BaseModel):
     superseded: list[BeliefView] = Field(default_factory=list)
     contradicted: list[BeliefView] = Field(default_factory=list)
     truncated: bool = False
+
+
+# --- Read API (Phase 3D) ----------------------------------------------------
+# UI-facing, read-only projections. Deliberately plain (no org/tenant ids, no
+# internal parent pointer) so "What DM Tool believes" reads as evidence-backed
+# beliefs — not facts, and not a raw table dump.
+
+
+class BeliefEvidenceCard(BaseModel):
+    kind: EvidenceRefKind
+    relation: EvidenceRelation
+    note: str | None = None
+
+
+class BeliefCard(BaseModel):
+    id: uuid.UUID
+    category: BeliefCategory
+    subject: str
+    statement: str
+    scope: dict
+    status: BeliefStatus
+    # ``confidence`` is the freshness-adjusted value the user should trust today;
+    # ``original_confidence`` is what the evidence supported when established.
+    confidence: int
+    original_confidence: int
+    confidence_reason: str
+    freshness_reason: str | None = None
+    evidence_count: int
+    evidence: list[BeliefEvidenceCard] = Field(default_factory=list)
+    established_at: datetime
+    last_validated_at: datetime | None = None
+    valid_until: datetime | None = None
+    is_current: bool = True
+    superseded_by_id: uuid.UUID | None = None
+
+
+class BeliefReadResponse(BaseModel):
+    """The tenant's beliefs for display. Active/current by default; historical
+    only when explicitly requested."""
+
+    as_of: datetime
+    active: list[BeliefCard] = Field(default_factory=list)
+    historical: list[BeliefCard] = Field(default_factory=list)
+    truncated: bool = False
+    includes_history: bool = False
