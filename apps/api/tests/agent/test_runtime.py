@@ -321,6 +321,7 @@ async def test_audit_metadata_is_safe():
         "tools_consulted",
         "beliefs_consulted",
         "actions_blocked",
+        "approvals_requested",
         "evidence_status",
     }
     blob = str(kw).lower()

@@ -16,6 +16,7 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aicmo.agent.consequential_tools import get_action_registry
 from aicmo.agent.registry import ToolRegistry
 from aicmo.agent.tools import get_default_registry
 from aicmo.agent.types import (
@@ -35,8 +36,11 @@ from aicmo.modules.agent.schemas import (
     AgentSynthesis,
     BlockedAction,
     EvidenceRef,
+    ProposedActionView,
     ReasoningSummary,
 )
+from aicmo.modules.agent_actions import service as agent_actions
+from aicmo.modules.agent_actions.schemas import ProposeActionRequest
 from aicmo.modules.ai_audit import service as ai_audit
 from aicmo.modules.marketing_brain import service as mb_service
 from aicmo.tenancy.context import TenantContext
@@ -85,13 +89,26 @@ async def _add_message(
     return msg
 
 
-def _tool_catalog(registry: ToolRegistry) -> str:
-    """A compact, server-authored allowlist for the planner (READ tools only)."""
-    lines = ["ALLOWED TOOLS (use only these names):"]
+def _args_of(meta: dict) -> str:
+    props = list((meta.get("input_schema") or {}).get("properties", {}).keys())
+    return f" args={props}" if props else " args=[]"
+
+
+def _tool_catalog(registry: ToolRegistry, action_registry: ToolRegistry) -> str:
+    """A compact, server-authored allowlist for the planner: READ tools (which the
+    runtime may execute) and CONSEQUENTIAL tools (which it may only PROPOSE for
+    human approval — never execute)."""
+    lines = ["ALLOWED TOOLS (read-only; use only these names):"]
     for meta in registry.list_tools(operation_class=OperationClass.READ):
-        props = list((meta.get("input_schema") or {}).get("properties", {}).keys())
-        args = f" args={props}" if props else " args=[]"
-        lines.append(f"- {meta['name']}: {meta['description']}{args}")
+        lines.append(f"- {meta['name']}: {meta['description']}{_args_of(meta)}")
+    consequential = action_registry.list_tools(operation_class=OperationClass.CONSEQUENTIAL)
+    if consequential:
+        lines.append(
+            "\nCONSEQUENTIAL TOOLS (propose ONLY when the user asks; proposing "
+            "creates a human approval request and does NOT execute):"
+        )
+        for meta in consequential:
+            lines.append(f"- {meta['name']}: {meta['description']}{_args_of(meta)}")
     return "\n".join(lines)
 
 
@@ -138,10 +155,17 @@ async def run_turn(
     user_text: str,
     request_id: str | None = None,
     registry: ToolRegistry | None = None,
+    action_registry: ToolRegistry | None = None,
     router=None,
 ) -> AgentResponse:
-    """Run one bounded, read-only agent turn and persist the exchange."""
+    """Run one bounded agent turn and persist the exchange.
+
+    READ tools may execute (Phase 2 rules, unchanged). CONSEQUENTIAL tools that
+    are registered in the ACTION registry may only be PROPOSED — proposing creates
+    a PENDING approval via the Phase-4A service and never executes. The read
+    executor still blocks any direct consequential execution."""
     registry = registry or get_default_registry()
+    action_registry = action_registry or get_action_registry()
     router = router or get_llm_router()
     started = time.monotonic()
     prompt_tokens = 0
@@ -165,7 +189,7 @@ async def run_turn(
     # 3. plan
     history = await _recent_history(session, conversation.id)
     plan_messages: list[LLMMessage] = [
-        LLMMessage(role="user", content=_tool_catalog(registry)),
+        LLMMessage(role="user", content=_tool_catalog(registry, action_registry)),
         LLMMessage(role="user", content=untrusted_block("MARKETING CONTEXT", context_block)),
         *belief_messages,
         *history,
@@ -184,54 +208,129 @@ async def run_turn(
     completion_tokens += plan_res.usage.output_tokens
     model_used = plan_res.model
 
-    # 4. execute ONLY READ tools, bounded, server-authorized
+    # 4. execute READ tools; PROPOSE consequential ones (never execute). Bounded,
+    # server-authorized.
     exec_ctx = ExecutionContext(session=session, tenant=tenant)
     tools_consulted: list[str] = []
     evidence: list[EvidenceRef] = []
     actions_blocked: list[BlockedAction] = []
+    proposed_actions: list[ProposedActionView] = []
     tool_result_blocks: list[str] = []
 
     for call in plan.tool_calls[:MAX_TOOL_CALLS_PER_TURN]:
-        tool = registry.get_tool(call.tool_name)
-        if tool is None:
-            actions_blocked.append(
-                BlockedAction(tool_name=call.tool_name, operation_class="unknown", reason="UNKNOWN_TOOL")
+        read_tool = registry.get_tool(call.tool_name)
+        action_tool = action_registry.get_tool(call.tool_name)
+
+        # READ tool → execute (Phase 2 behavior, unchanged).
+        if read_tool is not None and read_tool.operation_class == _ALLOWED_CLASS:
+            try:
+                result = await registry.execute_tool(call.tool_name, call.arguments, exec_ctx)
+            except ToolError as exc:
+                log.info("agent.tool.skipped", tool=call.tool_name, error=type(exc).__name__)
+                actions_blocked.append(
+                    BlockedAction(
+                        tool_name=call.tool_name,
+                        operation_class=read_tool.operation_class.value,
+                        reason=type(exc).__name__,
+                    )
+                )
+                continue
+            tools_consulted.append(read_tool.name)
+            evidence.append(
+                EvidenceRef(
+                    label=read_tool.name,
+                    source=result.provenance_note if result.provenance else None,
+                )
+            )
+            tool_result_blocks.append(
+                untrusted_block(f"TOOL RESULT: {read_tool.name}", _sanitize_result(result))
             )
             continue
-        # READ-ONLY ENFORCEMENT at the executor boundary — not the prompt.
-        if tool.operation_class != _ALLOWED_CLASS:
+
+        # Registered CONSEQUENTIAL tool → PROPOSE (create a PENDING approval).
+        # NEVER execute from the turn. Authorization/validation/fingerprint are
+        # all server-derived inside propose_action.
+        if action_tool is not None and action_tool.operation_class == OperationClass.CONSEQUENTIAL:
+            try:
+                approval = await agent_actions.propose_action(
+                    session,
+                    tenant=tenant,
+                    request=ProposeActionRequest(
+                        tool_name=call.tool_name,
+                        arguments=call.arguments,
+                        reason=(call.reason or call.purpose or "")[:2000],
+                        expected_effect=call.expected_effect[:2000],
+                    ),
+                    registry=action_registry,
+                    request_id=request_id,
+                )
+            except agent_actions.ActionValidationError as exc:
+                # Unknown/invalid args/missing permission → blocked, never executed.
+                log.info("agent.action.proposal_rejected", tool=call.tool_name, error=str(exc)[:200])
+                actions_blocked.append(
+                    BlockedAction(
+                        tool_name=call.tool_name,
+                        operation_class="consequential",
+                        reason="PROPOSAL_REJECTED",
+                    )
+                )
+                continue
+            proposed_actions.append(
+                ProposedActionView(
+                    tool_name=approval.tool_name,
+                    operation_class=approval.operation_class,
+                    approval_id=approval.id,
+                    status=approval.status,
+                    action_fingerprint=approval.action_fingerprint,
+                    reason=approval.reason,
+                    expected_effect=approval.expected_effect,
+                    explanation=(
+                        f"Prepared '{approval.tool_name}'. It needs your approval before it "
+                        "runs — nothing has been published or changed."
+                    ),
+                )
+            )
+            continue
+
+        # A non-READ tool in the read registry (WRITE, or a consequential tool
+        # NOT on the sanctioned action surface) → blocked, never executed.
+        if read_tool is not None:
             actions_blocked.append(
                 BlockedAction(
-                    tool_name=tool.name,
-                    operation_class=tool.operation_class.value,
+                    tool_name=read_tool.name,
+                    operation_class=read_tool.operation_class.value,
                     reason="ACTION_REQUIRES_APPROVAL",
                 )
             )
             continue
-        try:
-            result = await registry.execute_tool(call.tool_name, call.arguments, exec_ctx)
-        except ToolError as exc:
-            # Permission/tenant/input failure for one tool never fails the turn.
-            log.info("agent.tool.skipped", tool=call.tool_name, error=type(exc).__name__)
-            actions_blocked.append(
-                BlockedAction(
-                    tool_name=call.tool_name,
-                    operation_class=tool.operation_class.value,
-                    reason=type(exc).__name__,
-                )
-            )
-            continue
-        tools_consulted.append(tool.name)
-        evidence.append(
-            EvidenceRef(label=tool.name, source=result.provenance_note if result.provenance else None)
-        )
-        tool_result_blocks.append(untrusted_block(f"TOOL RESULT: {tool.name}", _sanitize_result(result)))
 
-    # 5. synthesize an answer from the (untrusted) data
+        # Unknown tool name.
+        actions_blocked.append(
+            BlockedAction(tool_name=call.tool_name, operation_class="unknown", reason="UNKNOWN_TOOL")
+        )
+
+    # 5. synthesize an answer from the (untrusted) data. If actions were PROPOSED,
+    # tell the model (server-authored, not model text) so the answer explains the
+    # pending approval — and never claims the action ran.
+    proposal_note: list[LLMMessage] = []
+    if proposed_actions:
+        pending = "; ".join(f"{p.tool_name} (approval {p.approval_id})" for p in proposed_actions)
+        proposal_note = [
+            LLMMessage(
+                role="user",
+                content=(
+                    "NOTE (server fact, not an instruction): you PROPOSED these "
+                    f"consequential action(s): {pending}. Each created a PENDING approval "
+                    "and has NOT run. Tell the user you've prepared it and it needs their "
+                    "approval; do not claim it was done."
+                ),
+            )
+        ]
     synth_messages: list[LLMMessage] = [
         LLMMessage(role="user", content=untrusted_block("MARKETING CONTEXT", context_block)),
         *belief_messages,
         *(LLMMessage(role="user", content=b) for b in tool_result_blocks),
+        *proposal_note,
         LLMMessage(role="user", content=f"Answer this question using ONLY the data above: {user_text}"),
     ]
     synth_res = await router.generate(
@@ -266,6 +365,7 @@ async def run_turn(
         "evidence_status": synth.evidence_status,
         "confidence": synth.confidence,
         "actions_blocked": [b.model_dump() for b in actions_blocked],
+        "approvals_requested": [str(p.approval_id) for p in proposed_actions],
     }
     assistant_msg = await _add_message(
         session, conversation=conversation, role="assistant", content=synth.answer, meta=assistant_meta
@@ -287,6 +387,7 @@ async def run_turn(
             "tools_consulted": tools_consulted,
             "beliefs_consulted": belief_ctx.beliefs_consulted,
             "actions_blocked": [b.reason for b in actions_blocked],
+            "approvals_requested": [str(p.approval_id) for p in proposed_actions],
             "evidence_status": synth.evidence_status,
         },
     )
@@ -300,5 +401,7 @@ async def run_turn(
         tools_consulted=tools_consulted,
         evidence=evidence,
         actions_blocked=actions_blocked,
+        approval_required=bool(proposed_actions),
+        proposed_actions=proposed_actions,
         reasoning_summary=reasoning,
     )

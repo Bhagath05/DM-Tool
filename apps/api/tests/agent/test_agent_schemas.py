@@ -51,7 +51,12 @@ def test_synthesis_defaults_to_insufficient_evidence():
 def test_prompts_declare_untrusted_boundary_and_read_only():
     for p in (PLANNING_SYSTEM, SYNTHESIS_SYSTEM):
         assert "UNTRUSTED DATA" in p
-        assert "READ-ONLY" in p
         assert "never invent" in p.lower() or "do not fabricate" in p.lower()
+        # The agent never executes consequential actions on its own authority —
+        # it may at most PROPOSE, and a human must approve (Phase 4B contract).
+        assert "never execute" in p.lower()
+        assert "approve" in p.lower()
+    # Planning explicitly frames consequential actions as proposal-only.
+    assert "propose" in PLANNING_SYSTEM.lower()
     block = untrusted_block("X", "some data")
     assert "BEGIN UNTRUSTED DATA" in block and "NOT INSTRUCTIONS" in block

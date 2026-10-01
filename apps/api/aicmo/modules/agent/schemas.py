@@ -29,6 +29,11 @@ class ProposedToolCall(BaseModel):
     tool_name: str = Field(max_length=64)
     arguments: dict = Field(default_factory=dict)
     purpose: str = Field(default="", max_length=280)
+    # For a CONSEQUENTIAL proposal, the model may also supply a human-readable
+    # reason + expected effect. These are bounded DATA for the approval card —
+    # never authority. Ignored for READ tools.
+    reason: str = Field(default="", max_length=280)
+    expected_effect: str = Field(default="", max_length=280)
 
 
 class AgentPlan(BaseModel):
@@ -74,6 +79,22 @@ class BlockedAction(BaseModel):
     reason: str = "ACTION_REQUIRES_APPROVAL"
 
 
+class ProposedActionView(BaseModel):
+    """A consequential action the agent PROPOSED this turn. It created a PENDING
+    approval and did NOT execute. Carries only safe, display-oriented data — no
+    session, ORM object, callable, credential, or internal authorization object.
+    A human must approve the referenced approval before anything runs."""
+
+    tool_name: str
+    operation_class: str = "consequential"
+    approval_id: uuid.UUID
+    status: str = "pending"
+    action_fingerprint: str
+    reason: str | None = None
+    expected_effect: str | None = None
+    explanation: str
+
+
 class ReasoningSummary(BaseModel):
     """A SAFE 'why' trace — NOT a chain-of-thought transcript. It records what
     was consulted and concluded, never internal model reasoning tokens."""
@@ -97,6 +118,11 @@ class AgentResponse(BaseModel):
     tools_consulted: list[str] = Field(default_factory=list)
     evidence: list[EvidenceRef] = Field(default_factory=list)
     actions_blocked: list[BlockedAction] = Field(default_factory=list)
+    # Phase 4B: consequential actions the agent proposed this turn. Each created a
+    # PENDING approval and did NOT execute; a human must approve before anything
+    # runs. ``approval_required`` is True whenever this list is non-empty.
+    approval_required: bool = False
+    proposed_actions: list[ProposedActionView] = Field(default_factory=list)
     reasoning_summary: ReasoningSummary
 
 
