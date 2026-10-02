@@ -9,6 +9,14 @@ Where this conflicts with a convenience, this wins.
 > The system must never sound more certain than the evidence supports, and the
 > LLM is never the final authority on whether its own answer is trustworthy.
 
+> **The decision-intelligence principle:**
+> **Evidence supporting a claim is not automatically evidence supporting an
+> action.** DM Tool must always separate *"What is true?"* from *"What should we
+> do?"* A true claim is a necessary but not sufficient basis for a
+> recommendation; the second question requires additional interpretation and
+> consequence/risk analysis before any action is advised. (See principle 18 and
+> §12 of the architecture.)
+
 These principles extend — they do not replace — the Constitution in
 [/CLAUDE.md](../../CLAUDE.md) (the 10-second rule, the AI Recommendation
 Contract, Simple Mode, business-impact framing) and the safety boundaries of the
@@ -16,7 +24,7 @@ approval architecture (Phases 4A–4C).
 
 ---
 
-## The 17 non-negotiables
+## The non-negotiables
 
 Each rule names where it is (or will be) enforced. "Today" = already true in the
 codebase; "Trust Layer" = to be enforced by the new layer.
@@ -53,12 +61,17 @@ codebase; "Trust Layer" = to be enforced by the new layer.
    provider data must trace to a provider source; otherwise the source is marked
    `UNVERIFIED` (§16 arch).
 
-8. **Never let an LLM-generated confidence number become authoritative.**
-   *Today:* belief confidence is deterministically derived (`derive_confidence`),
-   and advisor recommendations carry a server `confidence_cap`. *Gap:* the
-   conversational agent currently surfaces LLM-set `confidence`/`evidence_status`.
-   *Trust Layer:* confidence is derived/validated server-side; any LLM number is
-   at most clamped down, never trusted up.
+8. **Never let an LLM-generated confidence number become authoritative. The
+   server may only ever *reduce* an LLM's proposed confidence, never raise it.**
+   Authoritative confidence is **server-derived** from evidence quality +
+   quantity + consistency + freshness + comparability + experimental strength −
+   contradictions, clamped to a ceiling set by evidence quality **and** claim
+   type. *Today:* belief confidence is deterministically derived
+   (`derive_confidence`, ceiling 95); advisor recommendations carry a server
+   `confidence_cap`. *Gap:* the conversational agent surfaces LLM-set
+   `confidence`/`evidence_status`. *Trust Layer:* `final = min(llm_proposed,
+   server_ceiling)` after server derivation — e.g. LLM 92, server ceiling 65 →
+   **65**. (Full model: §7 arch.)
 
 9. **Never convert uncertainty into certainty.** Confidence has an explicit
    **ceiling** when evidence is weak; freshness decays authority over time.
@@ -99,6 +112,15 @@ codebase; "Trust Layer" = to be enforced by the new layer.
 
 17. **Users remain the final decision makers.** The system advises and prepares;
     the human decides and authorizes. Advisory-only by default.
+
+18. **Evidence for a claim is not evidence for an action (decision intelligence).**
+    A validated fact never *by itself* justifies a recommendation. "What is true?"
+    and "What should we do?" are separate questions: a recommendation must pass a
+    distinct recommendation-validation stage (evidence support, scope,
+    contradictions, expected effect, **downside risk, reversibility**, consequence
+    level, required approval, testability) — not inherit a claim's trust. *Trust
+    Layer:* §12 arch; recommendation statuses `SUPPORTED` / `QUALIFIED` /
+    `INSUFFICIENT_EVIDENCE` / `CONTRADICTED` / `HIGH_RISK_REQUIRES_REVIEW`.
 
 ---
 
