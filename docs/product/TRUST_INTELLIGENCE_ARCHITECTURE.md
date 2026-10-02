@@ -244,81 +244,95 @@ fresh + adequate n + no contradictions), `moderate`, `weak`, `insufficient`.
 
 ---
 
-## 7. Confidence derivation (server-derived; LLM may only lower)
+## 7. Confidence derivation (server-derived, independent; LLM is diagnostic only)
 
-**Decision (review-approved): authoritative confidence is always server-derived.**
-The LLM may emit a *proposed* confidence signal, but it is never authoritative.
-The server derives confidence from structured evidence signals, then takes the
-**minimum** of (derived, LLM-proposed). The server can therefore only ever
-**reduce** an LLM number — never raise it because the model "sounds certain."
+**FINAL DECISION.** Authoritative confidence is **server-derived independently**
+from structured evidence. Confidence is **DM Tool server policy**, never justified
+by how a model "usually" behaves. The LLM-proposed number (if any) is a
+**diagnostic/provenance signal only** — recorded for drift analysis in shadow
+mode, **never an input** to the authoritative value.
 
-Generalize the proven belief deriver (`belief/confidence.py`) into a pure
-`trust/confidence.py`.
+Resolution of the earlier tension ("`final ≤ llm_proposed`" vs "don't let the LLM
+lower a well-evidenced value"): we resolve in favor of **independent derivation**.
+The server value stands on its own; the server can only ever *lower* an LLM number
+(it never raises one), and an LLM asserting a *low* number does **not** drag down a
+well-evidenced server value. A large server↔LLM divergence is **recorded** (not
+acted on) for review. This satisfies invariant I1 (Trust Layer cannot raise
+server-derived confidence) trivially, because the LLM number is not an input.
 
-### 7.1 Inputs (all observable/structured — never prose)
+**Representation: integer 0–100.** Chosen for consistency with the existing
+deterministic systems (belief `confidence` int 0–100, advisor `confidence` int,
+the `ConfidenceBar` UI), to avoid false precision, and to keep derivation exact
+and trivially testable. Generalize the tested belief deriver
+(`belief/confidence.py`) into a pure `trust/confidence.py`.
+
+### 7.1 Inputs (all observable/structured — never prose; never provider identity)
 
 | Input | Source | Effect |
 |---|---|---|
 | evidence quality band | §6 `evidence_quality` | sets **base** and the **ceiling** |
 | supporting count | resolvable supporting evidence_ids | **+** diminishing bonus (capped) |
-| consistency | agreement among supporting evidence (scope-comparable, same direction) | **+** / gate |
+| consistency | agreement among supporting evidence (scope-comparable, same direction) | gate + small **+** |
 | contradictions | `reconcile.find_conflicts` | **−** penalty; may force MIXED |
 | freshness | `belief/freshness.py` age of underlying evidence | **×** decay multiplier (≤1) |
-| comparability | `reconcile.scopes_comparable` for the asked scope | gate (fail → INSUFFICIENT) |
+| comparability | `reconcile.scopes_comparable` for the asked scope | **gate** (fail → INSUFFICIENT) |
 | experimental strength | measured outcome / experiment vs observational | **+** bonus |
-| claim type | §3/§4 | sets a **type ceiling** (below) |
-| llm_proposed | the candidate | **only lowers**: `min(derived, llm_proposed)` |
+| claim type | §3/§4 | sets a **type ceiling** |
 
-### 7.2 Deterministic calculation (pure, ordered)
+`llm_proposed` is **not** in this table — it does not affect the derived value.
+
+### 7.2 Deterministic calculation (pure, ordered, integer)
 
 ```
-0. comparability gate:  if scope not comparable OR required evidence missing → INSUFFICIENT_EVIDENCE (no number)
-1. base          = BASE_FOR_BAND[quality_band]            # strong/moderate/weak/insufficient
-2. support       = PER_SUPPORT * min(supporting_count, MAX_COUNTED_SUPPORT)   # diminishing, reuse belief tunables
-3. experimental  = EXPERIMENTAL_BONUS if is_measured_outcome else 0
-4. penalty       = PER_CONTRADICTION * min(contradicting_count, MAX_COUNTED_CONTRA)
-5. raw           = base + support + experimental − penalty
-6. ceiling       = min( CEILING_FOR_BAND[quality_band], CEILING_FOR_TYPE[claim_type] )   # hard cap
-7. floor         = FLOOR_FOR_BAND[quality_band]           # never claim more certainty than the band allows, never negative
-8. derived       = clamp(raw, floor, ceiling)
-9. fresh         = round(derived * freshness_multiplier(age))     # reuse effective_confidence (monotonic, ≤ derived)
-10. final        = min(fresh, llm_proposed_or_100)        # LLM may ONLY reduce
+0. GATES (any fail → INSUFFICIENT_EVIDENCE, no number):
+     comparability fails · band == insufficient · 0 supporting evidence · required metric missing
+1. base     = BASE[band]                         # strong 55 · moderate 40 · weak 25
+2. support  = PER_SUPPORT(15) * min(support_count, MAX_SUPPORT(3))      # 0..45
+3. exp      = EXPERIMENTAL_BONUS(15) if is_measured_outcome else 0
+4. consist  = CONSISTENCY_BONUS(5) if all_supporting_same_direction else 0
+5. penalty  = PER_CONTRADICTION(20) * min(contradiction_count, MAX_CONTRA(2))   # 0..40
+6. raw      = base + support + exp + consist − penalty
+7. ceiling  = min( CEILING_BAND[band], CEILING_TYPE[claim_type] )
+8. floor    = FLOOR[band]                         # strong 20 · moderate 10 · weak 0
+9. derived  = clamp(raw, floor, ceiling)          # integer
+10. final   = round( derived * freshness_multiplier(age) )   # effective_confidence; ≤ derived, ≥ decay floor
+# llm_proposed is recorded as diagnostic; it is NOT used in steps 1–10.
 ```
 
-All constants reuse / generalize the already-tested belief tunables
-(`_BASE`, `_PER_SUPPORT`, `_MAX_COUNTED_SUPPORT`, `_EXPERIMENTAL_BONUS`,
-`_PER_CONTRADICTION`, `_CEILING=95`). Exact values per band/type are set in the
-**Phase 1 Implementation Contract** (below) and need product sign-off against the
-CLAUDE.md bands (80/60/40).
+These are **conservative** defaults (strong single-support observation lands ~70,
+not 90). Constants are DM Tool policy and sit in `trust/confidence.py` as named
+tunables (reusing belief `_PER_SUPPORT=15`, `_EXPERIMENTAL_BONUS=15`,
+`_PER_CONTRADICTION=20`, `_CEILING`). Values are the binding v1 policy below;
+product may tune, but only through these named constants (never ad-hoc in code).
 
-### 7.3 Ceilings and floors
+### 7.3 Bands, ceilings, floors (binding v1)
 
-- **Evidence-quality ceiling** `CEILING_FOR_BAND`: `strong ≤ 95`, `moderate ≤ 75`,
-  `weak ≤ 55`, `insufficient → no confidence` (INSUFFICIENT_EVIDENCE). (95 reuses
-  the belief ceiling — nothing is ever 100 unless it is a verified FACT, §7.4.)
-- **Claim-type ceiling** `CEILING_FOR_TYPE` (these do **not** share one ceiling):
-  - `FACT` (verified deterministic calculation on verified data): up to **100**.
-  - `OBSERVATION`: ≤ **85**.
-  - `INTERPRETATION`: ≤ **70**.
-  - `HYPOTHESIS`: ≤ **55**.
-  - `RECOMMENDATION`: inherits the **weakest supporting claim's** effective
-    confidence, then further bounded by the consequence/risk model (§13).
-- The applied ceiling is `min(band_ceiling, type_ceiling)` — so a HYPOTHESIS can
-  never reach FACT-level confidence regardless of how the LLM phrases it.
-- **Floor** keeps a once-supported claim from collapsing to 0 through age alone
-  (freshness decays to a floor, never below), while `0 supporting evidence → 0`.
+- **Evidence-quality band** (from §6): `strong` (VERIFIED/DERIVED source, fresh,
+  adequate n, no contradictions), `moderate`, `weak`, `insufficient`.
+- `CEILING_BAND`: strong **95**, moderate **75**, weak **55**, insufficient **→ none**.
+- `BASE[band]`: strong **55**, moderate **40**, weak **25**. `FLOOR[band]`: strong
+  **20**, moderate **10**, weak **0**. (`0 supporting evidence → 0`, gated at step 0.)
+- `CEILING_TYPE` (claim types do **not** share one ceiling):
+  `FACT` **100** (only if backed by a verified deterministic calculation on a
+  VERIFIED/FIRST_PARTY/DERIVED source), `OBSERVATION` **85**, `INTERPRETATION`
+  **70**, `HYPOTHESIS` **55**, `RECOMMENDATION` = effective confidence of its
+  **weakest supporting claim**, then bounded by the consequence floor (§13).
+- Applied ceiling `= min(CEILING_BAND, CEILING_TYPE)` — a HYPOTHESIS can never
+  reach FACT-level confidence no matter how the LLM phrases it. Nothing reaches
+  100 unless it is a verified FACT.
 
-### 7.4 Confidence by claim type (worked)
+### 7.4 Worked examples (final policy — LLM number is diagnostic only)
 
-| Claim | Type | Band | Derived | Type ceiling | LLM proposed | **Final** |
+| Claim | Type | Band | raw | ceiling | **Derived = Final (×fresh)** | LLM (diagnostic) |
 |---|---|---|---|---|---|---|
-| "CTR increased 18%" (verified calc) | FACT | strong | 90 | 100 | 88 | **88** (LLM lowered it) |
-| "...coincided with new video" | OBSERVATION | moderate | 72 | 85 | 95 | **72** (LLM can't raise) |
-| "Video is plausibly contributing" | INTERPRETATION | moderate | 70 | 70 | 90 | **70** |
-| "Video may improve conversion" | HYPOTHESIS | weak | 60 | 55 | 92 | **55** (type ceiling binds) |
+| "CTR increased 18%" (verified calc, fresh) | FACT | strong | 55+45=100 | min(95,100)=95 | **95** | 88 (recorded; not used) |
+| "...coincided with new video" (1 support, fresh) | OBSERVATION | moderate | 40+15=55 | min(75,85)=75 | **55** | 95 (recorded; cannot raise) |
+| "Video is plausibly contributing" (1 support) | INTERPRETATION | moderate | 55 | min(75,70)=70 | **55** | 40 (recorded; cannot lower the derived value) |
+| "Video may improve conversion" (1 weak signal) | HYPOTHESIS | weak | 25+15=40 | min(55,55)=55 | **40** | 92 (recorded) |
+| weak + 1 contradiction | HYPOTHESIS | weak | 25+15−20=20 | 55 | **20** | — |
 
-**Canonical example (rule #8):** LLM proposed **92**, server evidence ceiling **65**
-→ **final 65**. Documented and enforced in code, not by prompt.
+**Canonical (principle #8):** server derives a 65-ceiling situation → **final 65**
+regardless of an LLM "92". Enforced in code, not by prompt.
 
 Properties (inherited from the belief design, already tested): deterministic,
 bounded, monotonic with evidence, explainable (`reasons[]`), `0 support → 0`,
@@ -388,6 +402,10 @@ careful.
 ---
 
 ## 10. Deterministic calculations (calculation registry)
+
+> **Binding v1 registry (formulas, zero-denominator → NOT_COMPUTABLE, provenance
+> requirements): see the Phase 1 Implementation Contract §C8.** This section is the
+> rationale.
 
 The LLM explains verified numbers; it is not the calculator.
 
@@ -491,6 +509,10 @@ CLAIMS (validated, typed, §3–§9)
 
 ## 13. Consequence / risk model
 
+> **Binding v1 LOW/MEDIUM/HIGH thresholds (evidence band, confidence floor,
+> provenance, approval): see the Phase 1 Implementation Contract §C11.** This
+> section is the rationale.
+
 Each recommendation gets a deterministic **consequence level** from the action it
 implies (reusing the autonomy `action_type` vocabulary + the agent-action
 registry's `operation_class`):
@@ -545,6 +567,11 @@ need queryable trust history (§22).
 ---
 
 ## 16. Source reliability model
+
+> **Binding v1 taxonomy is the 7-tier table in the Phase 1 Implementation Contract
+> §C10** (VERIFIED_PROVIDER / FIRST_PARTY_DATA / USER_PROVIDED / DERIVED_INTERNAL /
+> RESEARCH / MODEL_INFERENCE / UNKNOWN) — provenance quality, **not** a universal
+> ranking. The 5-tier sketch below is the earlier rationale; C10 supersedes it.
 
 A deterministic classifier `source_reliability(source) → tier` reusing the
 provenance-resolver pattern (`resolve_provenance`, never-guess-human):
@@ -760,29 +787,40 @@ TrustInput:
   tool_results          : list[...]            # already-structured read-tool outputs
   belief_context        : BeliefResolution     # from the existing resolver
   asked_scope           : Scope?               # audience/channel/metric/window if present
+  model_provenance      : {provider, model}?   # PROVENANCE ONLY — never affects any decision (§C-model-independence)
+
+CandidateClaim.proposed_confidence : int?      # DIAGNOSTIC ONLY — recorded, never an input to derivation
 
 Claim (in-request):  claim_id, statement, claim_type, evidence_ids[], source_ids[],
-                     scope, observed_at, freshness, confidence, confidence_ceiling,
-                     causal_level, limitations[], contradictions[], status
+                     source_tier, scope, observed_at, freshness, confidence (int 0-100),
+                     confidence_ceiling, causal_level, limitations[], contradictions[], status
 Recommendation (in-request): + consequence_level, downside, reversibility,
-                     expected_effect, how_to_test, rec_status
+                     expected_effect, how_to_test, rec_status, requires_approval(bool)
 TrustOutput:
   claims                : list[Claim]
   recommendations       : list[Recommendation]
   evidence_status       : ok | MIXED_EVIDENCE | INSUFFICIENT_EVIDENCE
-  overall_confidence    : int            # DERIVED (never the raw LLM number)
+  overall_confidence    : int            # DERIVED, integer 0-100 (never the LLM number)
   downgrades            : list[{target, from, to, reason_code}]
   rejections            : list[{target, reason_code}]
+  invariant_violations  : list[reason_code]    # should always be empty; non-empty ⇒ fail closed
   trust_record_id       : str            # correlation into ai_audit
 ```
 
+**Model-independence (binding):** the Trust Layer is model-agnostic. `provider`/
+`model` are retained as provenance only and can never change a rule, a ceiling, a
+band, a confidence value, or any decision. There are no per-provider branches.
+
 ### C4. Deterministic rules (binding)
-1. **Confidence is server-derived; `final = min(derived, llm_proposed)`.** The
-   server may only lower. Derivation = §7.2; ceilings `min(band_ceiling,
-   type_ceiling)` = §7.3 (`FACT≤100, OBSERVATION≤85, INTERPRETATION≤70,
-   HYPOTHESIS≤55`; bands `strong≤95, moderate≤75, weak≤55, insufficient→none`).
-   `0 supporting evidence → 0`. Freshness can only decay. (Canonical: LLM 92,
-   ceiling 65 → **65**.)
+1. **Confidence is server-derived independently (integer 0–100); the LLM number
+   is diagnostic only.** `final = round(derived × freshness)`, where `derived` is
+   §7.2 with ceilings `min(band_ceiling, type_ceiling)` = §7.3 (`FACT≤100,
+   OBSERVATION≤85, INTERPRETATION≤70, HYPOTHESIS≤55`; bands `strong≤95,
+   moderate≤75, weak≤55, insufficient→none`). `0 supporting evidence → 0`.
+   Freshness can only decay. The LLM-proposed number is **not** an input (it is
+   recorded for drift only); the server never raises confidence, and a low LLM
+   number never depresses a well-evidenced server value. (Canonical: server
+   ceiling 65 → **65** regardless of LLM 92.)
 2. **Claim type is assigned/validated deterministically**, never by the LLM; the
    Trust Layer may only *demote* a type.
 3. **Causal language is bounded by the causal evidence level** (§9), classified
@@ -817,11 +855,167 @@ chain-of-thought.
 Enforcement (replacing the LLM's `confidence`/`evidence_status`, dropping/downgrading
 claims) is a later, separately-reviewed phase (T3).
 
-### C7. Done-definition for Phase 1
-Pure functions + resolver implemented and unit-tested; adversarial trust tests
-(§22) green; PG-gated resolver + shadow-record tests green on real Postgres;
-read-only-agent / approval / belief / advisor suites unchanged; Ruff + Pyright
-clean; no migration; protected files untouched.
+### C7. Done-definition for Phase 1 (T0)
+Pure functions + (T1) read-only resolver implemented and unit-tested; adversarial
+trust tests (§22) green; PG-gated resolver + shadow-record tests green on real
+Postgres; the 15 invariants (C14) asserted by tests; read-only-agent / approval /
+belief / advisor suites unchanged; Ruff + Pyright clean; **no migration**;
+protected files untouched; nothing a user or the agent sees is changed.
+
+### C8. Metric registry (v1 — binding)
+Deterministic calculators the Trust Layer may reference; the LLM is never the
+calculator. Every result carries `{value, inputs, source_ids, calculated_at}`.
+**Zero-denominator and missing/invalid inputs → `NOT_COMPUTABLE` (never 0, never
+estimated).** Rounding: ratios/percentages to **1 decimal** for display (computed
+at full precision); currency per the account currency formatter (no hardcoded
+INR — CLAUDE.md). Monetary metrics (revenue, ROAS, CAC, CPA, spend) require a
+`VERIFIED_PROVIDER`/`FIRST_PARTY_DATA` source (§C10) or they are `NOT_COMPUTABLE`.
+
+| Metric | Inputs | Formula | 0-denominator | Missing/invalid | Min evidence / provenance |
+|---|---|---|---|---|---|
+| impressions | impressions | sum (int ≥0) | — | negative/None → NOT_COMPUTABLE | provider/first-party |
+| clicks | clicks | sum (int ≥0) | — | as above | provider/first-party |
+| CTR | clicks, impressions | clicks/impressions×100 | impressions=0 → **NOT_COMPUTABLE** | any None → NOT_COMPUTABLE | provider/first-party |
+| conversions | conversions | sum (int ≥0) | — | as above | provider/first-party; attribution noted |
+| conversion rate | conversions, clicks (or visits) | conv/clicks×100 | denom=0 → **NOT_COMPUTABLE** | as above | provider/first-party + attribution |
+| spend | spend | sum (≥0) | — | negative/None → NOT_COMPUTABLE | **VERIFIED_PROVIDER** |
+| revenue | revenue | sum (≥0) | — | None → NOT_COMPUTABLE | **VERIFIED_PROVIDER/FIRST_PARTY**; else NOT_COMPUTABLE |
+| ROAS | revenue, spend | revenue/spend | spend=0 → **NOT_COMPUTABLE** | either None → NOT_COMPUTABLE | both verified; attribution |
+| CAC | spend, new_customers | spend/new_customers | customers=0 → **NOT_COMPUTABLE** | as above | verified spend + verified customers |
+| CPA | spend, conversions | spend/conversions | conversions=0 → **NOT_COMPUTABLE** | as above | verified |
+| percentage change | current, baseline | (current−baseline)/\|baseline\|×100 | baseline=0 → **NOT_COMPUTABLE** | either None → NOT_COMPUTABLE | comparable scope + comparable periods |
+
+Implementation note: these wrap existing calculators (`analytics/`,
+`performance/intelligence/*`, `advisor/outcomes`) — **no new math**; the registry
+only *names* them and standardizes the NOT_COMPUTABLE contract.
+
+### C9. Causal-basis catalogue (v1 — binding) + current capability
+
+| Level | Required data / minimum conditions | Allowed claims | Prohibited | Disclosure | Scope | Sufficient for causal language? |
+|---|---|---|---|---|---|---|
+| OBSERVATIONAL | one series / before-after, **no** comparison group | temporal only ("X rose after Y") | any causal/effect-size-as-cause | "temporal only; causation not established" | the observed window | **No** |
+| ASSOCIATIONAL | co-movement across segments, no controlled exposure | "X is associated with Y" | "Y causes X" | "association; confounders not ruled out" | observed segments | **No** |
+| QUASI_EXPERIMENTAL | non-randomized control / matched cohorts / pre-post with comparison | "consistent with Y improving Z, with caveats" | unqualified causal; generalization beyond groups | "non-randomized; selection/confounding possible" | compared cohorts only | **Weak/qualified only** |
+| CONTROLLED_EXPERIMENT | treatment vs explicit control; defined population/period/metric | "evidence that the treatment improved Z **vs control**" | claims outside measured pop/period/treatment/metric | scope (pop, period, treatment, control, metric) | the experiment | **Yes, scoped** |
+| RANDOMIZED / STRONG CAUSAL | randomized assignment or validated causal design | "the treatment caused improvement under tested conditions" | extrapolation beyond tested conditions | scope + randomization basis (+CI if available) | tested conditions | **Yes, scoped** |
+
+**Current DM Tool capability (honest classification — do not pretend otherwise):**
+- advisor **outcomes** (`_evaluate_one`, baseline-vs-window lead delta) → **OBSERVATIONAL**.
+- **creative evaluation** (AI vs human comparison) → at best **QUASI_EXPERIMENTAL**,
+  and frequently fails comparability (different audiences / small n) → treated as
+  INSUFFICIENT/INCOMPARABLE rather than quasi-experimental.
+- **CONTROLLED_EXPERIMENT** and **RANDOMIZED** → **UNAVAILABLE today.** No current
+  data source may be classified at these levels; therefore **no causal language is
+  permitted** in v1 beyond scoped quasi-experimental "consistent with" phrasing.
+  These levels are reserved for when a real experiment capability exists.
+
+### C10. Source taxonomy (v1 — binding; provenance quality, NOT a universal ranking)
+
+Source tier describes *where evidence came from and its quality for a given
+claim* — it is **not** a global "better source" ladder.
+
+| Tier | Example | Supports | Does NOT support | Quantitative? | Causal? | Freshness expectation |
+|---|---|---|---|---|---|---|
+| VERIFIED_PROVIDER | connected ad/analytics connector, synced OK | metrics, performance FACTs | claims outside the provider's scope | **yes** | only with experiment design (§C9) | per connector cadence; stale → downgrade |
+| FIRST_PARTY_DATA | DM Tool-owned data (e.g. leads, publish events) | metrics/FACTs within its scope | provider metrics it doesn't hold | **yes** (in scope) | no (alone) | event-time; stale → downgrade |
+| USER_PROVIDED | onboarding profile, manual entry | context, scope, preferences | verified metrics / performance FACTs | **no** | no | until user updates; may go stale silently |
+| DERIVED_INTERNAL | calculation-registry output over verified inputs | FACTs iff inputs are VERIFIED/FIRST_PARTY | more than its inputs justify | **yes** (inherits inputs) | inherits inputs | inherits inputs |
+| RESEARCH | BrainResearchJob / web research evidence | OBSERVATION/HYPOTHESIS about market/competitors | first-party performance FACTs | **no** (not performance) | no | `discovered_at` age band |
+| MODEL_INFERENCE | LLM/world knowledge | general framing, HYPOTHESIS | any FACT, any metric, any causal claim | **no** | **no** | n/a — never a verified source |
+| UNKNOWN | unresolvable provenance | nothing presented as verified | any verified FACT | **no** | **no** | treat as stale/unknown |
+
+Only VERIFIED_PROVIDER / FIRST_PARTY_DATA / DERIVED_INTERNAL(over verified) can
+back a quantitative FACT. MODEL_INFERENCE and UNKNOWN can never back a FACT, a
+metric, or a causal claim.
+
+### C11. Recommendation consequence model (v1 — binding)
+
+| Level | Examples | Required: evidence band | confidence floor | provenance | limitations | human approval |
+|---|---|---|---|---|---|---|
+| LOW | change headline, test a CTA, generate a creative variant | weak+ (HYPOTHESIS OK) | ≥ 40 | any resolvable | stated | advisory; human runs it |
+| MEDIUM | change targeting, shift campaign allocation, change creative strategy | moderate, no live contradiction | ≥ 60 | VERIFIED/FIRST_PARTY/DERIVED | explicit | advisory; human decides |
+| HIGH | major budget increase, large-scale/irreversible launch, any consequential external action | **strong + fresh**, scope-matched | ≥ 75 | **VERIFIED_PROVIDER** | explicit + downside + reversibility | **mandatory human approval (Phases 4A–4C)** |
+
+A HIGH recommendation that does not meet its floors → `HIGH_RISK_REQUIRES_REVIEW`
+(never auto-`SUPPORTED`), and the action still routes through the existing
+approval boundary. The Trust Layer may **raise** these bars; it can **never lower**
+the Phase-4 approval requirement.
+
+### C12. Shadow mode (T2) — plan + acceptance gates (binding)
+
+Flow: `LLM candidate → existing response (unchanged, user sees this) → Trust Layer
+in shadow → record TrustOutput in ai_audit`.
+- **Recorded:** derived confidence, claim types, evidence/source ids, causal
+  levels, metric match/mismatch, downgrades/rejections (reason codes), the LLM
+  diagnostic confidence, and a server↔LLM divergence number.
+- **Not recorded:** prose answers, chain-of-thought, secrets (reuse the `ai_audit`
+  scrubber), or anything outside the caller's tenant.
+- **Privacy/scope:** tenant-scoped reads only (RLS unchanged); structured
+  provenance only.
+- **False positives** (Trust Layer would have wrongly downgraded a valid claim):
+  reviewed from the recorded reason codes + replay; **false negatives** (would
+  have let an unsafe claim through) detected via the adversarial test corpus +
+  manual spot audit of recorded assessments.
+- **Acceptance gates (evidence-based, not a fixed number of days) — all must hold:**
+  1. a **representative sample** across all claim types (≥ N assessments *per*
+     claim type FACT/OBSERVATION/INTERPRETATION/HYPOTHESIS/RECOMMENDATION, N set at
+     T2 kickoff) and across ≥ the main surfaces;
+  2. **zero unresolved critical safety failures** (any fabricated-metric or
+     unsupported-causal escape is a hard stop until fixed);
+  3. **bounded false-positive rate** below an agreed threshold on the reviewed set;
+  4. **bounded false-negative rate** (≈0 for the critical categories) on the
+     adversarial corpus;
+  5. **deterministic replay agreement** = 100% (same input → same TrustOutput);
+  6. all major claim types + all enforcement outcomes exercised at least once.
+  Enforcement (T3) may begin only when all six gates pass a review sign-off.
+
+### C13. Enforcement gates (T3) — outcome → action (binding)
+
+| Outcome | Action at T3 | Never |
+|---|---|---|
+| FABRICATED_METRIC / fabricated revenue/ROAS/etc. | **hard block** the metric → `INSUFFICIENT_EVIDENCE` | never show the number |
+| UNSUPPORTED_CAUSAL_CLAIM | **downgrade/qualify** to the permitted causal level + disclosure | never present as causal |
+| MIXED_EVIDENCE | **preserve both sides** + qualify | never hide the inconvenient side |
+| INSUFFICIENT_EVIDENCE | **state insufficiency** + reason code | never fill the gap |
+| CONFIDENCE_OVER_CEILING | **clamp** to derived ceiling | never raise |
+| UNRESOLVABLE_EVIDENCE / fabricated evidence | **reject** the claim | never invent evidence |
+| RECOMMENDATION_EXCEEDS_EVIDENCE | **downgrade status** (→ QUALIFIED / INSUFFICIENT / HIGH_RISK_REQUIRES_REVIEW) | never auto-SUPPORT |
+| scope/limitation issues | **warning/qualify** (attach `limitations[]`) | — |
+| provenance/source-tier only | **audit-only** annotation | — |
+
+Enforcement **downgrades/qualifies/blocks/rejects**; it must **never silently
+remove evidence** — a dropped claim is always recorded (reason code) in the trust
+record, and contradictory evidence is surfaced, not deleted.
+
+### C14. Trust invariants (machine-testable; become tests in T0+)
+
+1. The Trust Layer can never **raise** server-derived confidence.
+2. It can never **invent evidence** (every evidence_id resolves to a real row).
+3. It can never **invent a metric** (every metric matches a registry result; else NOT_COMPUTABLE).
+4. It can never turn **observational** evidence into **causal** evidence.
+5. It can never **hide contradictory** evidence (contradictions → MIXED, both shown).
+6. It can never **cross tenants** (reads are tenant-scoped; RLS unchanged).
+7. It can never **execute tools**.
+8. It can never **approve actions**.
+9. It can never **bypass authorization/permissions**.
+10. It can never **expose chain-of-thought** (structured provenance only).
+11. **Missing evidence** can never become a fabricated value (→ INSUFFICIENT/NOT_COMPUTABLE).
+12. A **true claim** can never *automatically* justify a consequential recommendation.
+13. A **HIGH-consequence unsupported** recommendation can never become executable.
+14. **Provider/model identity** can never change a Trust-Layer decision/value.
+15. Every **important recommendation** has resolvable provenance (evidence_ids + source_tier).
+
+### C15. Exact T0 scope (what the first code change is, when approved)
+Create `aicmo/modules/trust/` containing **pure, in-request, side-effect-free**
+code only: the DTOs (C3), `confidence.py` (§7 constants + derivation),
+`evidence_quality.py` (§6 bands), `causality.py` (C9 classification + language
+bound), `calculations.py` (C8 registry wrapping existing calculators),
+`sources.py` (C10 tiering), `recommendation.py` (C11/C12-status logic), and
+`invariants.py` (C14 as assertable predicates). **No** wiring into `run_turn`, **no**
+provenance DB walk yet (that is T1), **no** migration, **no** UI, **no** tool/
+provider, **no** change to auth/RLS/approval/audit-security. Fully unit-tested
+(pure) + adversarial trust tests (§22). T0 changes nothing a user or the agent
+sees.
 
 ---
 
@@ -829,39 +1023,44 @@ clean; no migration; protected files untouched.
 
 - **D1 — Claim persistence:** RESOLVED. No persistent `claims` table in Phase 1;
   DTOs + existing durable stores only (§3, C2). Future-table conditions documented.
-- **D2 — Confidence is server-derived:** RESOLVED (model fixed). Full deterministic
-  model + `final = min(derived, llm_proposed)` + per-band and per-claim-type
-  ceilings + worked examples (§7, C4). *Remaining:* exact numeric constants per
-  (band × type) need product sign-off (see open #2).
-- **D3 — Causality:** RESOLVED (approach fixed). Evidence-level hierarchy
-  (OBSERVATIONAL → RANDOMIZED), not a keyword filter; per-level allowed/forbidden
-  language + scope guard (§9, C4.3). *Remaining:* the causal-basis catalogue
-  (open #4).
-- **D4 — Recommendation validation:** RESOLVED (approach fixed). Separate stage
-  CLAIMS→EVIDENCE→INTERPRETATION→RECOMMENDATION→CONSEQUENCE/RISK→VALIDATION with
-  statuses, plus the decision-intelligence principle (§12, C4.6).
+- **D2 — Confidence model:** RESOLVED & FIXED. Server-derived **independently**,
+  integer 0–100, LLM number **diagnostic only**; exact conservative constants,
+  bands, ceilings, floors (§7, C4.1).
+- **D3 — Causality:** RESOLVED & FIXED. Evidence-level hierarchy with a binding v1
+  catalogue + honest current-capability classification (C9) — CONTROLLED/
+  RANDOMIZED marked UNAVAILABLE today.
+- **D4 — Recommendation validation:** RESOLVED & FIXED. Separate stage + statuses
+  + consequence model (§12, C11) + decision-intelligence principle.
+- **D5 — Model-independence:** RESOLVED. Model-agnostic; provider/model =
+  provenance only (principle #19, C3, I14).
+- **D6 — Metric registry:** RESOLVED (v1). Binding table + NOT_COMPUTABLE contract
+  (C8); wraps existing calculators, no new math.
+- **D7 — Source taxonomy:** RESOLVED (v1). Seven tiers as provenance quality, not a
+  universal ranking (C10).
+- **D8 — Enforcement gates:** RESOLVED. Per-outcome hard-block / downgrade /
+  qualify / audit-only map; never silently remove evidence (C13).
+- **D9 — Trust invariants:** RESOLVED. 15 machine-testable invariants (C14).
+- **D10 — T0 scope:** RESOLVED. Pure `trust/` module, nothing wired in (C15).
 
-## Open questions (still to decide before/within implementation)
+## Decisions that genuinely need empirical data (cannot be fixed on paper)
 
-1. **Confidence constants:** exact base/bonus/penalty values and the exact ceiling
-   per (evidence band × claim type) — sign-off against CLAUDE.md bands (80/60/40).
-2. **Enforcement vs advisory for the agent's prose answer:** at T3, do we *rewrite*
-   the LLM answer to match the verified claims, or only annotate + override the
-   structured fields and drop offending sentences? (Rewriting risks a second LLM
-   pass; annotation is safer — leaning annotation.)
-3. **Causal-basis catalogue:** which existing/future measurements count as each
-   causal level? (Today: advisor outcomes = OBSERVATIONAL; creative-eval ≈
-   QUASI-EXPERIMENTAL; none RANDOMIZED — so no RANDOMIZED-level language yet.)
-4. **Metric registry coverage:** confirm the canonical calculators to wrap and
-   which metrics are "calc-only" (CTR, conversion, ROAS, CAC, %-change, budget,
-   experiment stats proposed).
-5. **Shadow-mode duration (T2):** how long to run shadow comparison before
-   enforcing, and the acceptance criterion (e.g. derived ≤ LLM confidence in N%
-   of turns).
-6. **Source tiers in UI:** when (which later phase) do VERIFIED/DERIVED/INFERRED/
-   UNKNOWN badges appear, given this phase makes no UI change.
+These are the *only* remaining opens; each needs the system running in shadow mode
+(T2) to resolve, and each has a defined gate rather than a guessed number:
+
+1. **Confidence-constant tuning:** the v1 constants (§7) are conservative and
+   binding for launch, but their *calibration* (do derived values match real
+   outcomes?) can only be validated against shadow + outcome data; tuning happens
+   through the named constants, never ad-hoc.
+2. **Shadow thresholds (N, FP-rate, FN-rate):** the exact sample size per claim
+   type and the acceptable false-positive bound (C12) must be set from observed
+   volume/variance, not guessed; the *gates* are fixed, the *numbers* are empirical.
+3. **T3 enforcement style for prose:** rewrite-to-match vs annotate-and-override
+   (leaning annotate; final call after shadow shows how often prose diverges from
+   the verified claims).
+4. **UI surfacing of claim types / source tiers:** a later, separately-reviewed UI
+   phase (this phase changes no UI).
 
 ---
 
-*This is an architecture + audit deliverable only. No Trust Layer code exists yet.
-Review this plan before implementation begins.*
+*Architecture + audit + final Phase-1 contract. No Trust Layer code exists yet.
+Review this contract before implementation begins (T0).*

@@ -69,9 +69,13 @@ codebase; "Trust Layer" = to be enforced by the new layer.
    type. *Today:* belief confidence is deterministically derived
    (`derive_confidence`, ceiling 95); advisor recommendations carry a server
    `confidence_cap`. *Gap:* the conversational agent surfaces LLM-set
-   `confidence`/`evidence_status`. *Trust Layer:* `final = min(llm_proposed,
-   server_ceiling)` after server derivation — e.g. LLM 92, server ceiling 65 →
-   **65**. (Full model: §7 arch.)
+   `confidence`/`evidence_status`. *Trust Layer (final policy):* authoritative
+   confidence is **server-derived independently** of any LLM number; the
+   LLM-proposed value is **diagnostic/provenance only** (recorded for drift
+   analysis, never an input). The server can only lower an LLM number, never
+   raise one, and an LLM asserting a *low* number cannot drag down a
+   well-evidenced server value. Canonical: LLM proposes 92, server derives/ceilings
+   at 65 → **65**. (Full model + constants: §7 arch.)
 
 9. **Never convert uncertainty into certainty.** Confidence has an explicit
    **ceiling** when evidence is weak; freshness decays authority over time.
@@ -121,6 +125,12 @@ codebase; "Trust Layer" = to be enforced by the new layer.
     level, required approval, testability) — not inherit a claim's trust. *Trust
     Layer:* §12 arch; recommendation statuses `SUPPORTED` / `QUALIFIED` /
     `INSUFFICIENT_EVIDENCE` / `CONTRADICTED` / `HIGH_RISK_REQUIRES_REVIEW`.
+
+19. **The Trust Layer is model-agnostic.** The same candidate is evaluated by the
+    same rules regardless of provider/model (Anthropic, OpenAI, Google, local, or
+    future). There are **no per-provider policies** ("Claude gets X, GPT gets Y"
+    is forbidden). Provider/model identity is retained as **provenance only** and
+    can never change a trust decision, a ceiling, or a confidence value.
 
 ---
 
