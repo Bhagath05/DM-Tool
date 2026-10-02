@@ -15,6 +15,7 @@ import { Brain, Plus, Send, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AgentAnswer, HistoricalAssistantAnswer } from "@/components/brain/agent-response";
+import { BrainTabs } from "@/components/brain/brain-tabs";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { SkeletonLines } from "@/components/ui/skeleton";
 import { api, type AgentConversation, type AgentResponse } from "@/lib/api";
@@ -190,15 +191,18 @@ export default function MarketingBrainPage() {
             heading="Ask anything about your marketing"
             description="I understand your business, your data, and what's worked. I can look things up and prepare actions — but I only act after you approve."
           />
-          <button
-            type="button"
-            onClick={() => setRailOpen((o) => !o)}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground lg:hidden"
-            aria-expanded={railOpen}
-          >
-            <Brain className="h-4 w-4" />
-            Chats
-          </button>
+          <div className="mt-1 flex items-center gap-2">
+            <BrainTabs active="chat" />
+            <button
+              type="button"
+              onClick={() => setRailOpen((o) => !o)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground lg:hidden"
+              aria-expanded={railOpen}
+            >
+              <Brain className="h-4 w-4" />
+              Chats
+            </button>
+          </div>
         </div>
 
         {/* Thread. */}

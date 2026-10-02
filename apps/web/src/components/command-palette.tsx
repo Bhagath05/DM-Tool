@@ -30,6 +30,7 @@ interface CommandEntry {
 const ENTRIES: CommandEntry[] = [
   // Brain — the AI-native surface, listed first.
   { label: "Marketing Brain", href: "/ai", group: "Brain", keywords: ["brain", "ai", "ask", "chat", "assistant", "marketing brain"], description: "Ask anything about your marketing" },
+  { label: "Marketing Board", href: "/ai/board", group: "Brain", keywords: ["board", "kanban", "workflow", "work", "pipeline", "needs me", "status"], description: "See what the Brain is working on" },
   { label: "Approvals", href: "/ai/approvals", group: "Brain", keywords: ["approvals", "approve", "pending", "review", "consequential", "publish"], description: "Review actions awaiting your decision" },
   // Workspace
   { label: "Overview", href: "/overview", group: "Workspace", keywords: ["home", "dashboard", "today", "start"] },
