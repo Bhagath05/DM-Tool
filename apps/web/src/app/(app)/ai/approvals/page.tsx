@@ -13,7 +13,7 @@
  * pending request) vs "you are approving this" (a deliberate confirmation).
  */
 
-import { AlertTriangle, CheckCircle2, Clock, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, ShieldCheck, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -250,6 +250,17 @@ function ApprovalCard({
         <StatusPill tone={STATUS_TONE[approval.status] ?? "neutral"}>
           {STATUS_LABEL[approval.status] ?? approval.status}
         </StatusPill>
+      </div>
+
+      {/* The core semantic distinction, shared with the Brain's approval block. */}
+      <div className="mt-2 flex items-center gap-2 text-[11px]">
+        <span className="rounded-md bg-ai-soft px-1.5 py-0.5 font-medium text-ai-soft-foreground">
+          AI proposed this
+        </span>
+        <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
+        <span className="rounded-md border border-border px-1.5 py-0.5 font-medium text-foreground">
+          A human must approve it
+        </span>
       </div>
 
       {approval.reason && (

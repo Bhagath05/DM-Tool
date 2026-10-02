@@ -46,6 +46,7 @@ import { Sidebar } from "./sidebar";
 
 
 const PRIMARY_LABELS = [
+  "Marketing Brain",
   "Today's Plan",
   "Your AI Marketer",
   "Leads",
@@ -72,6 +73,7 @@ const PRIMARY_LABELS = [
 // administrative). The "8 destinations" promise refers to the 8 founder-
 // facing destinations excluding the settings rail.
 const PRIMARY_HREFS = [
+  "/ai",
   "/today",
   "/ai-employee",
   "/grow/leads",
@@ -211,7 +213,7 @@ describe("Sidebar — Professional view mode reveals Pro tools", () => {
     }
   });
 
-  it("regression pin: exactly 14 nav hrefs in professional mode (11 primary + 3 Pro tools)", () => {
+  it("regression pin: exactly the documented primary + 3 Pro tool hrefs in professional mode", () => {
     setViewMode("professional");
     render(<Sidebar />);
     const hrefs = sidebarNavHrefs();

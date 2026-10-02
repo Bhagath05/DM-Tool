@@ -2981,6 +2981,73 @@ export interface ApprovalListResponse {
   items: ApprovalView[];
 }
 
+// --- Marketing Brain agent (Phase 2–4B conversational runtime) -------------
+export type AgentEvidenceStatus = "ok" | "INSUFFICIENT_EVIDENCE";
+
+export interface AgentConversation {
+  id: string;
+  title: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentEvidenceRef {
+  label: string;
+  source: string | null;
+  confidence: number | null;
+  status: string | null;
+}
+
+export interface AgentBlockedAction {
+  tool_name: string;
+  operation_class: string;
+  reason: string;
+}
+
+export interface AgentProposedAction {
+  tool_name: string;
+  operation_class: string;
+  approval_id: string;
+  status: string;
+  action_fingerprint: string;
+  reason: string | null;
+  expected_effect: string | null;
+  explanation: string;
+}
+
+export interface AgentReasoningSummary {
+  intent: string;
+  tools_consulted: string[];
+  evidence_used: string[];
+  key_observations: string[];
+  uncertainty: string;
+  conclusion: string;
+}
+
+export interface AgentResponse {
+  conversation_id: string;
+  message_id: string;
+  answer: string;
+  evidence_status: AgentEvidenceStatus;
+  confidence: number;
+  tools_consulted: string[];
+  evidence: AgentEvidenceRef[];
+  actions_blocked: AgentBlockedAction[];
+  approval_required: boolean;
+  proposed_actions: AgentProposedAction[];
+  reasoning_summary: AgentReasoningSummary;
+}
+
+export interface AgentMessage {
+  id: string;
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;
+  seq: number;
+  created_at: string;
+  meta: Record<string, unknown>;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   /**
@@ -3600,6 +3667,29 @@ export const api = {
         `/api/v1/beliefs${qs ? `?${qs}` : ""}`,
       );
     },
+  },
+  agent: {
+    /**
+     * Marketing Brain conversational runtime (Phase 2–4B). Read-only tools run
+     * inline; consequential actions are only PROPOSED (they create a PENDING
+     * approval and never execute). Tenant is resolved server-side.
+     */
+    listConversations: () =>
+      request<{ items: AgentConversation[] }>("/api/v1/agent/conversations"),
+    createConversation: (title?: string) =>
+      request<AgentConversation>("/api/v1/agent/conversations", {
+        method: "POST",
+        body: JSON.stringify({ title: title ?? null }),
+      }),
+    listMessages: (conversationId: string) =>
+      request<{ conversation_id: string; items: AgentMessage[] }>(
+        `/api/v1/agent/conversations/${conversationId}/messages`,
+      ),
+    sendMessage: (conversationId: string, content: string) =>
+      request<AgentResponse>(
+        `/api/v1/agent/conversations/${conversationId}/messages`,
+        { method: "POST", body: JSON.stringify({ content }) },
+      ),
   },
   agentActions: {
     /**
