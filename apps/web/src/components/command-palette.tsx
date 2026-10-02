@@ -187,10 +187,12 @@ export function CommandPalette() {
 
   if (!open) return null;
 
-  // Build grouped sections in a stable order; "Recent" is synthetic.
-  const sections: { title: string; items: CommandEntry[] }[] = [];
-  if (askEntry) sections.push({ title: "Marketing Brain", items: [askEntry] });
-  if (recentEntries.length > 0) sections.push({ title: "Recent", items: recentEntries });
+  // Build grouped sections in a stable order; "Recent" is synthetic. Each
+  // section carries a unique `id` (two sections can share the title
+  // "Marketing Brain" — the Ask entry and the Brain group).
+  const sections: { id: string; title: string; items: CommandEntry[] }[] = [];
+  if (askEntry) sections.push({ id: "ask", title: "Marketing Brain", items: [askEntry] });
+  if (recentEntries.length > 0) sections.push({ id: "recent", title: "Recent", items: recentEntries });
   const groupOrder: CommandEntry["group"][] = [
     "Brain",
     "Workspace",
@@ -201,7 +203,7 @@ export function CommandPalette() {
   ];
   for (const g of groupOrder) {
     const items = filtered.filter((e) => e.group === g);
-    if (items.length > 0) sections.push({ title: g === "Brain" ? "Marketing Brain" : g, items });
+    if (items.length > 0) sections.push({ id: `grp-${g}`, title: g === "Brain" ? "Marketing Brain" : g, items });
   }
 
   return (
@@ -241,8 +243,8 @@ export function CommandPalette() {
               No matches. Try a different word.
             </div>
           ) : (
-            sections.map(({ title, items }) => (
-              <div key={title} className="py-1.5">
+            sections.map(({ id, title, items }) => (
+              <div key={id} className="py-1.5">
                 <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   {title}
                 </div>
@@ -252,7 +254,7 @@ export function CommandPalette() {
                   const isAsk = entry.href.startsWith("/ai?q=");
                   return (
                     <button
-                      key={`${title}-${entry.href}`}
+                      key={`${id}-${entry.href}`}
                       type="button"
                       data-testid={
                         isAsk ? "command-ask-brain" : `command-result-${entry.href.slice(1) || "root"}`

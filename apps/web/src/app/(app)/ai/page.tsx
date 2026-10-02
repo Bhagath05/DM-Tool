@@ -87,8 +87,12 @@ export default function MarketingBrainPage() {
         setThread((t) => [...t, { kind: "assistant", id: response.message_id, response }]);
         scrollToEnd();
       } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        // Never surface a raw network/fetch string to the user.
         setError(
-          e instanceof Error ? e.message : "The Brain couldn't answer just now. Please try again.",
+          !msg || /failed to fetch|networkerror|load failed/i.test(msg)
+            ? "I couldn't reach the server just now. Please check your connection and try again."
+            : msg,
         );
       } finally {
         setSending(false);
