@@ -86,6 +86,7 @@ class ShadowResult(BaseModel):
     trust: TrustOutput
     provenance: ProvenanceResolution
     llm_confidence: int | None = None
+    llm_evidence_status: str | None = None
     server_confidence: int = 0
     confidence_delta: int | None = None  # server - llm (negative => llm over-claimed)
     confidence_inflated: bool = False  # llm claimed more than the evidence supports
@@ -283,6 +284,7 @@ async def validate_turn_shadow(
         trust=trust,
         provenance=provenance,
         llm_confidence=shadow_input.llm_confidence,
+        llm_evidence_status=shadow_input.llm_evidence_status,
         server_confidence=server_confidence,
         confidence_delta=delta,
         confidence_inflated=bool(

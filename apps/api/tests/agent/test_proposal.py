@@ -356,8 +356,9 @@ async def test_turn_audit_records_approval_request():
     turn = next(a for a in audit if a["action_type"] == "agent.turn")
     meta = turn["metadata"]
     assert "approvals_requested" in meta and len(meta["approvals_requested"]) == 1
-    # The proposed consequential action is validated in shadow (never executed).
-    shadow = next(a for a in audit if a["action_type"] == "trust.shadow_validation")
+    # The proposed consequential action is validated by trust enforcement
+    # (never executed) and stays review-gated.
+    shadow = next(a for a in audit if a["action_type"] == "trust.enforcement")
     assert shadow["metadata"]["recommendation_count"] == 1
 
 

@@ -323,11 +323,13 @@ async def test_audit_metadata_is_safe():
         "actions_blocked",
         "approvals_requested",
         "evidence_status",
+        "trust_status",
     }
-    # The shadow trust audit (T2) is present, carries only safe structured
+    # The trust enforcement audit (T3) is present, carries only safe structured
     # metrics, and leaks no secrets / content / chain-of-thought.
-    shadow = next(a for a in audit if a["action_type"] == "trust.shadow_validation")
+    shadow = next(a for a in audit if a["action_type"] == "trust.enforcement")
     assert shadow["metadata"]["validator_version"]
+    assert shadow["metadata"]["enforcement_outcome"]
     for entry in audit:
         blob = str(entry).lower()
         for secret in ("password", "smtp", "session_token", "api_key", "chain_of_thought", "content="):

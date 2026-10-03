@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import func, select
@@ -50,7 +51,8 @@ from aicmo.modules.trust.contracts import (
     ModelProvenance,
 )
 from aicmo.modules.trust.contracts import EvidenceRef as TrustEvidenceRef
-from aicmo.modules.trust.enums import ClaimType, ConsequenceLevel
+from aicmo.modules.trust.enforcement import EnforcedResponse, enforce, fail_safe
+from aicmo.modules.trust.enums import ClaimType, ConsequenceLevel, SourceTier
 from aicmo.modules.trust.provenance import EvidenceKind, EvidenceReference
 from aicmo.tenancy.context import TenantContext
 
@@ -84,79 +86,119 @@ def _consequence_for(tool_def) -> ConsequenceLevel:
     return ConsequenceLevel.MEDIUM
 
 
-async def _run_shadow_validation(
+def _build_shadow_input(
+    *,
+    belief_ctx,
+    synth,
+    tools_consulted: list[str],
+    proposed_actions: list[ProposedActionView],
+    action_registry: ToolRegistry,
+    model_used: str | None,
+    now: datetime,
+) -> trust_shadow.ShadowInput:
+    """Map the turn's STRUCTURED candidate into a Trust ShadowInput.
+
+    The answer is represented as ONE claim backed by the turn's verified
+    evidence: each successfully executed READ tool is first-party data the
+    *server* produced (asserted directly, never submitted to T1 since it is not
+    LLM-supplied), and each consulted belief is submitted to T1 for tenant-scoped
+    resolution. Prose is never parsed into imaginary claims; the LLM confidence
+    rides along as diagnostic only.
+    """
+    tool_evidence = [
+        TrustEvidenceRef(
+            evidence_id=f"tool:{name}", kind="tool",
+            source_tier=SourceTier.FIRST_PARTY_DATA, observed_at=now,
+        )
+        for name in tools_consulted
+    ]
+    belief_evidence = [
+        TrustEvidenceRef(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
+        for cb in belief_ctx.consulted
+    ]
+    answer_claim = CandidateClaim(
+        statement="turn answer",  # neutral label; never the model's prose
+        proposed_type=ClaimType.OBSERVATION,
+        proposed_confidence=synth.confidence,
+        evidence=tool_evidence + belief_evidence,
+    )
+    refs = [
+        EvidenceReference(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
+        for cb in belief_ctx.consulted
+    ]
+    recs = [
+        CandidateRecommendation(
+            statement=p.tool_name,
+            consequence_level=_consequence_for(action_registry.get_tool(p.tool_name)),
+        )
+        for p in proposed_actions
+    ]
+    return trust_shadow.ShadowInput(
+        candidate_claims=[answer_claim],
+        candidate_recommendations=recs,
+        proposed_causal_statements=list(synth.key_observations),
+        evidence_refs=refs,
+        llm_confidence=synth.confidence,
+        llm_evidence_status=synth.evidence_status,
+        model_provenance=ModelProvenance(model=model_used),
+    )
+
+
+async def _enforce_trust(
     session: AsyncSession,
     *,
     tenant: TenantContext,
     belief_ctx,
     synth,
+    tools_consulted: list[str],
     proposed_actions: list[ProposedActionView],
     action_registry: ToolRegistry,
     model_used: str | None,
     request_id: str | None,
-) -> None:
-    """SHADOW-ONLY Trust validation (T2). Observes the structured candidate,
-    validates it with T0+T1, records a safe audit row, and returns nothing — the
-    agent response is never read back from here or altered. Fails open: any
-    unexpected error is captured as a safe audit row and the turn is unaffected.
+) -> EnforcedResponse:
+    """T3 ENFORCEMENT. Validate the candidate with T0+T1, derive the
+    server-authoritative outcome, record a safe audit row, and return the
+    enforced confidence / evidence_status / trust envelope for the runtime to
+    apply. The LLM is never the authority.
+
+    FAIL-SAFE: unlike T2, any unexpected validation error degrades the
+    trust-sensitive output to INSUFFICIENT_EVIDENCE (never a preserved
+    high-confidence claim) — the unrelated answer text is still returned.
     """
     try:
-        claims = [
-            CandidateClaim(
-                statement=cb.subject_key,
-                proposed_type=ClaimType.OBSERVATION,
-                proposed_confidence=synth.confidence,
-                evidence=[TrustEvidenceRef(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)],
-                scope=cb.scope,
-            )
-            for cb in belief_ctx.consulted
-        ]
-        refs = [
-            EvidenceReference(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
-            for cb in belief_ctx.consulted
-        ]
-        recs = [
-            CandidateRecommendation(
-                statement=p.tool_name,
-                consequence_level=_consequence_for(action_registry.get_tool(p.tool_name)),
-            )
-            for p in proposed_actions
-        ]
-        shadow_input = trust_shadow.ShadowInput(
-            candidate_claims=claims,
-            candidate_recommendations=recs,
-            proposed_causal_statements=list(synth.key_observations),
-            evidence_refs=refs,
-            llm_confidence=synth.confidence,
-            llm_evidence_status=synth.evidence_status,
-            model_provenance=ModelProvenance(model=model_used),
+        shadow_input = _build_shadow_input(
+            belief_ctx=belief_ctx, synth=synth, tools_consulted=tools_consulted,
+            proposed_actions=proposed_actions, action_registry=action_registry,
+            model_used=model_used, now=datetime.now(UTC),
         )
-        result = await trust_shadow.validate_turn_shadow(
-            session, tenant=tenant, shadow_input=shadow_input
-        )
+        result = await trust_shadow.validate_turn_shadow(session, tenant=tenant, shadow_input=shadow_input)
+        enforced = enforce(result)
+        audit = dict(result.audit)
+        audit["enforcement_outcome"] = enforced.envelope.status.value
+        audit["enforced_confidence"] = enforced.confidence
+        audit["degraded"] = enforced.envelope.degraded
         await ai_audit.record_ai_generation(
-            session,
-            tenant=tenant,
-            action_type="trust.shadow_validation",
-            model_used=model_used,
-            request_id=request_id,
-            metadata=result.audit,
+            session, tenant=tenant, action_type="trust.enforcement",
+            model_used=model_used, request_id=request_id, metadata=audit,
         )
-    except Exception as exc:  # shadow must never break the turn — fail open
-        log.info("trust.shadow.error", error=type(exc).__name__)
+        return enforced
+    except Exception as exc:  # enforcement must degrade safely, never crash the turn
+        log.info("trust.enforcement.error", error=type(exc).__name__)
+        enforced = fail_safe()
         try:
             await ai_audit.record_ai_generation(
-                session,
-                tenant=tenant,
-                action_type="trust.shadow_validation",
-                model_used=model_used,
-                request_id=request_id,
-                generation_status="error",
-                error_class=type(exc).__name__,
-                metadata={"validator_version": trust_shadow.VALIDATOR_VERSION, "shadow_error": True},
+                session, tenant=tenant, action_type="trust.enforcement",
+                model_used=model_used, request_id=request_id,
+                generation_status="error", error_class=type(exc).__name__,
+                metadata={
+                    "validator_version": trust_shadow.VALIDATOR_VERSION,
+                    "enforcement_error": True, "degraded": True,
+                    "enforcement_outcome": enforced.envelope.status.value,
+                },
             )
         except Exception:  # never let audit-of-failure fail the turn
             pass
+        return enforced
 
 
 async def _next_seq(session: AsyncSession, conversation_id: uuid.UUID) -> int:
@@ -451,29 +493,48 @@ async def run_turn(
     # second evidence representation; no DB ids exposed).
     evidence.extend(belief_ctx.evidence)
 
+    # 6. T3 ENFORCEMENT. The server (not the LLM) is the authority on what this
+    # turn may claim. Confidence + evidence status are replaced with
+    # server-derived values; unsupported causal wording is corrected with an
+    # authoritative note; high-consequence recommendations stay review-gated. The
+    # answer text is preserved and annotated — never rewritten. Fail-safe.
+    enforced = await _enforce_trust(
+        session,
+        tenant=tenant,
+        belief_ctx=belief_ctx,
+        synth=synth,
+        tools_consulted=tools_consulted,
+        proposed_actions=proposed_actions,
+        action_registry=action_registry,
+        model_used=model_used,
+        request_id=request_id,
+    )
+    final_answer = synth.answer + (enforced.answer_suffix or "")
+
     reasoning = ReasoningSummary(
         intent=plan.intent,
         tools_consulted=tools_consulted,
         evidence_used=[e.label for e in evidence],
         key_observations=synth.key_observations,
         uncertainty=synth.uncertainty,
-        conclusion=synth.answer[:280],
+        conclusion=final_answer[:280],
     )
 
-    # 6. persist the assistant message with SAFE metadata only
+    # 7. persist the assistant message with SAFE, server-enforced metadata only
     assistant_meta = {
         "tools_consulted": tools_consulted,
         "beliefs_consulted": belief_ctx.beliefs_consulted,
-        "evidence_status": synth.evidence_status,
-        "confidence": synth.confidence,
+        "evidence_status": enforced.evidence_status,
+        "confidence": enforced.confidence,
+        "trust_status": enforced.envelope.status.value,
         "actions_blocked": [b.model_dump() for b in actions_blocked],
         "approvals_requested": [str(p.approval_id) for p in proposed_actions],
     }
     assistant_msg = await _add_message(
-        session, conversation=conversation, role="assistant", content=synth.answer, meta=assistant_meta
+        session, conversation=conversation, role="assistant", content=final_answer, meta=assistant_meta
     )
 
-    # 7. safe audit metadata (never content, tokens/creds, or chain-of-thought)
+    # 8. safe audit metadata (never content, tokens/creds, or chain-of-thought)
     duration_ms = int((time.monotonic() - started) * 1000)
     await ai_audit.record_ai_generation(
         session,
@@ -490,34 +551,22 @@ async def run_turn(
             "beliefs_consulted": belief_ctx.beliefs_consulted,
             "actions_blocked": [b.reason for b in actions_blocked],
             "approvals_requested": [str(p.approval_id) for p in proposed_actions],
-            "evidence_status": synth.evidence_status,
+            "evidence_status": enforced.evidence_status,
+            "trust_status": enforced.envelope.status.value,
         },
-    )
-
-    # 8. SHADOW Trust validation (T2) — observe + audit only. It never changes the
-    # response below, blocks it, executes/approves anything, or enforces a Trust
-    # decision. Isolated and fail-open.
-    await _run_shadow_validation(
-        session,
-        tenant=tenant,
-        belief_ctx=belief_ctx,
-        synth=synth,
-        proposed_actions=proposed_actions,
-        action_registry=action_registry,
-        model_used=model_used,
-        request_id=request_id,
     )
 
     return AgentResponse(
         conversation_id=conversation.id,
         message_id=assistant_msg.id,
-        answer=synth.answer,
-        evidence_status=synth.evidence_status,
-        confidence=synth.confidence,
+        answer=final_answer,
+        evidence_status=enforced.evidence_status,
+        confidence=enforced.confidence,
         tools_consulted=tools_consulted,
         evidence=evidence,
         actions_blocked=actions_blocked,
         approval_required=bool(proposed_actions),
         proposed_actions=proposed_actions,
         reasoning_summary=reasoning,
+        trust=enforced.envelope,
     )

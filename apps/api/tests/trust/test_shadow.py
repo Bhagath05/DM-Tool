@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.agent.registry import ToolRegistry
-from aicmo.modules.agent.runtime import _consequence_for, _run_shadow_validation
+from aicmo.modules.agent.runtime import _consequence_for, _enforce_trust
 from aicmo.modules.trust import shadow as trust_shadow
 from aicmo.modules.trust.contracts import (
     CandidateClaim,
@@ -385,7 +385,7 @@ class _Registry:
 
 @pytest.mark.asyncio
 class TestRuntimeFailureIsolation:
-    async def test_20_validator_failure_is_isolated(self, monkeypatch) -> None:
+    async def test_20_26_validator_failure_degrades_safely(self, monkeypatch) -> None:
         audit: list[dict] = []
 
         async def _boom(*a, **k):
@@ -397,45 +397,72 @@ class TestRuntimeFailureIsolation:
         monkeypatch.setattr(trust_shadow, "validate_turn_shadow", _boom)
         monkeypatch.setattr("aicmo.modules.agent.runtime.ai_audit.record_ai_generation", _rec)
 
-        # Must NOT raise — fail open.
-        await _run_shadow_validation(
+        # Must NOT raise — fail SAFE (degrade to INSUFFICIENT_EVIDENCE, conf 0).
+        enforced = await _enforce_trust(
             _sess(_FakeSession()), tenant=_tenant(),
-            belief_ctx=SimpleNamespace(consulted=[]), synth=_synth(),
+            belief_ctx=SimpleNamespace(consulted=[]), synth=_synth(), tools_consulted=[],
             proposed_actions=[], action_registry=cast(ToolRegistry, _Registry()),
             model_used="fake", request_id="r1",
         )
-        # A safe error audit was recorded.
+        assert enforced.envelope.degraded is True
+        assert enforced.confidence == 0
+        assert enforced.evidence_status == "INSUFFICIENT_EVIDENCE"
         assert any(a.get("generation_status") == "error" for a in audit)
-        assert any(a["metadata"].get("shadow_error") for a in audit)
+        assert any(a["metadata"].get("enforcement_error") for a in audit)
 
-    async def test_21_success_records_shadow_audit(self, monkeypatch) -> None:
+    async def test_21_success_records_enforcement_audit(self, monkeypatch) -> None:
         audit: list[dict] = []
 
         async def _rec(session, **kw):
             audit.append(kw)
 
         monkeypatch.setattr("aicmo.modules.agent.runtime.ai_audit.record_ai_generation", _rec)
-        await _run_shadow_validation(
+        enforced = await _enforce_trust(
             _sess(_NoDBSession()), tenant=_tenant(),
-            belief_ctx=SimpleNamespace(consulted=[]), synth=_synth(),
+            belief_ctx=SimpleNamespace(consulted=[]), synth=_synth(), tools_consulted=[],
             proposed_actions=[], action_registry=cast(ToolRegistry, _Registry()),
             model_used="fake", request_id="r1",
         )
         assert len(audit) == 1
-        assert audit[0]["action_type"] == "trust.shadow_validation"
+        assert audit[0]["action_type"] == "trust.enforcement"
         assert audit[0]["metadata"]["validator_version"] == trust_shadow.VALIDATOR_VERSION
+        assert audit[0]["metadata"]["enforcement_outcome"]
+        # No tools and no beliefs => nothing verified => INSUFFICIENT (server wins).
+        assert enforced.evidence_status == "INSUFFICIENT_EVIDENCE"
 
-    async def test_22_23_shadow_never_executes_or_approves(self) -> None:
-        # Structural: the shadow module calls no executor/approval/publish API.
+    async def test_tool_backed_answer_gets_server_confidence(self, monkeypatch) -> None:
+        async def _rec(session, **kw):
+            pass
+
+        monkeypatch.setattr("aicmo.modules.agent.runtime.ai_audit.record_ai_generation", _rec)
+        enforced = await _enforce_trust(
+            _sess(_NoDBSession()), tenant=_tenant(),
+            belief_ctx=SimpleNamespace(consulted=[]),
+            synth=_synth(confidence=99),  # LLM claims 99
+            tools_consulted=["leads", "performance"],  # two verified reads
+            proposed_actions=[], action_registry=cast(ToolRegistry, _Registry()),
+            model_used="fake", request_id="r1",
+        )
+        # Server derived its own value from the verified reads, not the LLM's 99.
+        assert 0 < enforced.confidence <= 95
+        assert enforced.confidence != 99
+        assert enforced.evidence_status == "ok"
+
+    async def test_22_23_enforcement_never_executes_or_approves(self) -> None:
+        # Structural: neither shadow nor enforcement calls an executor/approval API.
+        import aicmo.modules.trust.enforcement as ef
         import aicmo.modules.trust.shadow as sh
 
-        with open(sh.__file__) as fh:
-            text = fh.read()
-        for forbidden in (
-            "agent_actions", "execute_tool", "execute_consequential",
-            "propose_action", ".approve(", "publish_scheduled_post",
-        ):
-            assert forbidden not in text
+        for mod in (sh, ef):
+            path = mod.__file__
+            assert path is not None
+            with open(path) as fh:
+                text = fh.read()
+            for forbidden in (
+                "agent_actions", "execute_tool", "execute_consequential",
+                "propose_action", ".approve(", "publish_scheduled_post",
+            ):
+                assert forbidden not in text
 
 
 # ---------------------------------------------------------------------------

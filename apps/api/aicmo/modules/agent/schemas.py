@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from aicmo.modules.trust.enforcement import TrustEnvelope
+
 EvidenceStatus = Literal["ok", "INSUFFICIENT_EVIDENCE"]
 AgentMessageRole = Literal["user", "assistant", "tool", "system"]
 
@@ -124,6 +126,10 @@ class AgentResponse(BaseModel):
     approval_required: bool = False
     proposed_actions: list[ProposedActionView] = Field(default_factory=list)
     reasoning_summary: ReasoningSummary
+    # T3: the server-authoritative trust verdict for this turn. The user-visible
+    # `confidence` and `evidence_status` above are enforced to server-derived
+    # values; this envelope carries the richer status + safe language.
+    trust: TrustEnvelope | None = None
 
 
 # --- API request/response DTOs ---------------------------------------------
