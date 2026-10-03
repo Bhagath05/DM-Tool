@@ -309,8 +309,8 @@ async def test_audit_metadata_is_safe():
     reg = _registry(_tool("safe_read", OperationClass.READ))
     audit: list = []
     await _run(_plan(("safe_read", {})), _synth(), reg, audit_calls=audit)
-    assert len(audit) == 1
-    kw = audit[0]
+    # The turn records the agent.turn audit AND a shadow trust audit (T2).
+    kw = next(a for a in audit if a["action_type"] == "agent.turn")
     assert kw["action_type"] == "agent.turn"
     assert kw["model_used"] == "fake-model"
     assert kw["request_id"] == "req-123"
@@ -324,9 +324,14 @@ async def test_audit_metadata_is_safe():
         "approvals_requested",
         "evidence_status",
     }
-    blob = str(kw).lower()
-    for secret in ("password", "smtp", "session_token", "api_key", "chain_of_thought", "content="):
-        assert secret not in blob
+    # The shadow trust audit (T2) is present, carries only safe structured
+    # metrics, and leaks no secrets / content / chain-of-thought.
+    shadow = next(a for a in audit if a["action_type"] == "trust.shadow_validation")
+    assert shadow["metadata"]["validator_version"]
+    for entry in audit:
+        blob = str(entry).lower()
+        for secret in ("password", "smtp", "session_token", "api_key", "chain_of_thought", "content="):
+            assert secret not in blob
 
 
 # --- result sanitization ----------------------------------------------------

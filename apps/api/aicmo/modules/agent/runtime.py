@@ -43,6 +43,15 @@ from aicmo.modules.agent_actions import service as agent_actions
 from aicmo.modules.agent_actions.schemas import ProposeActionRequest
 from aicmo.modules.ai_audit import service as ai_audit
 from aicmo.modules.marketing_brain import service as mb_service
+from aicmo.modules.trust import shadow as trust_shadow
+from aicmo.modules.trust.contracts import (
+    CandidateClaim,
+    CandidateRecommendation,
+    ModelProvenance,
+)
+from aicmo.modules.trust.contracts import EvidenceRef as TrustEvidenceRef
+from aicmo.modules.trust.enums import ClaimType, ConsequenceLevel
+from aicmo.modules.trust.provenance import EvidenceKind, EvidenceReference
 from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
@@ -55,6 +64,99 @@ MAX_HISTORY_MESSAGES = 10
 
 # The only operation class this runtime will execute.
 _ALLOWED_CLASS = OperationClass.READ
+
+# Deterministic consequence mapping for a PROPOSED consequential action, from the
+# action registry's own autonomy/category metadata (never from the model). Used
+# only for the SHADOW trust result — it never gates approval or execution.
+_HIGH_CONSEQUENCE_ACTION_TYPES = frozenset(
+    {"social_publishing", "ad_spend", "budget_change", "campaign_launch", "email_send", "crm_write"}
+)
+_HIGH_CONSEQUENCE_CATEGORIES = frozenset({"publishing", "ads", "email", "crm", "budget"})
+
+
+def _consequence_for(tool_def) -> ConsequenceLevel:
+    if tool_def is None:
+        return ConsequenceLevel.HIGH  # unknown consequential tool → safest shadow bar
+    action_type = (getattr(tool_def, "autonomy_action_type", "") or "").lower()
+    category = (getattr(tool_def, "category", "") or "").lower()
+    if action_type in _HIGH_CONSEQUENCE_ACTION_TYPES or category in _HIGH_CONSEQUENCE_CATEGORIES:
+        return ConsequenceLevel.HIGH
+    return ConsequenceLevel.MEDIUM
+
+
+async def _run_shadow_validation(
+    session: AsyncSession,
+    *,
+    tenant: TenantContext,
+    belief_ctx,
+    synth,
+    proposed_actions: list[ProposedActionView],
+    action_registry: ToolRegistry,
+    model_used: str | None,
+    request_id: str | None,
+) -> None:
+    """SHADOW-ONLY Trust validation (T2). Observes the structured candidate,
+    validates it with T0+T1, records a safe audit row, and returns nothing — the
+    agent response is never read back from here or altered. Fails open: any
+    unexpected error is captured as a safe audit row and the turn is unaffected.
+    """
+    try:
+        claims = [
+            CandidateClaim(
+                statement=cb.subject_key,
+                proposed_type=ClaimType.OBSERVATION,
+                proposed_confidence=synth.confidence,
+                evidence=[TrustEvidenceRef(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)],
+                scope=cb.scope,
+            )
+            for cb in belief_ctx.consulted
+        ]
+        refs = [
+            EvidenceReference(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
+            for cb in belief_ctx.consulted
+        ]
+        recs = [
+            CandidateRecommendation(
+                statement=p.tool_name,
+                consequence_level=_consequence_for(action_registry.get_tool(p.tool_name)),
+            )
+            for p in proposed_actions
+        ]
+        shadow_input = trust_shadow.ShadowInput(
+            candidate_claims=claims,
+            candidate_recommendations=recs,
+            proposed_causal_statements=list(synth.key_observations),
+            evidence_refs=refs,
+            llm_confidence=synth.confidence,
+            llm_evidence_status=synth.evidence_status,
+            model_provenance=ModelProvenance(model=model_used),
+        )
+        result = await trust_shadow.validate_turn_shadow(
+            session, tenant=tenant, shadow_input=shadow_input
+        )
+        await ai_audit.record_ai_generation(
+            session,
+            tenant=tenant,
+            action_type="trust.shadow_validation",
+            model_used=model_used,
+            request_id=request_id,
+            metadata=result.audit,
+        )
+    except Exception as exc:  # shadow must never break the turn — fail open
+        log.info("trust.shadow.error", error=type(exc).__name__)
+        try:
+            await ai_audit.record_ai_generation(
+                session,
+                tenant=tenant,
+                action_type="trust.shadow_validation",
+                model_used=model_used,
+                request_id=request_id,
+                generation_status="error",
+                error_class=type(exc).__name__,
+                metadata={"validator_version": trust_shadow.VALIDATOR_VERSION, "shadow_error": True},
+            )
+        except Exception:  # never let audit-of-failure fail the turn
+            pass
 
 
 async def _next_seq(session: AsyncSession, conversation_id: uuid.UUID) -> int:
@@ -390,6 +492,20 @@ async def run_turn(
             "approvals_requested": [str(p.approval_id) for p in proposed_actions],
             "evidence_status": synth.evidence_status,
         },
+    )
+
+    # 8. SHADOW Trust validation (T2) — observe + audit only. It never changes the
+    # response below, blocks it, executes/approves anything, or enforces a Trust
+    # decision. Isolated and fail-open.
+    await _run_shadow_validation(
+        session,
+        tenant=tenant,
+        belief_ctx=belief_ctx,
+        synth=synth,
+        proposed_actions=proposed_actions,
+        action_registry=action_registry,
+        model_used=model_used,
+        request_id=request_id,
     )
 
     return AgentResponse(

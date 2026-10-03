@@ -352,9 +352,13 @@ async def test_turn_audit_records_approval_request():
         _synth(), read_reg=_read_registry(), action_reg=_action_registry(),
         propose=_fake_approval, audit_calls=audit,
     )
-    assert len(audit) == 1
-    meta = audit[0]["metadata"]
+    # The turn records the agent.turn audit plus a shadow trust audit (T2).
+    turn = next(a for a in audit if a["action_type"] == "agent.turn")
+    meta = turn["metadata"]
     assert "approvals_requested" in meta and len(meta["approvals_requested"]) == 1
+    # The proposed consequential action is validated in shadow (never executed).
+    shadow = next(a for a in audit if a["action_type"] == "trust.shadow_validation")
+    assert shadow["metadata"]["recommendation_count"] == 1
 
 
 # --- 12,13,16. Postgres-backed: real approval row, exact binding, no bypass -

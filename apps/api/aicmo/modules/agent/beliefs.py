@@ -10,6 +10,7 @@ identifiers, and there is no write path — beliefs are data for reasoning only.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,11 +60,27 @@ _HISTORY_PHRASES: tuple[str, ...] = (
 
 
 @dataclass
+class ConsultedBelief:
+    """Server-internal handle to an active belief the turn leaned on. Carries the
+    belief id so the Trust Layer (T2 shadow) can resolve its provenance through
+    T1. NEVER surfaced to the LLM or the user (the prompt block uses only
+    ``beliefs_consulted`` labels)."""
+
+    belief_id: uuid.UUID
+    subject_key: str
+    category: str
+    scope: dict = field(default_factory=dict)
+
+
+@dataclass
 class BeliefContext:
     block: str | None = None
     beliefs_consulted: list[str] = field(default_factory=list)
     historical: bool = False
     evidence: list[EvidenceRef] = field(default_factory=list)
+    # Server-internal: the active beliefs' ids/scopes for Trust-Layer provenance
+    # resolution. Not rendered anywhere a model or user can see.
+    consulted: list[ConsultedBelief] = field(default_factory=list)
 
 
 def _relevant_categories(user_text: str) -> set[BeliefCategory]:
@@ -144,9 +161,16 @@ async def build_belief_context(
         )
         for b in active
     ]
+    consulted_refs = [
+        ConsultedBelief(
+            belief_id=b.id, subject_key=b.subject_key, category=str(b.category), scope=dict(b.scope),
+        )
+        for b in active
+    ]
     return BeliefContext(
         block="\n".join(lines),
         beliefs_consulted=consulted,
         historical=historical,
         evidence=evidence,
+        consulted=consulted_refs,
     )
