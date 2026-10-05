@@ -3025,6 +3025,81 @@ export interface AgentReasoningSummary {
   conclusion: string;
 }
 
+// --- T4: server-authoritative trust envelope -------------------------------
+// Every field here is derived by the server (T0–T3). The frontend NEVER
+// calculates, upgrades, or overrides any of it — it is presentation only.
+export type TrustStatus =
+  | "supported"
+  | "qualified"
+  | "downgraded"
+  | "insufficient_evidence"
+  | "contradicted"
+  | "mixed_evidence"
+  | "high_risk_requires_review";
+
+export type TrustClaimType =
+  | "fact"
+  | "observation"
+  | "interpretation"
+  | "hypothesis"
+  | "recommendation";
+
+export interface TrustClaimView {
+  statement: string;
+  claim_type: TrustClaimType;
+  claim_type_label: string;
+  trust_status: TrustStatus;
+  confidence: number;
+  source: string;
+  causal_level: string | null;
+  evidence_labels: string[];
+  limitations: string[];
+  safe_language: string;
+}
+
+export interface TrustMetricView {
+  name: string;
+  value: number | null;
+  unit: string;
+  computable: boolean;
+  status: "ok" | "not_computable";
+  reason: string | null;
+  source: string;
+}
+
+export interface TrustSafeRecommendation {
+  action: string;
+  status: TrustStatus;
+  consequence: "low" | "medium" | "high";
+  requires_approval: boolean;
+  safe_language: string;
+}
+
+export interface TrustSummary {
+  supported: number;
+  qualified: number;
+  downgraded: number;
+  insufficient: number;
+  contradicted: number;
+  mixed: number;
+  not_computable_metrics: number;
+  high_risk_recommendations: number;
+}
+
+export interface TrustEnvelope {
+  status: TrustStatus;
+  safe_language: string;
+  server_confidence: number;
+  verdict: string;
+  disclosures: string[];
+  claims: TrustClaimView[];
+  metrics: TrustMetricView[];
+  recommendations: TrustSafeRecommendation[];
+  summary: TrustSummary;
+  enforced: boolean;
+  degraded: boolean;
+}
+
 export interface AgentResponse {
   conversation_id: string;
   message_id: string;
@@ -3037,6 +3112,8 @@ export interface AgentResponse {
   approval_required: boolean;
   proposed_actions: AgentProposedAction[];
   reasoning_summary: AgentReasoningSummary;
+  /** T4: server-authoritative trust verdict. Optional for legacy responses. */
+  trust?: TrustEnvelope | null;
 }
 
 export interface AgentMessage {

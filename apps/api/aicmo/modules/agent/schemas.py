@@ -50,6 +50,26 @@ class AgentPlan(BaseModel):
     needs_more_evidence: bool = False
 
 
+ProposedClaimType = Literal["fact", "observation", "interpretation", "hypothesis", "recommendation"]
+
+
+class SynthesisClaim(BaseModel):
+    """A single structured claim the model PROPOSES. These are diagnostic: the
+    server assigns the authoritative claim type, trust status, and confidence —
+    the model's proposal never becomes the verdict and cannot fabricate evidence
+    (the server supplies the turn's verified evidence base)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str = Field(max_length=600)
+    claim_type: ProposedClaimType = "observation"
+    # Labels the model believes back this claim (diagnostic only; the server
+    # credits only evidence it actually retrieved this turn).
+    evidence_labels: list[str] = Field(default_factory=list, max_length=16)
+    is_causal: bool = False
+    is_metric: bool = False
+
+
 # --- LLM synthesis output ---------------------------------------------------
 class AgentSynthesis(BaseModel):
     """The model's grounded answer, produced from tool results treated as data."""
@@ -61,6 +81,9 @@ class AgentSynthesis(BaseModel):
     confidence: int = Field(default=0, ge=0, le=100)
     key_observations: list[str] = Field(default_factory=list)
     uncertainty: str = Field(default="", max_length=560)
+    # Optional structured claims (T4). When present, each is validated and
+    # enforced individually; when absent, the turn is validated as one whole.
+    claims: list[SynthesisClaim] = Field(default_factory=list, max_length=12)
 
 
 # --- assembled response types ----------------------------------------------

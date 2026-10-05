@@ -44,6 +44,7 @@ from aicmo.modules.agent_actions import service as agent_actions
 from aicmo.modules.agent_actions.schemas import ProposeActionRequest
 from aicmo.modules.ai_audit import service as ai_audit
 from aicmo.modules.marketing_brain import service as mb_service
+from aicmo.modules.trust import enforcement as trust_enforcement
 from aicmo.modules.trust import shadow as trust_shadow
 from aicmo.modules.trust.contracts import (
     CandidateClaim,
@@ -105,6 +106,11 @@ def _build_shadow_input(
     resolution. Prose is never parsed into imaginary claims; the LLM confidence
     rides along as diagnostic only.
     """
+    # The turn's VERIFIED evidence base — supplied by the server, not the model:
+    # each successfully executed READ tool is first-party data (asserted directly,
+    # never submitted to T1 since it is server-produced); each consulted belief is
+    # submitted to T1 for tenant-scoped resolution. The model cannot fabricate
+    # evidence — it only proposes claim text/type; the server supplies the pool.
     tool_evidence = [
         TrustEvidenceRef(
             evidence_id=f"tool:{name}", kind="tool",
@@ -116,16 +122,38 @@ def _build_shadow_input(
         TrustEvidenceRef(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
         for cb in belief_ctx.consulted
     ]
-    answer_claim = CandidateClaim(
-        statement="turn answer",  # neutral label; never the model's prose
-        proposed_type=ClaimType.OBSERVATION,
-        proposed_confidence=synth.confidence,
-        evidence=tool_evidence + belief_evidence,
-    )
+    pool = tool_evidence + belief_evidence
     refs = [
         EvidenceReference(evidence_id=str(cb.belief_id), kind=EvidenceKind.BELIEF.value)
         for cb in belief_ctx.consulted
     ]
+
+    if synth.claims:
+        # Structured mode (T4): validate each proposed claim individually against
+        # the turn's evidence pool. The model's claim_type is a proposal; T0
+        # demotes it when the evidence does not support it.
+        candidate_claims = [
+            CandidateClaim(
+                statement=c.statement,
+                proposed_type=ClaimType(c.claim_type),
+                proposed_confidence=synth.confidence,
+                evidence=list(pool),
+                is_metric_claim=c.is_metric,
+                is_causal_claim=c.is_causal,
+            )
+            for c in synth.claims
+        ]
+    else:
+        # Fallback: validate the turn as one synthetic overall claim.
+        candidate_claims = [
+            CandidateClaim(
+                statement=trust_enforcement.SYNTHETIC_ANSWER_CLAIM,
+                proposed_type=ClaimType.OBSERVATION,
+                proposed_confidence=synth.confidence,
+                evidence=list(pool),
+            )
+        ]
+
     recs = [
         CandidateRecommendation(
             statement=p.tool_name,
@@ -134,7 +162,7 @@ def _build_shadow_input(
         for p in proposed_actions
     ]
     return trust_shadow.ShadowInput(
-        candidate_claims=[answer_claim],
+        candidate_claims=candidate_claims,
         candidate_recommendations=recs,
         proposed_causal_statements=list(synth.key_observations),
         evidence_refs=refs,

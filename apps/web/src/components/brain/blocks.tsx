@@ -30,6 +30,13 @@ import type { ReactNode } from "react";
 
 import { ConfidenceBar } from "@/components/ui/confidence-bar";
 import { StatusPill, type PillTone } from "@/components/ui/status-pill";
+import type {
+  TrustClaimView,
+  TrustMetricView,
+  TrustSafeRecommendation,
+  TrustStatus,
+  TrustSummary,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export type Severity = "high" | "medium" | "low";
@@ -455,5 +462,210 @@ export function Timeline({
         </li>
       ))}
     </ol>
+  );
+}
+
+// =====================================================================
+//  TRUST-AWARE BLOCKS (T4)
+//
+//  These render ONLY the server-authoritative trust envelope. The frontend
+//  never computes, upgrades, or overrides a trust status or confidence — it
+//  presents what T0–T3 decided. Status is conveyed by text + glyph (never
+//  color alone); an AI-inference source never visually reads as verified.
+// =====================================================================
+
+const TRUST_STATUS_META: Record<
+  TrustStatus,
+  { label: string; glyph: string; tone: PillTone }
+> = {
+  supported: { label: "Supported", glyph: "✓", tone: "good" },
+  qualified: { label: "Qualified", glyph: "!", tone: "watch" },
+  downgraded: { label: "Adjusted to fit evidence", glyph: "↓", tone: "watch" },
+  insufficient_evidence: { label: "Insufficient evidence", glyph: "?", tone: "muted" },
+  contradicted: { label: "Contradicted", glyph: "×", tone: "bad" },
+  mixed_evidence: { label: "Mixed evidence", glyph: "↔", tone: "watch" },
+  high_risk_requires_review: { label: "Human review required", glyph: "⚠", tone: "bad" },
+};
+
+export function TrustStatusPill({ status }: { status: TrustStatus }) {
+  const meta = TRUST_STATUS_META[status];
+  return (
+    <StatusPill tone={meta.tone}>
+      <span aria-hidden className="mr-1">
+        {meta.glyph}
+      </span>
+      {meta.label}
+    </StatusPill>
+  );
+}
+
+// A calm confidence presentation — "/ 100", never a giant dominating percentage,
+// and never implying a statistical probability.
+export function TrustConfidence({ value, source }: { value: number; source?: string }) {
+  return (
+    <div className="mt-2 max-w-xs" data-testid="brain-confidence">
+      <div className="flex items-baseline justify-between text-xs text-muted-foreground">
+        <span>Confidence</span>
+        <span className="tabular text-foreground">
+          <span className="text-sm font-semibold">{value}</span> / 100
+        </span>
+      </div>
+      <ConfidenceBar value={value} size="sm" hideLabel />
+      {source && <p className="mt-1 text-[11px] text-muted-foreground">Supported by {source.toLowerCase()}</p>}
+    </div>
+  );
+}
+
+// Provenance badge. MODEL-INFERENCE / UNKNOWN get a cautious tone so they can
+// never be mistaken for verified first-party data.
+export function SourceBadge({ source }: { source: string }) {
+  const low = source.toLowerCase();
+  const cautious = low.includes("inference") || low === "unknown";
+  return (
+    <span
+      data-testid="brain-source"
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+        cautious
+          ? "border-dashed border-border bg-background text-muted-foreground"
+          : "border-border bg-background/40 text-foreground",
+      )}
+    >
+      <span aria-hidden>{cautious ? "◌" : "◆"}</span>
+      <span className="sr-only">Source: </span>
+      {source}
+    </span>
+  );
+}
+
+function LimitationList({ items }: { items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <ul className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+      {items.map((l, i) => (
+        <li key={i} className="flex gap-1.5 text-[11px] text-muted-foreground">
+          <span aria-hidden className="mt-1 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+          <span>{l}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------
+//  ClaimBlock — one server-validated claim. The type label + trust status
+//  make fact/observation/interpretation/hypothesis visually distinct.
+// ---------------------------------------------------------------------
+export function ClaimBlock({ claim }: { claim: TrustClaimView }) {
+  return (
+    <GenBlock eyebrow={claim.claim_type_label} data-testid="brain-claim">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-sm leading-relaxed">{claim.statement}</p>
+        <span className="shrink-0">
+          <TrustStatusPill status={claim.trust_status} />
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <SourceBadge source={claim.source} />
+        {claim.causal_level && (
+          <span className="text-[11px] text-muted-foreground">
+            Evidence level: <span className="text-foreground">{claim.causal_level.replace(/_/g, " ")}</span>
+          </span>
+        )}
+      </div>
+      {claim.confidence > 0 && <TrustConfidence value={claim.confidence} source={claim.source} />}
+      <LimitationList items={claim.limitations} />
+      {claim.evidence_labels.length > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Based on: <span className="text-foreground">{claim.evidence_labels.join(", ")}</span>
+        </p>
+      )}
+    </GenBlock>
+  );
+}
+
+// ---------------------------------------------------------------------
+//  TrustMetricCard — a metric from the deterministic registry. An invalid
+//  metric shows "Not available" + why, never a fabricated number.
+// ---------------------------------------------------------------------
+export function TrustMetricCard({ metric }: { metric: TrustMetricView }) {
+  const unit = metric.unit === "%" ? "%" : metric.unit === "x" ? "×" : "";
+  return (
+    <div className="rounded-lg border border-border bg-background/40 p-3" data-testid="brain-metric">
+      <p className="text-xs text-muted-foreground">{metric.name.toUpperCase()}</p>
+      {metric.computable && metric.value !== null ? (
+        <p className="tabular mt-1 text-2xl font-semibold leading-none">
+          {metric.value}
+          {unit && <span className="ml-0.5 text-base font-medium text-muted-foreground">{unit}</span>}
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-lg font-medium text-muted-foreground">Not available</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {metric.reason ?? "Required inputs could not be verified."}
+          </p>
+        </>
+      )}
+      <div className="mt-2">
+        <SourceBadge source={metric.source} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+//  TrustRecommendation — a recommendation, visibly distinct from a fact,
+//  carrying consequence + whether human approval is required.
+// ---------------------------------------------------------------------
+export function TrustRecommendation({ rec }: { rec: TrustSafeRecommendation }) {
+  const consequenceTone: PillTone =
+    rec.consequence === "high" ? "bad" : rec.consequence === "medium" ? "watch" : "muted";
+  return (
+    <GenBlock eyebrow="Recommendation" icon={ArrowRight} accent data-testid="brain-trust-recommendation">
+      <p className="text-sm font-medium">{rec.action}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{rec.safe_language}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          Consequence
+          <StatusPill tone={consequenceTone}>{rec.consequence.toUpperCase()}</StatusPill>
+        </span>
+        <TrustStatusPill status={rec.status} />
+        {rec.requires_approval && (
+          <span className="inline-flex items-center gap-1 rounded-md border border-ai-border bg-ai-soft/40 px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+            <span aria-hidden>⚠</span> Human approval required
+          </span>
+        )}
+      </div>
+    </GenBlock>
+  );
+}
+
+// ---------------------------------------------------------------------
+//  TrustSummaryBlock — compact roll-up of the turn's claim statuses.
+// ---------------------------------------------------------------------
+export function TrustSummaryBlock({ summary }: { summary: TrustSummary }) {
+  const all: { label: string; n: number; tone: PillTone }[] = [
+    { label: "Supported", n: summary.supported, tone: "good" },
+    { label: "Qualified", n: summary.qualified, tone: "watch" },
+    { label: "Adjusted", n: summary.downgraded, tone: "watch" },
+    { label: "Mixed", n: summary.mixed, tone: "watch" },
+    { label: "Insufficient", n: summary.insufficient, tone: "muted" },
+    { label: "Contradicted", n: summary.contradicted, tone: "bad" },
+    { label: "Metrics not available", n: summary.not_computable_metrics, tone: "muted" },
+    { label: "Needs review", n: summary.high_risk_recommendations, tone: "bad" },
+  ];
+  const entries = all.filter((e) => e.n > 0);
+  if (entries.length === 0) return null;
+  return (
+    <GenBlock eyebrow="Trust summary" icon={ShieldCheck} data-testid="brain-trust-summary">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+        {entries.map((e) => (
+          <li key={e.label} className="inline-flex items-center gap-1.5">
+            <span className="tabular font-semibold text-foreground">{e.n}</span>
+            <StatusPill tone={e.tone}>{e.label}</StatusPill>
+          </li>
+        ))}
+      </ul>
+    </GenBlock>
   );
 }

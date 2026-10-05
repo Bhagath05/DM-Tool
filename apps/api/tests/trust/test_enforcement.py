@@ -360,3 +360,100 @@ class TestEnvelopeSafety:
         )]))
         blob = enf.envelope.model_dump_json().lower()
         assert "sk-secret" not in blob and "hunter2" not in blob and "smtp" not in blob
+
+
+# --- T4: claim-level structured representation ------------------------------
+
+
+class TestClaimLevelStructure:
+    async def test_1_multiple_independent_claims(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="CTR rose after launch", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a"), _ev("b")], consistent=True),
+            CandidateClaim(statement="We are the market leader", proposed_type=ClaimType.FACT,
+                           evidence=[]),
+        ]))
+        assert len(enf.envelope.claims) == 2
+        by = {c.statement: c.trust_status for c in enf.envelope.claims}
+        assert by["CTR rose after launch"] in (EnforcedStatus.SUPPORTED, EnforcedStatus.QUALIFIED)
+        assert by["We are the market leader"] is EnforcedStatus.INSUFFICIENT_EVIDENCE
+
+    async def test_2_one_supported_one_insufficient_summary(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="supported", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a"), _ev("b")], consistent=True),
+            CandidateClaim(statement="unbacked", proposed_type=ClaimType.OBSERVATION, evidence=[]),
+        ]))
+        s = enf.envelope.summary
+        assert s.insufficient == 1
+        assert s.supported + s.qualified == 1
+
+    async def test_3_supported_fact_plus_downgraded_causal_claim(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="CTR increased 18%", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a"), _ev("b")], consistent=True),
+            CandidateClaim(statement="the new video caused the increase", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("c")], is_causal_claim=True,
+                           causal_level=CausalLevel.OBSERVATIONAL),
+        ]))
+        by = {c.statement: c for c in enf.envelope.claims}
+        # The non-causal fact is NOT dragged down by the other claim's overclaim.
+        assert by["CTR increased 18%"].trust_status in (
+            EnforcedStatus.SUPPORTED, EnforcedStatus.QUALIFIED,
+        )
+        assert by["the new video caused the increase"].trust_status is EnforcedStatus.DOWNGRADED
+
+    async def test_12_model_inference_source_never_reads_verified(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="a hunch", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a", tier=SourceTier.MODEL_INFERENCE)]),
+        ]))
+        c = enf.envelope.claims[0]
+        assert c.source == "AI inference"
+        assert c.source != "Verified"
+        assert c.trust_status is EnforcedStatus.INSUFFICIENT_EVIDENCE
+
+    async def test_fact_source_label_for_verified(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="verified metric", proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a", tier=SourceTier.VERIFIED_PROVIDER)]),
+        ]))
+        assert enf.envelope.claims[0].source == "Verified"
+
+    async def test_synthetic_answer_claim_is_hidden(self) -> None:
+        from aicmo.modules.trust.enforcement import SYNTHETIC_ANSWER_CLAIM
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement=SYNTHETIC_ANSWER_CLAIM, proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a")]),
+        ]))
+        assert enf.envelope.claims == []  # the synthetic overall claim is never surfaced
+        assert enf.envelope.status is not None  # but it still drives the verdict
+
+    async def test_6_not_computable_metric_view(self) -> None:
+        enf = await _enforce(ShadowInput(
+            candidate_claims=[_answer_claim(evidence=[_ev("a")])],
+            proposed_metrics=[ProposedMetric(name="roas", inputs={"revenue": 1, "spend": 0},
+                                             source_tier=SourceTier.VERIFIED_PROVIDER)],
+        ))
+        assert len(enf.envelope.metrics) == 1
+        m = enf.envelope.metrics[0]
+        assert m.computable is False and m.value is None and m.status == "not_computable"
+        assert enf.envelope.summary.not_computable_metrics == 1
+
+    async def test_claim_type_labels_distinguish_certainty(self) -> None:
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement="worth testing", proposed_type=ClaimType.HYPOTHESIS, evidence=[_ev("a")]),
+        ]))
+        assert enf.envelope.claims[0].claim_type_label == "Hypothesis to test"
+
+    async def test_16_17_backward_compatible_no_structured_claims(self) -> None:
+        # Fallback: single synthetic answer-claim → no per-claim views, but the
+        # turn-level status/confidence are still enforced (legacy behavior).
+        from aicmo.modules.trust.enforcement import SYNTHETIC_ANSWER_CLAIM
+        enf = await _enforce(ShadowInput(candidate_claims=[
+            CandidateClaim(statement=SYNTHETIC_ANSWER_CLAIM, proposed_type=ClaimType.OBSERVATION,
+                           evidence=[_ev("a"), _ev("b")], consistent=True),
+        ]))
+        assert enf.envelope.claims == []
+        assert enf.envelope.status in (EnforcedStatus.SUPPORTED, EnforcedStatus.QUALIFIED)
+        assert enf.confidence > 0

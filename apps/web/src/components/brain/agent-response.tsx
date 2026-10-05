@@ -14,14 +14,20 @@ import { ChevronRight } from "lucide-react";
 
 import {
   ApprovalRequestBlock,
+  ClaimBlock,
   EvidenceBlock,
   GenBlock,
   InsightBlock,
   InsufficientEvidenceBlock,
+  TrustConfidence,
+  TrustMetricCard,
+  TrustRecommendation,
+  TrustStatusPill,
+  TrustSummaryBlock,
 } from "@/components/brain/blocks";
 import { ConfidenceBar } from "@/components/ui/confidence-bar";
 import { StatusPill } from "@/components/ui/status-pill";
-import type { AgentResponse } from "@/lib/api";
+import type { AgentResponse, TrustEnvelope } from "@/lib/api";
 
 function Prose({ text }: { text: string }) {
   // Split into paragraphs on blank lines; keep each readable (no giant wall).
@@ -58,19 +64,63 @@ function AnswerFooter({
   );
 }
 
+/** The server-authoritative trust header for the lead answer. */
+function TrustHeader({ trust }: { trust: TrustEnvelope }) {
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <TrustStatusPill status={trust.status} />
+        <span className="min-w-0">{trust.safe_language}</span>
+      </div>
+      {trust.server_confidence > 0 && <TrustConfidence value={trust.server_confidence} />}
+    </div>
+  );
+}
+
 export function AgentAnswer({ response }: { response: AgentResponse }) {
+  const trust = response.trust ?? null;
   const insufficient = response.evidence_status === "INSUFFICIENT_EVIDENCE";
   return (
     <div className="flex flex-col gap-3" data-testid="brain-answer">
-      {/* Lead answer. */}
+      {/* Lead answer. The trust header (status + confidence) is server-derived. */}
       {response.answer && (
         <div className="rounded-xl border border-border bg-card p-4">
           <Prose text={response.answer} />
-          <div className="mt-3 border-t border-border pt-3">
-            <AnswerFooter evidenceStatus={response.evidence_status} confidence={response.confidence} />
-          </div>
+          {trust ? (
+            <TrustHeader trust={trust} />
+          ) : (
+            <div className="mt-3 border-t border-border pt-3">
+              <AnswerFooter evidenceStatus={response.evidence_status} confidence={response.confidence} />
+            </div>
+          )}
         </div>
       )}
+
+      {/* T4: structured, server-validated claims — fact vs interpretation vs
+          hypothesis made visually distinct. */}
+      {trust && trust.claims.length > 0 && (
+        <div className="flex flex-col gap-2" data-testid="brain-claims">
+          {trust.claims.map((c, i) => (
+            <ClaimBlock key={`${c.statement.slice(0, 24)}-${i}`} claim={c} />
+          ))}
+        </div>
+      )}
+
+      {/* T4: metrics from the deterministic registry — invalid ones show
+          "Not available", never a fabricated number. */}
+      {trust && trust.metrics.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="brain-metrics">
+          {trust.metrics.map((m, i) => (
+            <TrustMetricCard key={`${m.name}-${i}`} metric={m} />
+          ))}
+        </div>
+      )}
+
+      {/* T4: recommendations, visibly distinct from facts, with consequence. */}
+      {trust &&
+        trust.recommendations.map((r, i) => (
+          <TrustRecommendation key={`${r.action}-${i}`} rec={r} />
+        ))}
 
       {insufficient && (
         <InsufficientEvidenceBlock detail={response.reasoning_summary?.uncertainty || undefined} />
@@ -91,6 +141,9 @@ export function AgentAnswer({ response }: { response: AgentResponse }) {
           status={a.status}
         />
       ))}
+
+      {/* T4: compact, server-derived trust roll-up. */}
+      {trust && <TrustSummaryBlock summary={trust.summary} />}
 
       <EvidenceBlock
         sources={response.evidence.map((e) => ({

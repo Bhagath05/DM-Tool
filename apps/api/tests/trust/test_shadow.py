@@ -371,10 +371,11 @@ class TestConsequenceMapping:
 # ---------------------------------------------------------------------------
 
 
-def _synth(confidence=60, status="ok", observations=None):
+def _synth(confidence=60, status="ok", observations=None, claims=None):
     return SimpleNamespace(
         confidence=confidence, evidence_status=status,
         key_observations=observations or ["observation"],
+        claims=claims or [],
     )
 
 
@@ -447,6 +448,30 @@ class TestRuntimeFailureIsolation:
         assert 0 < enforced.confidence <= 95
         assert enforced.confidence != 99
         assert enforced.evidence_status == "ok"
+
+    async def test_structured_claims_flow_through_enforcement(self, monkeypatch) -> None:
+        from aicmo.modules.agent.schemas import SynthesisClaim
+        from aicmo.modules.trust.enforcement import EnforcedStatus
+
+        async def _rec(session, **kw):
+            pass
+
+        monkeypatch.setattr("aicmo.modules.agent.runtime.ai_audit.record_ai_generation", _rec)
+        synth = _synth(confidence=90, claims=[
+            SynthesisClaim(statement="CTR rose after launch", claim_type="observation"),
+            SynthesisClaim(statement="the video caused the lift", claim_type="observation", is_causal=True),
+        ])
+        enforced = await _enforce_trust(
+            _sess(_NoDBSession()), tenant=_tenant(),
+            belief_ctx=SimpleNamespace(consulted=[]), synth=synth,
+            tools_consulted=["leads", "performance"],
+            proposed_actions=[], action_registry=cast(ToolRegistry, _Registry()),
+            model_used="fake", request_id="r1",
+        )
+        statements = {c.statement for c in enforced.envelope.claims}
+        assert "CTR rose after launch" in statements
+        causal = next(c for c in enforced.envelope.claims if "caused" in c.statement)
+        assert causal.trust_status is EnforcedStatus.DOWNGRADED
 
     async def test_22_23_enforcement_never_executes_or_approves(self) -> None:
         # Structural: neither shadow nor enforcement calls an executor/approval API.

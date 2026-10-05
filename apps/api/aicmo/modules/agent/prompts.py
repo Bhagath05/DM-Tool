@@ -60,6 +60,18 @@ If the data does not support a conclusion, set evidence_status to
 INSUFFICIENT_EVIDENCE and say what is missing rather than guessing. Keep the
 answer clear and business-focused. List key_observations you actually saw in the
 data. State your uncertainty honestly.
+
+Also break your answer into structured `claims`. For each distinct statement
+give its `claim_type`:
+  - fact: a verified number/value from the data
+  - observation: something you saw in the data (e.g. "CTR rose after X")
+  - interpretation: a possible explanation ("X may be contributing")
+  - hypothesis: something worth testing
+  - recommendation: a suggested action
+Set `is_causal` true for any claim that asserts one thing CAUSED another, and
+`is_metric` true for a numeric claim. These are PROPOSALS: the server decides the
+final trust status and confidence, so state claims honestly — do not inflate a
+hypothesis into a fact.
 """
 )
 
