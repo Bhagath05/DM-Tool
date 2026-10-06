@@ -203,6 +203,13 @@ class CandidateRecommendation(BaseModel):
     reversible: bool | None = None
     testable: bool = False
     source_tiers: list[SourceTier] = Field(default_factory=list)
+    # T5 decision-quality inputs (additive; default to the most cautious value so
+    # existing callers and validate_recommendation are unaffected).
+    causal_level: CausalLevel | None = None
+    supporting_count: int = 0
+    contradicting_count: int = 0
+    fresh: bool = True
+    sample_adequate: bool = True
 
 
 class Recommendation(BaseModel):

@@ -620,6 +620,8 @@ export function TrustMetricCard({ metric }: { metric: TrustMetricView }) {
 export function TrustRecommendation({ rec }: { rec: TrustSafeRecommendation }) {
   const consequenceTone: PillTone =
     rec.consequence === "high" ? "bad" : rec.consequence === "medium" ? "watch" : "muted";
+  const changes = rec.what_would_change ?? [];
+  const experiment = rec.suggested_experiment ?? null;
   return (
     <GenBlock eyebrow="Recommendation" icon={ArrowRight} accent data-testid="brain-trust-recommendation">
       <p className="text-sm font-medium">{rec.action}</p>
@@ -636,6 +638,47 @@ export function TrustRecommendation({ rec }: { rec: TrustSafeRecommendation }) {
           </span>
         )}
       </div>
+
+      {/* T5: a safe experiment to run when the evidence is too thin to act. */}
+      {experiment && (
+        <div className="mt-3 rounded-lg border border-dashed border-border bg-background/40 p-3" data-testid="brain-experiment-suggestion">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Suggested test instead
+          </p>
+          <p className="mt-1 text-sm">{experiment.hypothesis}</p>
+          {experiment.variants.length > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Compare: <span className="text-foreground">{experiment.variants.join(" vs ")}</span>
+            </p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Hold constant: {experiment.hold_constant.join(", ")}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Success metric: <span className="text-foreground">{experiment.success_metric}</span>
+          </p>
+          {experiment.approval_required && (
+            <p className="mt-1 text-[11px] text-muted-foreground">Approval required before running.</p>
+          )}
+        </div>
+      )}
+
+      {/* T5: genuine intelligence names what would change its own conclusion. */}
+      {changes.length > 0 && (
+        <details className="group mt-2" data-testid="brain-what-would-change">
+          <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground hover:text-foreground">
+            What would change this?
+          </summary>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {changes.map((c, i) => (
+              <li key={i} className="flex gap-1.5 text-[11px] text-muted-foreground">
+                <span aria-hidden className="mt-1 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+                <span>{c}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </GenBlock>
   );
 }

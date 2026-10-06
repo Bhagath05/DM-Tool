@@ -27,6 +27,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from aicmo.modules.trust.contracts import Claim, MetricResult
+from aicmo.modules.trust.decision import CounterEvidence, DecisionFactor, SuggestedExperiment
 from aicmo.modules.trust.enums import ClaimStatus, ClaimType, RecommendationStatus, SourceTier
 from aicmo.modules.trust.shadow import ShadowResult
 
@@ -133,6 +134,11 @@ class SafeRecommendation(BaseModel):
     consequence: str  # low | medium | high
     requires_approval: bool
     safe_language: str
+    # T5 decision quality — all server-derived.
+    factors: list[DecisionFactor] = Field(default_factory=list)
+    counter_evidence: CounterEvidence | None = None
+    what_would_change: list[str] = Field(default_factory=list)
+    suggested_experiment: SuggestedExperiment | None = None
 
 
 class ClaimView(BaseModel):
@@ -361,16 +367,26 @@ def enforce(shadow: ShadowResult) -> EnforcedResponse:
     )
 
     disclosures = _disclosures(shadow, status)
-    safe_recs = [
-        SafeRecommendation(
-            action=r.statement,
-            status=_REC_STATUS_MAP.get(r.status, EnforcedStatus.INSUFFICIENT_EVIDENCE),
-            consequence=r.consequence_level.value,
-            requires_approval=r.requires_approval,
-            safe_language=_SAFE_LANGUAGE[_REC_STATUS_MAP.get(r.status, EnforcedStatus.INSUFFICIENT_EVIDENCE)],
+    # Pair each validated recommendation with its decision quality (aligned by
+    # index; tolerate a missing decision for safety).
+    decisions = shadow.decisions
+    safe_recs: list[SafeRecommendation] = []
+    for i, r in enumerate(shadow.trust.recommendations):
+        mapped = _REC_STATUS_MAP.get(r.status, EnforcedStatus.INSUFFICIENT_EVIDENCE)
+        d = decisions[i] if i < len(decisions) else None
+        safe_recs.append(
+            SafeRecommendation(
+                action=r.statement,
+                status=mapped,
+                consequence=r.consequence_level.value,
+                requires_approval=r.requires_approval,
+                safe_language=_SAFE_LANGUAGE[mapped],
+                factors=d.factors if d else [],
+                counter_evidence=d.counter_evidence if d else None,
+                what_would_change=d.what_would_change if d else [],
+                suggested_experiment=d.suggested_experiment if d else None,
+            )
         )
-        for r in shadow.trust.recommendations
-    ]
 
     # Per-claim views — but never surface the synthetic overall "turn answer"
     # claim as an individual claim (it only drives the turn-level verdict).

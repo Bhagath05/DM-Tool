@@ -3067,12 +3067,37 @@ export interface TrustMetricView {
   source: string;
 }
 
+export interface TrustDecisionFactor {
+  name: string;
+  assessment: string;
+  detail: string;
+}
+
+export interface TrustCounterEvidence {
+  supporting: number;
+  contradicting: number;
+  missing: string[];
+}
+
+export interface TrustSuggestedExperiment {
+  hypothesis: string;
+  variants: string[];
+  hold_constant: string[];
+  success_metric: string;
+  approval_required: boolean;
+}
+
 export interface TrustSafeRecommendation {
   action: string;
   status: TrustStatus;
   consequence: "low" | "medium" | "high";
   requires_approval: boolean;
   safe_language: string;
+  /** T5 decision quality (server-derived). */
+  factors?: TrustDecisionFactor[];
+  counter_evidence?: TrustCounterEvidence | null;
+  what_would_change?: string[];
+  suggested_experiment?: TrustSuggestedExperiment | null;
 }
 
 export interface TrustSummary {

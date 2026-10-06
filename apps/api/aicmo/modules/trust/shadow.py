@@ -33,6 +33,7 @@ from aicmo.modules.trust.contracts import (
     TrustInput,
     TrustOutput,
 )
+from aicmo.modules.trust.decision import DecisionQuality, evaluate_decision
 from aicmo.modules.trust.enums import (
     ClaimStatus,
     ConsequenceLevel,
@@ -85,6 +86,9 @@ class ShadowResult(BaseModel):
 
     trust: TrustOutput
     provenance: ProvenanceResolution
+    # Decision-quality per recommendation (T5), aligned by index with
+    # ``trust.recommendations``. Server-derived; explains + bounds each action.
+    decisions: list[DecisionQuality] = Field(default_factory=list)
     llm_confidence: int | None = None
     llm_evidence_status: str | None = None
     server_confidence: int = 0
@@ -262,9 +266,14 @@ async def validate_turn_shadow(
     #    turn's claim aggregate (weakest link).
     agg = _aggregate(trust)
     recs: list[Recommendation] = []
+    decisions: list[DecisionQuality] = []
     for rec in shadow_input.candidate_recommendations:
         candidate = _enriched_rec(rec, agg) if _is_default_rec(rec) else rec
-        recs.append(validate_recommendation(candidate))
+        validated = validate_recommendation(candidate)
+        recs.append(validated)
+        # T5: deterministic decision quality (factors, counter-evidence, what
+        # would change the conclusion, safe experiment). Never changes status.
+        decisions.append(evaluate_decision(candidate, validated))
     trust.recommendations = recs
 
     server_confidence = trust.overall_confidence
@@ -283,6 +292,7 @@ async def validate_turn_shadow(
     return ShadowResult(
         trust=trust,
         provenance=provenance,
+        decisions=decisions,
         llm_confidence=shadow_input.llm_confidence,
         llm_evidence_status=shadow_input.llm_evidence_status,
         server_confidence=server_confidence,

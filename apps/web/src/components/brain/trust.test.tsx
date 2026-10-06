@@ -214,6 +214,35 @@ describe("TrustRecommendation", () => {
     );
     expect(screen.getByTestId("brain-trust-recommendation")).not.toHaveTextContent(/human approval required/i);
   });
+
+  it("surfaces 'what would change this' and a suggested experiment (T5)", () => {
+    render(
+      <TrustRecommendation
+        rec={{
+          action: "Increase budget 40%",
+          status: "high_risk_requires_review",
+          consequence: "high",
+          requires_approval: true,
+          safe_language: "This recommendation has meaningful consequences...",
+          what_would_change: [
+            "A controlled experiment — current evidence is only observational and cannot establish causation.",
+          ],
+          suggested_experiment: {
+            hypothesis: 'Whether "Increase budget 40%" holds up under a controlled comparison.',
+            variants: ["the proposed change", "the current baseline"],
+            hold_constant: ["audience", "objective"],
+            success_metric: "a predefined primary metric",
+            approval_required: true,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("brain-what-would-change")).toHaveTextContent(/controlled experiment/i);
+    const exp = screen.getByTestId("brain-experiment-suggestion");
+    expect(exp).toHaveTextContent(/suggested test instead/i);
+    expect(exp).toHaveTextContent(/the proposed change vs the current baseline/i);
+    expect(exp).toHaveTextContent(/approval required before running/i);
+  });
 });
 
 describe("TrustSummaryBlock", () => {
