@@ -14,6 +14,7 @@ import { Compass, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { CreativeEvaluationPanel } from "@/app/(app)/today/_components/creative-evaluation-panel";
+import { BrainTabs } from "@/components/brain/brain-tabs";
 import { AiRecommendation } from "@/components/ui/business-metric";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -62,6 +63,7 @@ export default function AiCoachPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8">
+      <BrainTabs active="decisions" />
       <SectionHeading
         eyebrow={
           <span className="inline-flex items-center gap-1.5">

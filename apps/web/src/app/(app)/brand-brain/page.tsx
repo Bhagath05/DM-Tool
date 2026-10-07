@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { BrainTabs } from "@/components/brain/brain-tabs";
 import { useTenant } from "@/components/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -152,6 +153,7 @@ export default function BrandBrainPage() {
   if (profile === null || !draft) {
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <BrainTabs active="business" />
         <EmptyState
           icon={Brain}
           title="Let's learn about your business"
@@ -169,6 +171,7 @@ export default function BrandBrainPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6" data-testid="brand-brain">
+      <BrainTabs active="business" />
       <SectionHeading
         eyebrow="Brand Brain"
         heading="Everything your AI marketer knows about you"

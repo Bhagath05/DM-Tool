@@ -196,7 +196,7 @@ export default function MarketingBrainPage() {
             description="I understand your business, your data, and what's worked. I can look things up and prepare actions — but I only act after you approve."
           />
           <div className="mt-1 flex items-center gap-2">
-            <BrainTabs active="chat" />
+            <BrainTabs active="ask" />
             <button
               type="button"
               onClick={() => setRailOpen((o) => !o)}

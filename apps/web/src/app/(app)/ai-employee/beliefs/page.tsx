@@ -18,6 +18,7 @@ import { Brain, Clock, History, Lightbulb, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { BrainTabs } from "@/components/brain/brain-tabs";
 import { BackLink } from "@/components/ui/back-link";
 import { ConfidenceBar } from "@/components/ui/confidence-bar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -111,8 +112,9 @@ export default function BeliefsPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6" data-testid="beliefs">
+      <BrainTabs active="knowledge" />
       <div className="flex flex-col gap-2">
-        <BackLink href="/ai-employee" label="Your AI Marketer" />
+        <BackLink href="/ai" label="Marketing Brain" />
         <SectionHeading
           eyebrow="What I've learned"
           heading="What DM Tool believes"

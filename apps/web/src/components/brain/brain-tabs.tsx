@@ -1,25 +1,38 @@
 "use client";
 
 /**
- * Segmented nav inside the Marketing Brain area: Chat ↔ Board.
- * Link-based (no router hook) so it renders cleanly everywhere, including tests.
+ * Marketing Brain sub-navigation — the one coherent AI workspace.
+ *
+ * The Brain has several capabilities that each live at their own route today;
+ * this segmented nav is what makes them read as ONE product ("Marketing Brain →
+ * Ask / Business / Knowledge / Decisions / Board") rather than separate AI
+ * apps. Link-based (no router hook) so it renders cleanly everywhere, including
+ * tests. Wraps on narrow screens — no horizontal overflow.
+ *
+ * Phase 6.3: tabs point at the real existing routes (no moved components, no new
+ * routes). The labels communicate the IA; the URLs stay canonical.
  */
 
-import { LayoutGrid, MessageSquare } from "lucide-react";
+import { Brain, Compass, LayoutGrid, Lightbulb, MessageSquare } from "lucide-react";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
-const TABS = [
-  { key: "chat", label: "Chat", href: "/ai", icon: MessageSquare },
-  { key: "board", label: "Board", href: "/ai/board", icon: LayoutGrid },
-] as const;
+export type BrainTab = "ask" | "business" | "knowledge" | "decisions" | "board";
 
-export function BrainTabs({ active }: { active: "chat" | "board" }) {
+const TABS: { key: BrainTab; label: string; href: string; icon: typeof Brain }[] = [
+  { key: "ask", label: "Ask", href: "/ai", icon: MessageSquare },
+  { key: "business", label: "Business", href: "/brand-brain", icon: Brain },
+  { key: "knowledge", label: "Knowledge", href: "/ai-employee/beliefs", icon: Lightbulb },
+  { key: "decisions", label: "Decisions", href: "/ai-coach", icon: Compass },
+  { key: "board", label: "Board", href: "/ai/board", icon: LayoutGrid },
+];
+
+export function BrainTabs({ active }: { active: BrainTab }) {
   return (
     <nav
       aria-label="Marketing Brain views"
-      className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-0.5"
+      className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-0.5"
       data-testid="brain-tabs"
     >
       {TABS.map((t) => {
@@ -37,7 +50,7 @@ export function BrainTabs({ active }: { active: "chat" | "board" }) {
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-3.5 w-3.5" aria-hidden />
             {t.label}
           </Link>
         );

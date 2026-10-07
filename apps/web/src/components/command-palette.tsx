@@ -30,12 +30,14 @@ interface CommandEntry {
 const ENTRIES: CommandEntry[] = [
   // Brain — the AI-native surface, listed first.
   { label: "Marketing Brain", href: "/ai", group: "Brain", keywords: ["brain", "ai", "ask", "chat", "assistant", "marketing brain"], description: "Ask anything about your marketing" },
+  { label: "Marketing Brain — Business", href: "/brand-brain", group: "Brain", keywords: ["business", "brand", "profile", "brand brain", "about", "knowledge"], description: "What the Brain knows about your business" },
+  { label: "Marketing Brain — Knowledge", href: "/ai-employee/beliefs", group: "Brain", keywords: ["knowledge", "beliefs", "learned", "evidence", "what dm tool believes"], description: "Evidence-backed beliefs the Brain holds" },
+  { label: "Marketing Brain — Decisions", href: "/ai-coach", group: "Brain", keywords: ["decisions", "coach", "weekly", "plan", "action", "recommendations"], description: "This week's recommended actions" },
   { label: "Marketing Board", href: "/ai/board", group: "Brain", keywords: ["board", "kanban", "workflow", "work", "pipeline", "needs me", "status"], description: "See what the Brain is working on" },
   { label: "Approvals", href: "/ai/approvals", group: "Brain", keywords: ["approvals", "approve", "pending", "review", "consequential", "publish"], description: "Review actions awaiting your decision" },
   // Workspace
   { label: "Today", href: "/today", group: "Workspace", keywords: ["home", "dashboard", "today", "overview", "start"] },
   { label: "Performance Intelligence", href: "/performance", group: "Workspace", keywords: ["performance", "diagnostics", "upload", "csv"] },
-  { label: "AI Coach", href: "/ai-coach", group: "Workspace", keywords: ["coach", "weekly", "plan", "action"] },
   // Growth
   { label: "Campaigns", href: "/campaigns", group: "Growth", keywords: ["calendar", "campaigns"] },
   { label: "Leads", href: "/leads", group: "Growth", keywords: ["leads", "pipeline", "inbox"] },

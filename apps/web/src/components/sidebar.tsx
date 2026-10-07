@@ -7,15 +7,17 @@
  * the route tree). Legacy/dead targets were removed; where old cards still
  * deep-link to a legacy path, that path is a redirect shim (not a nav item).
  *
- *   TODAY    → Today's Plan, Marketing Brain, Needs Approval
- *   GROW     → Leads, Opportunities, CRM, Market Intelligence
- *   CREATE   → Creative Studio, Publishing
- *   MEASURE  → Analytics, AI History, Library
- *   SETTINGS → Workspace
+ *   TODAY           → Today's Plan, Needs Approval
+ *   GROW            → Leads, Opportunities, CRM, Market Intelligence
+ *   CREATE          → Creative Studio, Publishing
+ *   MARKETING BRAIN → Marketing Brain (/ai)
+ *   MEASURE         → Analytics, AI History, Library
+ *   SETTINGS        → Workspace
  *
- * Brand Brain lives inside the Marketing Brain (/ai), not as a competing
- * top-level item; the other AI surfaces (ai-coach, ai-employee) remain
- * reachable by direct URL / command palette but are not duplicated in nav.
+ * Marketing Brain is the ONE AI destination (Phase 6.3). Its capabilities —
+ * Business (brand-brain), Knowledge (beliefs), Decisions (ai-coach), Board —
+ * are tabs inside /ai (BrainTabs), not competing nav items. The legacy
+ * ai-employee operational composer stays reachable by direct URL only.
  *
  * Shell behavior (unchanged): collapsible groups with localStorage
  * persistence, animated active-route indicator, mobile drawer, footer with
@@ -74,7 +76,6 @@ const PRIMARY_NAV: NavGroup[] = [
     defaultOpen: true,
     items: [
       { href: "/today", label: "Today's Plan", icon: Sun },
-      { href: "/ai", label: "Marketing Brain", icon: Sparkles },
       { href: "/ai/approvals", label: "Needs Approval", icon: ShieldCheck },
     ],
   },
@@ -96,6 +97,18 @@ const PRIMARY_NAV: NavGroup[] = [
     items: [
       { href: "/studio", label: "Creative Studio", icon: Clapperboard },
       { href: "/publishing", label: "Publishing", icon: Send },
+    ],
+  },
+  {
+    // The one canonical AI destination. Business / Knowledge / Decisions /
+    // Board are capabilities WITHIN the Brain (BrainTabs), not separate nav
+    // items — so AI Coach / AI Employee / Brand Brain never read as competing
+    // products.
+    key: "brain",
+    label: "Marketing Brain",
+    defaultOpen: true,
+    items: [
+      { href: "/ai", label: "Marketing Brain", icon: Sparkles },
     ],
   },
   {
