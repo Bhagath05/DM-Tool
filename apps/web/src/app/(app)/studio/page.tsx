@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { CreateHub } from "./_components/create-hub";
 import { CreativeBriefPanel } from "./_components/creative-brief-panel";
 import { DesignViewer } from "@/components/studio/design-viewer";
 import { EditorShell } from "@/components/studio/editor/editor-shell";
@@ -103,18 +104,10 @@ export default function StudioPage() {
   }, [goal, kind, open, refreshDesigns]);
 
   if (!enabled) {
-    return (
-      <div className="mx-auto max-w-2xl p-8">
-        <Surface className="p-8 text-center">
-          <h1 className="text-lg font-semibold">Creative Studio</h1>
-          <p className="mt-2 text-sm text-[var(--muted-foreground,#64748b)]">
-            Tell us your goal — &quot;I need 50 qualified leads&quot; — and the
-            Studio will plan the strategy and produce editable posters, carousels,
-            ads, and reels. Coming soon.
-          </p>
-        </Surface>
-      </div>
-    );
+    // Flag off: Creative Studio is still the canonical Create home — show the
+    // hub of working generators so Create is never a dead end. The full
+    // outcome-driven Studio below lands when NEXT_PUBLIC_STUDIO_ENABLED is on.
+    return <CreateHub />;
   }
 
   return (

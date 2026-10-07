@@ -43,11 +43,17 @@ const ENTRIES: CommandEntry[] = [
   { label: "Leads", href: "/leads", group: "Growth", keywords: ["leads", "pipeline", "inbox"] },
   { label: "Opportunities", href: "/opportunities", group: "Growth", keywords: ["opportunities", "trends"] },
   { label: "Analytics", href: "/analytics", group: "Growth", keywords: ["analytics", "metrics", "data"] },
-  // Creative
-  { label: "Content", href: "/content", group: "Creative", keywords: ["content", "social", "posts", "create"] },
-  { label: "Ads", href: "/ads", group: "Creative", keywords: ["ads", "meta", "google", "create"] },
-  { label: "Visuals", href: "/visuals", group: "Creative", keywords: ["visuals", "images", "design"] },
-  { label: "Library", href: "/library", group: "Creative", keywords: ["library", "history", "saved"] },
+  // Creative — Creative Studio is the canonical Create home; the rest are
+  // deep links into specific studios (all real routes).
+  { label: "Creative Studio", href: "/studio", group: "Creative", keywords: ["create", "studio", "creative", "make", "generate", "design"], description: "The home for all creative work" },
+  { label: "Content", href: "/content", group: "Creative", keywords: ["content", "social", "posts", "captions", "create"] },
+  { label: "Ads", href: "/ads", group: "Creative", keywords: ["ads", "meta", "google", "paid", "create"] },
+  { label: "Visuals", href: "/visuals", group: "Creative", keywords: ["visuals", "images", "posters", "design"] },
+  { label: "LinkedIn Studio", href: "/create/linkedin", group: "Creative", keywords: ["linkedin", "post", "poster", "caption"] },
+  { label: "Campaign bundles", href: "/bundles", group: "Creative", keywords: ["bundle", "bundles", "kit", "coordinated", "campaign set"] },
+  { label: "Lead pages", href: "/landing-pages", group: "Creative", keywords: ["landing", "lead page", "landing pages", "conversion", "page"] },
+  { label: "Publishing", href: "/publishing", group: "Creative", keywords: ["publishing", "publish", "schedule", "approve", "post"] },
+  { label: "Library", href: "/library", group: "Creative", keywords: ["library", "history", "saved", "assets"] },
   // Actions (navigation to existing create/review surfaces — never executes).
   { label: "Create a social post", href: "/content", group: "Action", keywords: ["create", "new", "post", "social", "write"] },
   { label: "Create an ad", href: "/ads", group: "Action", keywords: ["create", "new", "ad", "ads"] },
