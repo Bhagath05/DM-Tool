@@ -33,7 +33,7 @@ const ENTRIES: CommandEntry[] = [
   { label: "Marketing Board", href: "/ai/board", group: "Brain", keywords: ["board", "kanban", "workflow", "work", "pipeline", "needs me", "status"], description: "See what the Brain is working on" },
   { label: "Approvals", href: "/ai/approvals", group: "Brain", keywords: ["approvals", "approve", "pending", "review", "consequential", "publish"], description: "Review actions awaiting your decision" },
   // Workspace
-  { label: "Overview", href: "/overview", group: "Workspace", keywords: ["home", "dashboard", "today", "start"] },
+  { label: "Today", href: "/today", group: "Workspace", keywords: ["home", "dashboard", "today", "overview", "start"] },
   { label: "Performance Intelligence", href: "/performance", group: "Workspace", keywords: ["performance", "diagnostics", "upload", "csv"] },
   { label: "AI Coach", href: "/ai-coach", group: "Workspace", keywords: ["coach", "weekly", "plan", "action"] },
   // Growth
@@ -47,10 +47,10 @@ const ENTRIES: CommandEntry[] = [
   { label: "Visuals", href: "/visuals", group: "Creative", keywords: ["visuals", "images", "design"] },
   { label: "Library", href: "/library", group: "Creative", keywords: ["library", "history", "saved"] },
   // Actions (navigation to existing create/review surfaces — never executes).
-  { label: "Create a social post", href: "/create/social-posts", group: "Action", keywords: ["create", "new", "post", "social", "write"] },
-  { label: "Create an ad", href: "/create/ads", group: "Action", keywords: ["create", "new", "ad", "ads"] },
+  { label: "Create a social post", href: "/content", group: "Action", keywords: ["create", "new", "post", "social", "write"] },
+  { label: "Create an ad", href: "/ads", group: "Action", keywords: ["create", "new", "ad", "ads"] },
   { label: "Create a campaign", href: "/campaigns", group: "Action", keywords: ["create", "new", "campaign", "launch"] },
-  { label: "Create a visual", href: "/create/creatives", group: "Action", keywords: ["create", "new", "visual", "image", "design"] },
+  { label: "Create a visual", href: "/visuals", group: "Action", keywords: ["create", "new", "visual", "image", "design"] },
   // Settings
   { label: "Organization", href: "/settings/organization", group: "Settings", keywords: ["organization", "workspace", "company", "profile", "industry", "timezone"] },
   { label: "Team", href: "/settings/team", group: "Settings", keywords: ["team", "members", "people", "invite", "roles", "permissions"] },

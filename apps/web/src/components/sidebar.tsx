@@ -1,54 +1,43 @@
 "use client";
 
 /**
- * Phase 10.3 — Founder Simplification Pass sidebar.
+ * Phase 6.1 — outcome-oriented sidebar aligned to the real App Router.
  *
- * Outcome-oriented IA: 5 groups, 8 primary items
- * (down from 17 — see docs/phase-10.3-founder-simplification.md).
+ * Every destination below points at a real, canonical route (verified against
+ * the route tree). Legacy/dead targets were removed; where old cards still
+ * deep-link to a legacy path, that path is a redirect shim (not a nav item).
  *
- *   TODAY    → Today's Plan                  (front door)
- *   GROW     → Leads, Opportunities, Market Intelligence
- *   CREATE   → Social Posts, Ads, Creatives
- *   RESULTS  → Performance
+ *   TODAY    → Today's Plan, Marketing Brain, Needs Approval
+ *   GROW     → Leads, Opportunities, CRM, Market Intelligence
+ *   CREATE   → Creative Studio, Publishing
+ *   MEASURE  → Analytics, AI History, Library
  *   SETTINGS → Workspace
  *
- * Three power-user destinations (Library, Campaign Lab, raw Trends)
- * appear ONLY when the founder flips the topbar Simple↔Pro toggle to
- * "Pro". Same `useViewMode` state that controls technical-details
- * disclosure on every <BusinessMetric> / <AiRecommendation> card
- * (Constitution: Dual-Layer Information System). One toggle, two
- * effects — Pro mode means "I'm a power user; show me more depth AND
- * more destinations." Default = Simple (clean primary nav only).
+ * Brand Brain lives inside the Marketing Brain (/ai), not as a competing
+ * top-level item; the other AI surfaces (ai-coach, ai-employee) remain
+ * reachable by direct URL / command palette but are not duplicated in nav.
  *
- * Carries forward the 10.0 polish: animated active-route indicator,
- * collapsible groups with localStorage persistence, mobile drawer,
- * footer with workspace identity + plan.
+ * Shell behavior (unchanged): collapsible groups with localStorage
+ * persistence, animated active-route indicator, mobile drawer, footer with
+ * workspace identity.
  */
 
 import {
   BarChart3,
-  Brain,
   ChevronDown,
   Clapperboard,
-  CheckSquare,
   Compass,
-  Contact,
-  FlaskConical,
+  Handshake,
   History,
   Inbox,
-  Image as ImageIcon,
-  Linkedin,
-  Handshake,
-  LayoutDashboard,
-  Mail,
-  Megaphone,
+  Library,
+  Radar,
   Send,
   Menu,
-  Radar,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   Sun,
-  TrendingUp,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -56,7 +45,6 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { useTenant } from "@/components/tenant-provider";
-import { useViewMode } from "@/lib/use-view-mode";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -73,13 +61,11 @@ interface NavGroup {
 }
 
 // ---------------------------------------------------------------------
-//  Primary navigation — what every founder sees by default.
+//  Primary navigation — every target is a real, canonical route.
 // ---------------------------------------------------------------------
 //
-// Hard rule (regression-pinned by sidebar.test.tsx): the primary set is
-// exactly 8 items. Adding a 9th means breaking the cognitive-load
-// promise of the Founder Simplification Pass — make a different
-// surface (Advanced Mode, command palette, settings sub-nav) instead.
+// Regression-pinned by sidebar.test.tsx: every href here must resolve to a
+// real route (no dead links) and the set must match the approved IA.
 
 const PRIMARY_NAV: NavGroup[] = [
   {
@@ -87,9 +73,9 @@ const PRIMARY_NAV: NavGroup[] = [
     label: "Today",
     defaultOpen: true,
     items: [
-      { href: "/ai", label: "Marketing Brain", icon: Sparkles },
       { href: "/today", label: "Today's Plan", icon: Sun },
-      { href: "/ai-employee", label: "Your AI Marketer", icon: Brain },
+      { href: "/ai", label: "Marketing Brain", icon: Sparkles },
+      { href: "/ai/approvals", label: "Needs Approval", icon: ShieldCheck },
     ],
   },
   {
@@ -97,18 +83,10 @@ const PRIMARY_NAV: NavGroup[] = [
     label: "Grow",
     defaultOpen: true,
     items: [
-      { href: "/grow/leads", label: "Leads", icon: Inbox },
+      { href: "/leads", label: "Leads", icon: Inbox },
+      { href: "/opportunities", label: "Opportunities", icon: Compass },
       { href: "/crm", label: "CRM", icon: Handshake },
-      { href: "/crm/dashboard", label: "Sales Dashboard", icon: LayoutDashboard },
-      { href: "/crm/contacts", label: "Contacts", icon: Contact },
-      { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
-      { href: "/crm/email", label: "Email", icon: Mail },
-      { href: "/grow/opportunities", label: "Opportunities", icon: Compass },
-      {
-        href: "/grow/market-intelligence",
-        label: "Market Intelligence",
-        icon: Radar,
-      },
+      { href: "/grow/market-intelligence", label: "Market Intelligence", icon: Radar },
     ],
   },
   {
@@ -116,28 +94,24 @@ const PRIMARY_NAV: NavGroup[] = [
     label: "Create",
     defaultOpen: true,
     items: [
-      { href: "/brand-brain", label: "Brand Brain", icon: Brain },
       { href: "/studio", label: "Creative Studio", icon: Clapperboard },
-      { href: "/create/social-posts", label: "Social Posts", icon: Sparkles },
-      { href: "/create/linkedin", label: "LinkedIn Studio", icon: Linkedin },
-      { href: "/create/ads", label: "Ads", icon: Megaphone },
-      { href: "/create/creatives", label: "Creatives", icon: ImageIcon },
       { href: "/publishing", label: "Publishing", icon: Send },
     ],
   },
   {
-    key: "results",
-    label: "Results",
+    key: "measure",
+    label: "Measure",
     defaultOpen: true,
     items: [
-      { href: "/results", label: "Performance", icon: BarChart3 },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/history", label: "AI History", icon: History },
+      { href: "/library", label: "Library", icon: Library },
     ],
   },
   {
     // Settings collapses to ONE top-level link. Sub-pages (Organization,
-    // Team, Billing, Integrations, Notifications, Security, Usage,
-    // Preferences) live in the in-page settings sub-nav.
+    // Team, Billing, Integrations, Notifications, Security, Usage) live in
+    // the in-page settings sub-nav.
     key: "settings",
     label: "Settings",
     defaultOpen: true,
@@ -147,28 +121,10 @@ const PRIMARY_NAV: NavGroup[] = [
   },
 ];
 
-// ---------------------------------------------------------------------
-//  Pro-mode destinations — shown only when ViewMode === "professional".
-// ---------------------------------------------------------------------
-//
-// All three remain reachable via direct URL + command palette regardless
-// of the toggle. The toggle controls SIDEBAR VISIBILITY, not access.
-
-const ADVANCED_NAV: NavItem[] = [
-  { href: "/library", label: "Library", icon: History },
-  { href: "/campaign-lab", label: "Campaign Lab", icon: FlaskConical },
-  { href: "/trends", label: "Trends (raw)", icon: TrendingUp },
-];
-
-// Pages no longer in any sidebar surface but still reachable via direct
-// URL + command palette: /campaigns, /ai-coach, /bundles, /landing-pages.
-// Each is folded into a primary destination per Phase 10.3 design.
-
 const COLLAPSE_STORAGE_KEY = "aicmo.sidebar.collapse.v1";
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { isProfessional } = useViewMode();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     return PRIMARY_NAV.reduce<Record<string, boolean>>((acc, g) => {
@@ -248,25 +204,6 @@ export function Sidebar() {
               onToggle={() => toggleGroup(group.key)}
             />
           ))}
-
-          {isProfessional && (
-            <div
-              className="mb-3 mt-1 last:mb-0"
-              data-testid="sidebar-group-advanced"
-            >
-              <div
-                className="flex items-center justify-between rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/60"
-                aria-label="Pro tools"
-              >
-                <span>Pro tools</span>
-              </div>
-              <ul className="mt-0.5 space-y-0.5">
-                {ADVANCED_NAV.map((item) => (
-                  <NavLink key={item.href} item={item} pathname={pathname} />
-                ))}
-              </ul>
-            </div>
-          )}
         </nav>
         <SidebarFooter />
       </aside>
@@ -399,7 +336,7 @@ function SidebarFooter() {
       className="shrink-0 border-t border-border bg-muted/30 px-3 py-3"
     >
       <Link
-        href="/billing"
+        href="/settings/billing"
         className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
       >
         <span
