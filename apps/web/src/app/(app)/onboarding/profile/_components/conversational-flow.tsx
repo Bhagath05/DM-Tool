@@ -28,7 +28,8 @@ import {
  * Replaces the form-heavy wizard with a calm, one-question-per-screen
  * stepper. The state shape is deliberately separate from the legacy
  * `OnboardingFormValues` so changes here don't ripple into the classic
- * wizard (which is preserved at /onboarding/profile/classic for fallback).
+ * wizard component (preserved at _components/wizard; its /classic route now
+ * redirects to the canonical flow — Phase 6.2).
  *
  * What we collect (vs. what the API still requires):
  *   COLLECTED        →  PAYLOAD MAPPING
