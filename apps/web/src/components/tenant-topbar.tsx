@@ -43,19 +43,25 @@ export function TenantTopbar() {
   const showEnvironmentBadge = environment !== "production";
 
   return (
-    <div className="flex items-center gap-2 text-sm" data-testid="tenant-topbar">
+    <div className="flex min-w-0 items-center gap-2 text-sm" data-testid="tenant-topbar">
       <OrgSwitcher />
       <Divider />
       <BrandSwitcher />
-      {showEnvironmentBadge && (
-        <>
-          <Divider />
-          <EnvironmentBadge environment={environment} />
-        </>
-      )}
-      <RoleBadge />
-      <Divider />
-      <ViewModeToggle />
+      {/* Secondary context (environment · role · view mode) is hidden on
+          phones so the topbar never overflows 390px — the switchers above
+          carry the essential "who am I working as" context, and the rest
+          returns at sm+. View mode still defaults to Simple on mobile. */}
+      <div className="hidden min-w-0 items-center gap-2 sm:flex">
+        {showEnvironmentBadge && (
+          <>
+            <Divider />
+            <EnvironmentBadge environment={environment} />
+          </>
+        )}
+        <RoleBadge />
+        <Divider />
+        <ViewModeToggle />
+      </div>
     </div>
   );
 }
