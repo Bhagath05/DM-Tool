@@ -98,7 +98,7 @@ export function AiCoachPanel() {
         description={
           state.kind === "ready"
             ? state.plan.week_focus
-            : "One action, calibrated to your data, ranked above everything else this week."
+            : "One action, ranked above everything else this week."
         }
         size="lg"
       />
@@ -206,8 +206,13 @@ function CoachCard({ action }: { action: WeeklyAction }) {
           <div data-testid="ai-coach-confidence" className="flex flex-col gap-2">
             <span className="text-meta">Confidence</span>
             <ConfidenceBar value={action.confidence} size="lg" hideLabel />
+            {/* Honest framing: this is the AI's own confidence in the
+                recommendation, tied to the reasoning shown — NOT a claim that
+                the number was calibrated against measured data (a new workspace
+                may have none). See "Why this" for the basis. */}
             <p className="text-xs text-muted-foreground">
-              {action.confidence}% · calibrated to the data we've seen.
+              {action.confidence}% — the AI&apos;s confidence in this
+              recommendation, based on the reasoning shown.
             </p>
           </div>
         </div>

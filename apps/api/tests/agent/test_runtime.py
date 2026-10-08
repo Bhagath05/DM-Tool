@@ -26,7 +26,11 @@ from aicmo.agent.types import (
 from aicmo.llm.providers.base import LLMResult, LLMUsage
 from aicmo.modules.agent import runtime
 from aicmo.modules.agent.models import AgentConversation, AgentMessage
-from aicmo.modules.agent.runtime import MAX_TOOL_CALLS_PER_TURN, run_turn
+from aicmo.modules.agent.runtime import (
+    MAX_TOOL_CALLS_PER_TURN,
+    AgentModelUnavailable,
+    run_turn,
+)
 from aicmo.modules.agent.schemas import AgentPlan, AgentSynthesis, ProposedToolCall
 
 _SVC = "aicmo.modules.marketing_brain.service"
@@ -206,6 +210,55 @@ async def test_consequential_proposal_is_blocked_not_executed():
     assert resp.tools_consulted == []
     assert resp.actions_blocked[0].reason == "ACTION_REQUIRES_APPROVAL"
     assert resp.actions_blocked[0].operation_class == "consequential"
+
+
+# --- provider failure (Phase 6.7) -------------------------------------------
+class _FailingRouter:
+    """A router whose model call raises — simulating a provider rejection
+    (e.g. OpenAI 400), refusal, truncation, or an invalid/unparseable plan."""
+
+    def __init__(self, exc: Exception):
+        self._exc = exc
+
+    async def generate(self, **kw):  # type: ignore[no-untyped-def]
+        raise self._exc
+
+
+async def _run_with_router(router, *, registry):
+    tenant = _FakeTenant(permissions=("analytics.view",))
+    convo = AgentConversation(
+        id=uuid.uuid4(),
+        organization_id=tenant.organization_id,
+        brand_id=tenant.brand_id,
+        status="active",
+    )
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{_SVC}.build_context", new=AsyncMock(return_value=MagicMock())))
+        stack.enter_context(patch(f"{_SVC}.context_to_prompt_block", new=MagicMock(return_value="CTX")))
+        stack.enter_context(patch(_AUDIT, new=AsyncMock()))
+        return await run_turn(
+            _FakeSession(), tenant=tenant, conversation=convo, user_text="How am I doing?",
+            request_id="req-err", registry=registry, router=router,
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_rejection_surfaces_as_unavailable_not_fabricated():
+    """A failed model call must raise AgentModelUnavailable — never a
+    fabricated 'successful' answer, and never a leaked provider message."""
+    reg = _registry(_tool("safe_read", OperationClass.READ))
+    router = _FailingRouter(
+        RuntimeError(
+            "Error code: 400 - Invalid schema for response_format 'AgentPlan'"
+        )
+    )
+    with pytest.raises(AgentModelUnavailable) as ei:
+        await _run_with_router(router, registry=reg)
+    # The raised error carries only a safe token, not the raw provider message.
+    assert "model_call_failed" in str(ei.value)
+    assert "400" not in str(ei.value)
+    # The original cause is chained for server-side debugging.
+    assert isinstance(ei.value.__cause__, RuntimeError)
 
 
 @pytest.mark.asyncio

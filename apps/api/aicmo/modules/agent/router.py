@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.db.session import get_db
 from aicmo.modules.agent import service
-from aicmo.modules.agent.runtime import run_turn
+from aicmo.modules.agent.runtime import AgentModelUnavailable, run_turn
 from aicmo.modules.agent.schemas import (
     AgentResponse,
     ConversationCreateRequest,
@@ -95,12 +95,23 @@ async def post_message(
 ) -> AgentResponse:
     convo = await service.get_conversation(session, tenant=tenant, conversation_id=conversation_id)
     request_id = getattr(request.state, "request_id", None)
-    response = await run_turn(
-        session,
-        tenant=tenant,
-        conversation=convo,
-        user_text=payload.content,
-        request_id=request_id,
-    )
+    try:
+        response = await run_turn(
+            session,
+            tenant=tenant,
+            conversation=convo,
+            user_text=payload.content,
+            request_id=request_id,
+        )
+    except AgentModelUnavailable as exc:
+        # The model call failed; we return a clear, safe error rather than a
+        # fabricated answer or a raw 500 that could leak internals.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "The Marketing Brain couldn't complete that just now. "
+                "Please try again in a moment."
+            ),
+        ) from exc
     await session.commit()
     return response

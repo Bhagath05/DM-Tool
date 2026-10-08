@@ -59,6 +59,31 @@ from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
+
+class AgentModelUnavailable(RuntimeError):
+    """A planning/synthesis model call failed — provider/API error, refusal,
+    truncation, or an unparseable/invalid response.
+
+    Raised INSTEAD of fabricating an answer: a failed model call must never be
+    dressed up as a confident result. The API boundary turns this into a safe,
+    actionable 503 ("try again") rather than a raw 500 that could leak internals.
+    """
+
+
+async def _generate_or_unavailable(router, **kwargs):  # type: ignore[no-untyped-def]
+    """Call the LLM router, translating any failure into AgentModelUnavailable.
+
+    We never swallow the error into a fake success. The original exception is
+    chained for server-side debugging; only its type is logged, so a provider
+    message can't leak into logs or the user response.
+    """
+    try:
+        return await router.generate(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - one deliberate safety boundary
+        log.warning("agent.model.unavailable", error=type(exc).__name__)
+        raise AgentModelUnavailable("model_call_failed") from exc
+
+
 # Server-side bounds. The model cannot change these.
 MAX_TOOL_CALLS_PER_TURN = 8
 MAX_AGENT_ITERATIONS = 1  # single plan → execute → synthesize (Phase 2)
@@ -367,7 +392,8 @@ async def run_turn(
         *history,
         LLMMessage(role="user", content=f"User question: {user_text}"),
     ]
-    plan_res = await router.generate(
+    plan_res = await _generate_or_unavailable(
+        router,
         response_schema=AgentPlan,
         system=PLANNING_SYSTEM,
         messages=plan_messages,
@@ -505,7 +531,8 @@ async def run_turn(
         *proposal_note,
         LLMMessage(role="user", content=f"Answer this question using ONLY the data above: {user_text}"),
     ]
-    synth_res = await router.generate(
+    synth_res = await _generate_or_unavailable(
+        router,
         response_schema=AgentSynthesis,
         system=SYNTHESIS_SYSTEM,
         messages=synth_messages,
