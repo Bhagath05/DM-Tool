@@ -11,7 +11,7 @@
  *   GROW            → Leads, Opportunities, CRM, Market Intelligence
  *   CREATE          → Creative Studio, Publishing
  *   MARKETING BRAIN → Marketing Brain (/ai)
- *   MEASURE         → Analytics, AI History, Library
+ *   MEASURE         → Measure (/analytics; Performance/Social/Lab/History are tabs)
  *   SETTINGS        → Workspace
  *
  * Marketing Brain is the ONE AI destination (Phase 6.3). Its capabilities —
@@ -30,9 +30,7 @@ import {
   Clapperboard,
   Compass,
   Handshake,
-  History,
   Inbox,
-  Library,
   Radar,
   Send,
   Menu,
@@ -112,13 +110,15 @@ const PRIMARY_NAV: NavGroup[] = [
     ],
   },
   {
+    // One canonical Measure destination (/analytics). Performance, Social,
+    // Learning Lab and History are capabilities WITHIN Measure (MeasureTabs),
+    // not competing nav items. Library (saved assets) lives in the command
+    // palette. External market trends live under Grow, not Measure.
     key: "measure",
     label: "Measure",
     defaultOpen: true,
     items: [
-      { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/history", label: "AI History", icon: History },
-      { href: "/library", label: "Library", icon: Library },
+      { href: "/analytics", label: "Measure", icon: BarChart3 },
     ],
   },
   {

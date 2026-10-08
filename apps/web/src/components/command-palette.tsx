@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 interface CommandEntry {
   label: string;
   href: string;
-  group: "Brain" | "Workspace" | "Growth" | "Creative" | "Action" | "Settings";
+  group: "Brain" | "Workspace" | "Growth" | "Creative" | "Measure" | "Action" | "Settings";
   keywords: string[];
   description?: string;
 }
@@ -37,12 +37,17 @@ const ENTRIES: CommandEntry[] = [
   { label: "Approvals", href: "/ai/approvals", group: "Brain", keywords: ["approvals", "approve", "pending", "review", "consequential", "publish"], description: "Review actions awaiting your decision" },
   // Workspace
   { label: "Today", href: "/today", group: "Workspace", keywords: ["home", "dashboard", "today", "overview", "start"] },
-  { label: "Performance Intelligence", href: "/performance", group: "Workspace", keywords: ["performance", "diagnostics", "upload", "csv"] },
   // Growth
   { label: "Campaigns", href: "/campaigns", group: "Growth", keywords: ["calendar", "campaigns"] },
   { label: "Leads", href: "/leads", group: "Growth", keywords: ["leads", "pipeline", "inbox"] },
   { label: "Opportunities", href: "/opportunities", group: "Growth", keywords: ["opportunities", "trends"] },
-  { label: "Analytics", href: "/analytics", group: "Growth", keywords: ["analytics", "metrics", "data"] },
+  // Measure — Analytics is the canonical home; the rest are deep links into
+  // specific Measure capabilities (all real routes).
+  { label: "Measure — Analytics", href: "/analytics", group: "Measure", keywords: ["measure", "analytics", "metrics", "data", "growth", "overview"], description: "How your marketing is performing" },
+  { label: "Measure — Performance", href: "/performance", group: "Measure", keywords: ["performance", "intelligence", "diagnostics", "upload", "csv"], description: "Full performance diagnostics" },
+  { label: "Measure — Social", href: "/social", group: "Measure", keywords: ["social", "intelligence", "patterns", "what works"], description: "What works on social" },
+  { label: "Measure — Learning Lab", href: "/campaign-lab", group: "Measure", keywords: ["learning", "lab", "experiments", "clustering", "campaign lab"], description: "What we've learned from experiments" },
+  { label: "Measure — History", href: "/history", group: "Measure", keywords: ["history", "ai history", "recommendations", "track record", "outcomes"], description: "Past recommendations and outcomes" },
   // Creative — Creative Studio is the canonical Create home; the rest are
   // deep links into specific studios (all real routes).
   { label: "Creative Studio", href: "/studio", group: "Creative", keywords: ["create", "studio", "creative", "make", "generate", "design"], description: "The home for all creative work" },
@@ -206,6 +211,7 @@ export function CommandPalette() {
     "Workspace",
     "Growth",
     "Creative",
+    "Measure",
     "Action",
     "Settings",
   ];

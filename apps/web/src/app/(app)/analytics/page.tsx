@@ -1,10 +1,12 @@
 import { Dashboard } from "./_components/dashboard";
+import { MeasureTabs } from "@/components/brain/measure-tabs";
 
 export const dynamic = "force-dynamic";
 
 export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
+      <MeasureTabs active="analytics" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           How your business is growing

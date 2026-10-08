@@ -8,6 +8,7 @@
 
 import { Sparkles } from "lucide-react";
 
+import { MeasureTabs } from "@/components/brain/measure-tabs";
 import { PerformanceEngineCard } from "@/components/performance-engine-card";
 import { SectionHeading } from "@/components/ui/section-heading";
 
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 export default function PerformancePage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
+      <MeasureTabs active="performance" />
       <SectionHeading
         eyebrow={
           <span className="inline-flex items-center gap-1.5">

@@ -1,10 +1,12 @@
 import { CampaignLab } from "./_components/campaign-lab";
+import { MeasureTabs } from "@/components/brain/measure-tabs";
 
 export const dynamic = "force-dynamic";
 
 export default function CampaignLabPage() {
   return (
     <div className="space-y-6">
+      <MeasureTabs active="lab" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           What we&apos;ve learned from your campaigns

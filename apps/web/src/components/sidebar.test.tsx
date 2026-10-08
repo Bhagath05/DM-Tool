@@ -38,9 +38,7 @@ const PRIMARY_LABELS = [
   "Market Intelligence",
   "Creative Studio",
   "Publishing",
-  "Analytics",
-  "AI History",
-  "Library",
+  "Measure",
   "Workspace",
 ];
 
@@ -56,8 +54,6 @@ const PRIMARY_HREFS = [
   "/studio",
   "/publishing",
   "/analytics",
-  "/history",
-  "/library",
   "/settings",
 ];
 
