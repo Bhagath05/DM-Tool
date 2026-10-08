@@ -1,66 +1,118 @@
 @import "tailwindcss";
 
 /* ===================================================================
-   Phase 10.0 polish — premium SaaS palette + typography + motion.
+   DM TOOL DESIGN SYSTEM (Phase 6.6)
 
-   Hard-capped to 5 semantic colors (ai / good / watch / bad / neutral).
-   Typography scale ramps display→meta with deliberate spacing so the
-   eye learns where to land at every level.
+   One formal token layer powers the whole product. Three ideas:
+
+   1. THEMED COLORS resolve through leaf variables (`--bg`, `--ai`, …)
+      so a single `data-theme` attribute on <html> re-skins everything.
+      Utilities are generated with `@theme inline`, so `bg-background`
+      emits `background-color: var(--bg)` and simply follows whatever
+      `--bg` the active theme sets. Never override `--color-*`; override
+      the leaf var instead.
+
+   2. STRUCTURAL SCALES (radius, elevation, motion, typography) are NOT
+      theme-dependent and live in a plain `@theme` block.
+
+   3. Theme resolution:
+        :root                                   → light (default)
+        @media (dark) :root:not([data-theme=light]) → dark when the OS is
+                                                   dark AND user hasn't
+                                                   forced light  ("System")
+        :root[data-theme="dark"]                → forced dark
+      So the user's explicit choice always wins; "System" tracks the OS.
+
+   Semantic palette (meaning, never decoration):
+        ai       violet    — the AI / Marketing Brain identity (restrained)
+        trust    teal      — evidence & verification surfaces
+        good     green     — success / positive (alias: success)
+        watch    amber     — caution / warning   (alias: warning)
+        bad      red       — risk / failure       (alias: danger)
+        info     blue       — neutral information
+        approval gold      — a human-approval gate (always paired w/ icon+text)
+   Color is NEVER the only signal — every status also carries text + glyph.
 =================================================================== */
 
+/* ---- Themed colors: utilities follow the leaf variables ---------- */
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-fg);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-fg);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-fg);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-fg);
+
+  --color-ai: var(--ai);
+  --color-ai-strong: var(--ai-strong);
+  --color-ai-foreground: var(--ai-fg);
+  --color-ai-soft: var(--ai-soft);
+  --color-ai-soft-foreground: var(--ai-soft-fg);
+  --color-ai-border: var(--ai-border);
+
+  --color-trust: var(--trust);
+  --color-trust-foreground: var(--trust-fg);
+  --color-trust-soft: var(--trust-soft);
+  --color-trust-soft-foreground: var(--trust-soft-fg);
+  --color-trust-border: var(--trust-border);
+
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-good-soft-foreground: var(--good-soft-fg);
+  --color-good-border: var(--good-border);
+
+  --color-watch: var(--watch);
+  --color-watch-soft: var(--watch-soft);
+  --color-watch-soft-foreground: var(--watch-soft-fg);
+  --color-watch-border: var(--watch-border);
+
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-soft-foreground: var(--bad-soft-fg);
+  --color-bad-border: var(--bad-border);
+
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-soft-foreground: var(--info-soft-fg);
+  --color-info-border: var(--info-border);
+
+  --color-approval: var(--approval);
+  --color-approval-soft: var(--approval-soft);
+  --color-approval-soft-foreground: var(--approval-soft-fg);
+  --color-approval-border: var(--approval-border);
+
+  /* Semantic aliases so the spec names (success/warning/danger) resolve. */
+  --color-success: var(--good);
+  --color-warning: var(--watch);
+  --color-danger: var(--bad);
+
+  --color-destructive: var(--bad);
+  --color-destructive-foreground: var(--bad-contrast);
+
+  /* AI glow is theme-dependent; everything else structural lives below. */
+  --shadow-glow-ai: var(--glow-ai);
+}
+
+/* ---- Structural scales: identical in every theme ----------------- */
 @theme {
-  /* Surfaces */
-  --color-background: hsl(240 12% 99%);
-  --color-foreground: hsl(240 10% 8%);
-  --color-muted: hsl(240 8% 96%);
-  --color-muted-foreground: hsl(240 4% 42%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(240 10% 8%);
-  --color-border: hsl(240 6% 92%);
-  --color-input: hsl(240 6% 92%);
-  --color-ring: hsl(263 64% 58%);
-
-  --color-primary: hsl(240 8% 12%);
-  --color-primary-foreground: hsl(0 0% 99%);
-  --color-secondary: hsl(240 8% 96%);
-  --color-secondary-foreground: hsl(240 8% 12%);
-  --color-accent: hsl(240 8% 96%);
-  --color-accent-foreground: hsl(240 8% 12%);
-
-  /* Semantic palette. ONE color per meaning. */
-  --color-ai: hsl(263 64% 58%);
-  --color-ai-strong: hsl(258 78% 50%);
-  --color-ai-foreground: hsl(0 0% 99%);
-  --color-ai-soft: hsl(263 80% 97%);
-  --color-ai-soft-foreground: hsl(263 64% 32%);
-  --color-ai-border: hsl(263 50% 88%);
-
-  --color-good: hsl(152 60% 38%);
-  --color-good-soft: hsl(152 70% 96%);
-  --color-good-soft-foreground: hsl(152 70% 22%);
-  --color-good-border: hsl(152 40% 82%);
-
-  --color-watch: hsl(38 92% 50%);
-  --color-watch-soft: hsl(48 96% 95%);
-  --color-watch-soft-foreground: hsl(38 80% 28%);
-  --color-watch-border: hsl(38 60% 84%);
-
-  --color-bad: hsl(0 72% 51%);
-  --color-bad-soft: hsl(0 90% 97%);
-  --color-bad-soft-foreground: hsl(0 70% 32%);
-  --color-bad-border: hsl(0 60% 88%);
-
-  --color-destructive: var(--color-bad);
-  --color-destructive-foreground: hsl(0 0% 99%);
-
-  /* Radii — premium products lean to xl/2xl. */
+  /* Radii — small / medium / large / pill (rounded-full). */
   --radius: 0.5rem;
   --radius-md: 0.625rem;
   --radius-lg: 0.875rem;
   --radius-xl: 1.125rem;
   --radius-2xl: 1.375rem;
 
-  /* Layered shadows tuned for soft-on-light surfaces. */
+  /* Elevation — subtle / raised / overlay (+ xs hairline). Tuned soft. */
   --shadow-xs: 0 1px 2px 0 hsl(240 8% 12% / 0.04);
   --shadow-sm:
     0 1px 3px 0 hsl(240 8% 12% / 0.05),
@@ -71,59 +123,213 @@
   --shadow-lg:
     0 12px 32px -8px hsl(240 8% 12% / 0.10),
     0 4px 8px -2px hsl(240 8% 12% / 0.05);
-  --shadow-glow-ai:
+
+  /* Motion durations — fast / normal / slow (150 / 200 / 320ms). */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+}
+
+/* ===================================================================
+   THEME VALUES
+
+   Spacing note: the native Tailwind scale (0.25rem base) already gives
+   the 4/8/12/16/20/24/32/40/48/64 steps the system calls for
+   (p-1 … p-16) — we deliberately add no custom spacing tokens.
+=================================================================== */
+
+:root {
+  /* Light — the default. Soft neutral surfaces, not stark white. */
+  --bg: hsl(240 20% 99%);
+  --fg: hsl(240 12% 9%);
+  --muted: hsl(240 10% 95.5%);
+  --muted-fg: hsl(240 4% 42%);
+  --card: hsl(0 0% 100%);
+  --card-fg: hsl(240 12% 9%);
+  --border: hsl(240 7% 91%);
+  --input: hsl(240 7% 91%);
+  --ring: hsl(263 64% 58%);
+
+  --primary: hsl(240 9% 11%);
+  --primary-fg: hsl(0 0% 99%);
+  --secondary: hsl(240 10% 95.5%);
+  --secondary-fg: hsl(240 9% 11%);
+  --accent: hsl(240 10% 95.5%);
+  --accent-fg: hsl(240 9% 11%);
+
+  --ai: hsl(263 64% 58%);
+  --ai-strong: hsl(258 78% 50%);
+  --ai-fg: hsl(0 0% 99%);
+  --ai-soft: hsl(263 80% 97%);
+  --ai-soft-fg: hsl(263 64% 32%);
+  --ai-border: hsl(263 50% 88%);
+
+  --trust: hsl(190 72% 40%);
+  --trust-fg: hsl(0 0% 99%);
+  --trust-soft: hsl(190 70% 96%);
+  --trust-soft-fg: hsl(190 80% 24%);
+  --trust-border: hsl(190 45% 82%);
+
+  --good: hsl(152 60% 38%);
+  --good-soft: hsl(152 70% 96%);
+  --good-soft-fg: hsl(152 70% 22%);
+  --good-border: hsl(152 40% 82%);
+
+  --watch: hsl(38 92% 50%);
+  --watch-soft: hsl(48 96% 95%);
+  --watch-soft-fg: hsl(38 80% 28%);
+  --watch-border: hsl(38 60% 84%);
+
+  --bad: hsl(0 72% 51%);
+  --bad-soft: hsl(0 90% 97%);
+  --bad-soft-fg: hsl(0 70% 32%);
+  --bad-border: hsl(0 60% 88%);
+  --bad-contrast: hsl(0 0% 99%);
+
+  --info: hsl(214 90% 52%);
+  --info-soft: hsl(214 96% 96%);
+  --info-soft-fg: hsl(214 80% 34%);
+  --info-border: hsl(214 60% 86%);
+
+  --approval: hsl(32 90% 48%);
+  --approval-fg: hsl(0 0% 99%);
+  --approval-soft: hsl(36 96% 95%);
+  --approval-soft-fg: hsl(28 82% 32%);
+  --approval-border: hsl(34 70% 82%);
+
+  --glow-ai:
     0 12px 36px -10px hsl(263 64% 58% / 0.22),
     0 4px 12px -4px hsl(263 64% 58% / 0.18);
 }
 
+/* Dark values, shared by "System when OS is dark" and "forced dark". */
 @media (prefers-color-scheme: dark) {
-  @theme {
-    --color-background: hsl(240 14% 5%);
-    --color-foreground: hsl(0 0% 98%);
-    --color-muted: hsl(240 6% 12%);
-    --color-muted-foreground: hsl(240 5% 64%);
-    --color-card: hsl(240 10% 7%);
-    --color-card-foreground: hsl(0 0% 98%);
-    --color-border: hsl(240 6% 18%);
-    --color-input: hsl(240 6% 18%);
-    --color-ring: hsl(263 64% 64%);
+  :root:not([data-theme="light"]) {
+    --bg: hsl(240 14% 5%);
+    --fg: hsl(0 0% 98%);
+    --muted: hsl(240 6% 12%);
+    --muted-fg: hsl(240 5% 65%);
+    --card: hsl(240 10% 7.5%);
+    --card-fg: hsl(0 0% 98%);
+    --border: hsl(240 6% 18%);
+    --input: hsl(240 6% 18%);
+    --ring: hsl(263 70% 68%);
 
-    --color-primary: hsl(0 0% 98%);
-    --color-primary-foreground: hsl(240 8% 10%);
-    --color-secondary: hsl(240 6% 12%);
-    --color-secondary-foreground: hsl(0 0% 98%);
-    --color-accent: hsl(240 6% 14%);
-    --color-accent-foreground: hsl(0 0% 98%);
+    --primary: hsl(0 0% 98%);
+    --primary-fg: hsl(240 9% 10%);
+    --secondary: hsl(240 6% 13%);
+    --secondary-fg: hsl(0 0% 98%);
+    --accent: hsl(240 6% 15%);
+    --accent-fg: hsl(0 0% 98%);
 
-    --color-ai: hsl(263 70% 68%);
-    --color-ai-strong: hsl(263 80% 78%);
-    --color-ai-foreground: hsl(0 0% 99%);
-    --color-ai-soft: hsl(263 40% 16%);
-    --color-ai-soft-foreground: hsl(263 80% 88%);
-    --color-ai-border: hsl(263 40% 28%);
+    --ai: hsl(263 70% 70%);
+    --ai-strong: hsl(263 80% 80%);
+    --ai-fg: hsl(263 40% 10%);
+    --ai-soft: hsl(263 40% 16%);
+    --ai-soft-fg: hsl(263 80% 88%);
+    --ai-border: hsl(263 38% 30%);
 
-    --color-good: hsl(152 60% 52%);
-    --color-good-soft: hsl(152 40% 14%);
-    --color-good-soft-foreground: hsl(152 80% 88%);
-    --color-good-border: hsl(152 35% 24%);
+    --trust: hsl(190 70% 56%);
+    --trust-fg: hsl(190 60% 8%);
+    --trust-soft: hsl(190 50% 14%);
+    --trust-soft-fg: hsl(190 80% 82%);
+    --trust-border: hsl(190 40% 26%);
 
-    --color-watch: hsl(38 92% 60%);
-    --color-watch-soft: hsl(38 60% 14%);
-    --color-watch-soft-foreground: hsl(48 100% 88%);
-    --color-watch-border: hsl(38 50% 26%);
+    --good: hsl(152 58% 52%);
+    --good-soft: hsl(152 40% 13%);
+    --good-soft-fg: hsl(152 75% 82%);
+    --good-border: hsl(152 32% 24%);
 
-    --color-bad: hsl(0 72% 60%);
-    --color-bad-soft: hsl(0 50% 14%);
-    --color-bad-soft-foreground: hsl(0 80% 90%);
-    --color-bad-border: hsl(0 50% 26%);
+    --watch: hsl(38 92% 60%);
+    --watch-soft: hsl(38 55% 13%);
+    --watch-soft-fg: hsl(48 100% 85%);
+    --watch-border: hsl(38 48% 26%);
 
-    --color-destructive: var(--color-bad);
-    --color-destructive-foreground: hsl(0 0% 99%);
+    --bad: hsl(0 74% 62%);
+    --bad-soft: hsl(0 45% 14%);
+    --bad-soft-fg: hsl(0 85% 86%);
+    --bad-border: hsl(0 45% 28%);
+    --bad-contrast: hsl(0 0% 99%);
 
-    --shadow-glow-ai:
-      0 16px 40px -8px hsl(263 70% 60% / 0.30),
-      0 6px 14px -4px hsl(263 70% 60% / 0.20);
+    --info: hsl(214 90% 66%);
+    --info-soft: hsl(214 55% 15%);
+    --info-soft-fg: hsl(214 90% 84%);
+    --info-border: hsl(214 45% 30%);
+
+    --approval: hsl(34 92% 60%);
+    --approval-fg: hsl(32 60% 8%);
+    --approval-soft: hsl(32 55% 14%);
+    --approval-soft-fg: hsl(40 96% 82%);
+    --approval-border: hsl(34 48% 28%);
+
+    --glow-ai:
+      0 16px 40px -8px hsl(263 70% 60% / 0.32),
+      0 6px 14px -4px hsl(263 70% 60% / 0.22);
   }
+}
+
+/* Forced dark — explicit user choice, independent of the OS. */
+:root[data-theme="dark"] {
+  --bg: hsl(240 14% 5%);
+  --fg: hsl(0 0% 98%);
+  --muted: hsl(240 6% 12%);
+  --muted-fg: hsl(240 5% 65%);
+  --card: hsl(240 10% 7.5%);
+  --card-fg: hsl(0 0% 98%);
+  --border: hsl(240 6% 18%);
+  --input: hsl(240 6% 18%);
+  --ring: hsl(263 70% 68%);
+
+  --primary: hsl(0 0% 98%);
+  --primary-fg: hsl(240 9% 10%);
+  --secondary: hsl(240 6% 13%);
+  --secondary-fg: hsl(0 0% 98%);
+  --accent: hsl(240 6% 15%);
+  --accent-fg: hsl(0 0% 98%);
+
+  --ai: hsl(263 70% 70%);
+  --ai-strong: hsl(263 80% 80%);
+  --ai-fg: hsl(263 40% 10%);
+  --ai-soft: hsl(263 40% 16%);
+  --ai-soft-fg: hsl(263 80% 88%);
+  --ai-border: hsl(263 38% 30%);
+
+  --trust: hsl(190 70% 56%);
+  --trust-fg: hsl(190 60% 8%);
+  --trust-soft: hsl(190 50% 14%);
+  --trust-soft-fg: hsl(190 80% 82%);
+  --trust-border: hsl(190 40% 26%);
+
+  --good: hsl(152 58% 52%);
+  --good-soft: hsl(152 40% 13%);
+  --good-soft-fg: hsl(152 75% 82%);
+  --good-border: hsl(152 32% 24%);
+
+  --watch: hsl(38 92% 60%);
+  --watch-soft: hsl(38 55% 13%);
+  --watch-soft-fg: hsl(48 100% 85%);
+  --watch-border: hsl(38 48% 26%);
+
+  --bad: hsl(0 74% 62%);
+  --bad-soft: hsl(0 45% 14%);
+  --bad-soft-fg: hsl(0 85% 86%);
+  --bad-border: hsl(0 45% 28%);
+  --bad-contrast: hsl(0 0% 99%);
+
+  --info: hsl(214 90% 66%);
+  --info-soft: hsl(214 55% 15%);
+  --info-soft-fg: hsl(214 90% 84%);
+  --info-border: hsl(214 45% 30%);
+
+  --approval: hsl(34 92% 60%);
+  --approval-fg: hsl(32 60% 8%);
+  --approval-soft: hsl(32 55% 14%);
+  --approval-soft-fg: hsl(40 96% 82%);
+  --approval-border: hsl(34 48% 28%);
+
+  --glow-ai:
+    0 16px 40px -8px hsl(263 70% 60% / 0.32),
+    0 6px 14px -4px hsl(263 70% 60% / 0.22);
 }
 
 html,
@@ -136,18 +342,23 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Smooth the theme flip (but never animate for reduced-motion users). */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme] body,
+  html body {
+    transition:
+      background-color var(--duration-normal) ease-out,
+      color var(--duration-normal) ease-out;
+  }
+}
+
 /* ===================================================================
-   Scrollbar hygiene — Phase 10.0 polish.
+   Scrollbar hygiene.
 
    `.scrollbar-clean` hides the scrollbar visual but keeps the element
-   scrollable. Behaves like Linear / Notion / Stripe — the track no
-   longer paints on macOS users who have "always show scrollbars"
-   enabled, and Windows / Linux pick up the same treatment via
-   `-ms-overflow-style` + `scrollbar-width: none`.
-
-   Apply to in-app scroll containers (sidebar nav, main content).
-   Do NOT apply to surfaces where the bar is a useful affordance
-   (large data tables, code blocks) — those keep the native scroller.
+   scrollable (Linear / Notion / Stripe feel). Apply to in-app scroll
+   containers (sidebar nav, main content); leave native scrollers on
+   large data tables and code blocks where the bar is a useful affordance.
 =================================================================== */
 
 .scrollbar-clean {
@@ -161,22 +372,28 @@ body {
 }
 
 /* ===================================================================
-   Typographic hierarchy — the spec calls for clearly distinct levels.
+   Typographic hierarchy — one ladder the eye learns to scan.
 
-   Display  → 48-56px page hero (one per page, max)
-   Section  → 24-32px section heading
-   Card     → 18-20px card title
-   Body     → 14-16px (Tailwind text-sm / text-base)
-   Meta     → 12-13px eyebrow / muted line
-
-   Implemented as utility classes so any page/component can opt in
-   without re-declaring sizes everywhere.
+   Display    → marketing hero only (rare in-app)
+   Page title → one <h1> per page
+   Section    → band / section heading
+   Card title → card heading
+   Body       → text-sm / text-base (native)
+   Label      → form + eyebrow labels
+   Caption    → meta / fine print
 =================================================================== */
 
 .text-display {
   font-size: clamp(2.25rem, 1.6rem + 1.6vw, 3.25rem);
   line-height: 1.05;
   letter-spacing: -0.025em;
+  font-weight: 600;
+}
+
+.text-page-title {
+  font-size: clamp(1.5rem, 1.2rem + 0.9vw, 1.875rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   font-weight: 600;
 }
 
@@ -192,6 +409,18 @@ body {
   line-height: 1.3;
   letter-spacing: -0.005em;
   font-weight: 600;
+}
+
+.text-label {
+  font-size: 0.8125rem; /* 13px */
+  line-height: 1.3;
+  font-weight: 500;
+}
+
+.text-caption {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.4;
+  color: var(--color-muted-foreground);
 }
 
 .text-meta {
@@ -211,14 +440,15 @@ body {
   font-feature-settings: "tnum" 1, "ss01" 1;
 }
 
-/* ===================================================================
-   Motion — 150-250ms per spec.
+/* Keyboard focus — one consistent, visible ring across the product. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
 
-   `aicmo-fade-up`   — section entry
-   `aicmo-pop`       — chip pop-in on success
-   `aicmo-pulse-soft`— ambient glow under AI hero
-   `aicmo-shimmer`   — skeleton (existing)
-   `aicmo-flow-pulse`— Winning Creative Formula connectors
+/* ===================================================================
+   Motion — 150-320ms. Restrained; comprehension over decoration.
 =================================================================== */
 
 @keyframes aicmo-shimmer {

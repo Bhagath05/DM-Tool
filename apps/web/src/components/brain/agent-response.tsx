@@ -10,7 +10,7 @@
  * surface — it is NEVER presented as done.
  */
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ShieldCheck } from "lucide-react";
 
 import {
   ApprovalRequestBlock,
@@ -219,14 +219,14 @@ export function HistoricalAssistantAnswer({
       </div>
       {tools.length > 0 && <EvidenceBlock sources={[]} toolsConsulted={tools} />}
       {approvals.length > 0 && (
-        <GenBlock eyebrow="Approval required" accent>
+        <GenBlock eyebrow="Approval required" icon={ShieldCheck} tone="approval">
           <p className="text-sm">
             This turn proposed {approvals.length === 1 ? "an action" : `${approvals.length} actions`}{" "}
             that still need your approval. Nothing has run.
           </p>
           <a
             href="/ai/approvals"
-            className="mt-2 inline-block text-xs font-medium text-ai underline-offset-4 hover:underline"
+            className="mt-2 inline-block text-xs font-medium text-approval-soft-foreground underline-offset-4 hover:underline"
           >
             Review &amp; decide →
           </a>

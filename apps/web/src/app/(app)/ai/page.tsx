@@ -189,24 +189,24 @@ export default function MarketingBrainPage() {
 
       {/* Main workspace. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <SectionHeading
-            eyebrow="Marketing Brain"
-            heading="Ask anything about your marketing"
-            description="I understand your business, your data, and what's worked. I can look things up and prepare actions — but I only act after you approve."
-          />
-          <div className="mt-1 flex items-center gap-2">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-2">
             <BrainTabs active="ask" />
             <button
               type="button"
               onClick={() => setRailOpen((o) => !o)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground lg:hidden"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted lg:hidden"
               aria-expanded={railOpen}
             >
               <Brain className="h-4 w-4" />
               Chats
             </button>
           </div>
+          <SectionHeading
+            eyebrow="Marketing Brain"
+            heading="Ask anything about your marketing"
+            description="I understand your business, your data, and what's worked. I can look things up and prepare actions — but I only act after you approve."
+          />
         </div>
 
         {/* Thread. */}

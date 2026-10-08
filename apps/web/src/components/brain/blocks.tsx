@@ -50,30 +50,44 @@ const SEVERITY_TONE: Record<Severity, PillTone> = {
 
 // ---------------------------------------------------------------------
 //  GenBlock — the shared titled container every structured block uses.
+//
+//  `tone` tints the container by meaning. "approval" is deliberately its
+//  OWN color (gold), never the AI violet, so an approval gate can never be
+//  mistaken for an ordinary AI suggestion.
 // ---------------------------------------------------------------------
+export type BlockTone = "default" | "ai" | "approval" | "trust";
+
+const BLOCK_TONE: Record<BlockTone, { box: string; icon: string }> = {
+  default: { box: "border-border", icon: "text-muted-foreground" },
+  ai: { box: "border-ai-border bg-ai-soft/40", icon: "text-ai" },
+  approval: { box: "border-approval-border bg-approval-soft/40", icon: "text-approval" },
+  trust: { box: "border-trust-border bg-trust-soft/30", icon: "text-trust" },
+};
+
 export function GenBlock({
   eyebrow,
   icon: Icon,
   accent = false,
+  tone,
   children,
   "data-testid": testId,
 }: {
   eyebrow: string;
   icon?: React.ComponentType<{ className?: string }>;
+  /** Back-compat: `accent` is the AI tone. Prefer `tone`. */
   accent?: boolean;
+  tone?: BlockTone;
   children: ReactNode;
   "data-testid"?: string;
 }) {
+  const t = BLOCK_TONE[tone ?? (accent ? "ai" : "default")];
   return (
     <section
       data-testid={testId}
-      className={cn(
-        "rounded-xl border bg-card p-4",
-        accent ? "border-ai-border bg-ai-soft/40" : "border-border",
-      )}
+      className={cn("rounded-xl border bg-card p-4", t.box)}
     >
       <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        {Icon && <Icon className={cn("h-3.5 w-3.5", accent && "text-ai")} aria-hidden />}
+        {Icon && <Icon className={cn("h-3.5 w-3.5", t.icon)} aria-hidden />}
         {eyebrow}
       </div>
       {children}
@@ -228,7 +242,7 @@ export function EvidenceBlock({
   const hasTools = (toolsConsulted?.length ?? 0) > 0;
   if (!hasSources && !hasTools) return null;
   return (
-    <GenBlock eyebrow="Evidence" icon={ScrollText} data-testid="brain-evidence">
+    <GenBlock eyebrow="Evidence" icon={ScrollText} tone="trust" data-testid="brain-evidence">
       {hasTools && (
         <p className="mb-2 text-xs text-muted-foreground">
           Consulted:{" "}
@@ -358,13 +372,15 @@ export function ApprovalRequestBlock({
   href?: string;
 }) {
   return (
-    <GenBlock eyebrow="Approval required" icon={ShieldCheck} accent data-testid="brain-approval">
+    <GenBlock eyebrow="Approval required" icon={ShieldCheck} tone="approval" data-testid="brain-approval">
+      {/* The gate: an AI proposal (violet) handed to a human decision
+          (approval gold). Two distinct colors so the boundary is obvious. */}
       <div className="flex items-center gap-2 text-[11px]">
         <span className="rounded-md bg-ai-soft px-1.5 py-0.5 font-medium text-ai-soft-foreground">
           AI proposed this
         </span>
-        <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
-        <span className="rounded-md border border-border px-1.5 py-0.5 font-medium text-foreground">
+        <ArrowRight className="h-3 w-3 text-approval" aria-hidden />
+        <span className="rounded-md border border-approval-border bg-approval-soft px-1.5 py-0.5 font-medium text-approval-soft-foreground">
           A human must approve it
         </span>
       </div>
@@ -380,7 +396,7 @@ export function ApprovalRequestBlock({
       </p>
       <Link
         href={href as never}
-        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-ai-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-ai-soft"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-approval-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-approval-soft"
       >
         Review &amp; decide
         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -633,7 +649,7 @@ export function TrustRecommendation({ rec }: { rec: TrustSafeRecommendation }) {
         </span>
         <TrustStatusPill status={rec.status} />
         {rec.requires_approval && (
-          <span className="inline-flex items-center gap-1 rounded-md border border-ai-border bg-ai-soft/40 px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+          <span className="inline-flex items-center gap-1 rounded-md border border-approval-border bg-approval-soft/60 px-1.5 py-0.5 text-[11px] font-medium text-approval-soft-foreground">
             <span aria-hidden>⚠</span> Human approval required
           </span>
         )}

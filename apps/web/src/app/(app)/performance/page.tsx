@@ -10,26 +10,25 @@ import { Sparkles } from "lucide-react";
 
 import { MeasureTabs } from "@/components/brain/measure-tabs";
 import { PerformanceEngineCard } from "@/components/performance-engine-card";
-import { SectionHeading } from "@/components/ui/section-heading";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
 
 export default function PerformancePage() {
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8">
-      <MeasureTabs active="performance" />
-      <SectionHeading
+    <PageShell data-testid="performance-page">
+      <PageHeader
+        nav={<MeasureTabs active="performance" />}
         eyebrow={
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 normal-case tracking-normal">
             <Sparkles className="h-3 w-3" />
             Performance Intelligence
           </span>
         }
-        heading="Every signal we found in your data"
+        title="Every signal we found in your data"
         description="The complete diagnostic surface from your latest upload — audience, creative, offer, scaling, and the winning formula. Switch to Pro view in the top bar to see sections grouped by intelligence lane."
-        size="lg"
       />
       <PerformanceEngineCard />
-    </div>
+    </PageShell>
   );
 }

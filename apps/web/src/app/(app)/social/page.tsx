@@ -1,25 +1,20 @@
 import { ScheduledPosts } from "./_components/scheduled-posts";
 import { SocialIntelligence } from "./_components/social-intelligence";
 import { MeasureTabs } from "@/components/brain/measure-tabs";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
 
 export default function SocialPage() {
   return (
-    <div className="space-y-8">
-      <MeasureTabs active="social" />
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          What actually works on social
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect your platforms — or paste in performance data — and the AI
-          extracts the patterns behind your best posts. Every reel, ad, and
-          campaign generated after this inherits those patterns automatically.
-        </p>
-      </div>
+    <PageShell data-testid="social-page">
+      <PageHeader
+        nav={<MeasureTabs active="social" />}
+        title="What actually works on social"
+        description="Connect your platforms — or paste in performance data — and the AI extracts the patterns behind your best posts. Every reel, ad, and campaign generated after this inherits those patterns automatically."
+      />
       <SocialIntelligence />
       <ScheduledPosts />
-    </div>
+    </PageShell>
   );
 }

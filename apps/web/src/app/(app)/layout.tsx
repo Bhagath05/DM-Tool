@@ -9,6 +9,7 @@ import { RequireTenant } from "@/components/require-tenant";
 import { Sidebar } from "@/components/sidebar";
 import { TenantProvider } from "@/components/tenant-provider";
 import { TenantTopbar } from "@/components/tenant-topbar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 
 export default function AppLayout({
@@ -36,9 +37,14 @@ export default function AppLayout({
             <div className="ml-12 flex min-w-0 items-center md:ml-0">
               <TenantTopbar />
             </div>
-            {/* Right cluster — global search, plan, notifications, profile. */}
+            {/* Right cluster — global search, theme, plan, notifications,
+                profile. ThemeToggle is sm+ to protect the 375px layout from
+                horizontal overflow; mobile defaults to "System" (tracks OS). */}
             <div className="flex items-center gap-2 sm:gap-3">
               <CommandPaletteTrigger />
+              <span className="hidden sm:inline-flex">
+                <ThemeToggle />
+              </span>
               <PlanChip />
               <NotificationsButton />
               <span aria-hidden className="hidden h-6 w-px bg-border/80 sm:block" />

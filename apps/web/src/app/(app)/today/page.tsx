@@ -33,6 +33,7 @@ import Link from "next/link";
 
 import { AiCoachPanel } from "../overview/_components/ai-coach-panel";
 import { useTenant } from "@/components/tenant-provider";
+import { PageShell } from "@/components/ui/page-shell";
 
 import { DayAtAGlance } from "./_components/day-at-a-glance";
 import { ThisWeekStrip } from "./_components/this-week-strip";
@@ -53,10 +54,7 @@ export default function TodayPage() {
   const brandName = tenant.activeBrand?.name ?? null;
 
   return (
-    <div
-      className="mx-auto flex max-w-6xl flex-col gap-12"
-      data-testid="today-page"
-    >
+    <PageShell className="gap-10" data-testid="today-page">
       {/* 1. Greeting + date */}
       <TodayHero
         firstName={firstName}
@@ -102,6 +100,6 @@ export default function TodayPage() {
 
       {/* 5. What changed feed */}
       <WhatChanged />
-    </div>
+    </PageShell>
   );
 }

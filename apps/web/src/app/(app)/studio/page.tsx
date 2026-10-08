@@ -20,6 +20,7 @@ import { NlEditPanel } from "@/components/studio/nl-edit-panel";
 import { ObjectStorageNotice } from "@/components/studio/object-storage-notice";
 import { RevisionHistory } from "@/components/studio/revision-history";
 import { VideoPanel } from "@/components/studio/video-panel";
+import { PageHeader } from "@/components/ui/page-shell";
 import { Surface } from "@/components/ui/surface";
 import { api } from "@/lib/api";
 import { isStudioEnabled } from "@/lib/studio-config";
@@ -111,13 +112,12 @@ export default function StudioPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
-      <header className="mb-6">
-        <h1 className="text-xl font-semibold">Creative Studio</h1>
-        <p className="text-sm text-[var(--muted-foreground,#64748b)]">
-          State an outcome. Get a strategy and a set of editable creatives.
-        </p>
-      </header>
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        className="mb-6"
+        title="Creative Studio"
+        description="State an outcome. Get a strategy and a set of editable creatives."
+      />
 
       <ObjectStorageNotice />
 

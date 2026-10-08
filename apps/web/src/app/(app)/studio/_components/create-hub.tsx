@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Phase 6.4 — the Create hub.
+ * Phase 6.4 — the Create hub.  (Phase 6.6: on the shared page frame.)
  *
  * Creative Studio (/studio) is the ONE canonical home for creative work. The
  * full outcome-driven Studio is flag-gated (NEXT_PUBLIC_STUDIO_ENABLED); until
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { ContentGrid, PageHeader, PageShell } from "@/components/ui/page-shell";
 import { Surface } from "@/components/ui/surface";
 
 type Capability = {
@@ -44,37 +45,33 @@ const CAPABILITIES: Capability[] = [
 
 export function CreateHub() {
   return (
-    <section data-testid="create-hub" className="mx-auto max-w-5xl p-6">
-      <header className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Create</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything your business needs to make for marketing, in one place.
-          Pick what you want to create — each studio explains the strategy behind
-          what it generates.
-        </p>
-      </header>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <PageShell data-testid="create-hub">
+      <PageHeader
+        title="Create"
+        description="Everything your business needs to make for marketing, in one place. Pick what you want to create — each studio explains the strategy behind what it generates."
+      />
+      <ContentGrid cols={3}>
         {CAPABILITIES.map((c) => {
           const Icon = c.icon;
           return (
             <Link
               key={c.href}
               href={c.href as never}
-              className="group rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="group rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Surface className="h-full p-4 transition-colors group-hover:border-ai-border">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ai-soft text-ai-soft-foreground" aria-hidden>
+              <Surface state="hover" padding="compact" className="h-full">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ai-soft text-ai-soft-foreground transition-colors group-hover:bg-ai group-hover:text-ai-foreground" aria-hidden>
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="text-sm font-semibold text-foreground">{c.label}</span>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{c.description}</p>
+                <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">{c.description}</p>
               </Surface>
             </Link>
           );
         })}
-      </div>
-    </section>
+      </ContentGrid>
+    </PageShell>
   );
 }

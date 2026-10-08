@@ -2,6 +2,8 @@
 
 /**
  * Phase 6.1 — outcome-oriented sidebar aligned to the real App Router.
+ * Phase 6.6 — quieted to be visually secondary to the workspace, and made
+ * collapsible to an icon rail on desktop.
  *
  * Every destination below points at a real, canonical route (verified against
  * the route tree). Legacy/dead targets were removed; where old cards still
@@ -19,9 +21,12 @@
  * are tabs inside /ai (BrainTabs), not competing nav items. The legacy
  * ai-employee operational composer stays reachable by direct URL only.
  *
- * Shell behavior (unchanged): collapsible groups with localStorage
- * persistence, animated active-route indicator, mobile drawer, footer with
- * workspace identity.
+ * Shell behavior:
+ *   - collapsible groups with localStorage persistence (expanded state)
+ *   - desktop icon-rail collapse (persisted) — labels become tooltips
+ *   - mobile drawer with overlay
+ *   - a quiet active-route treatment (soft, not an inverted pill) so the
+ *     sidebar never competes with the content for attention
  */
 
 import {
@@ -31,6 +36,8 @@ import {
   Compass,
   Handshake,
   Inbox,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radar,
   Send,
   Menu,
@@ -45,6 +52,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { useTenant } from "@/components/tenant-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -135,10 +143,12 @@ const PRIMARY_NAV: NavGroup[] = [
 ];
 
 const COLLAPSE_STORAGE_KEY = "aicmo.sidebar.collapse.v1";
+const RAIL_STORAGE_KEY = "aicmo.sidebar.rail.v1";
 
 export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [rail, setRail] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     return PRIMARY_NAV.reduce<Record<string, boolean>>((acc, g) => {
       if (g.defaultOpen === false) acc[g.key] = true;
@@ -154,6 +164,11 @@ export function Sidebar() {
     } catch {
       /* ignore corrupt cache */
     }
+    try {
+      setRail(window.localStorage.getItem(RAIL_STORAGE_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const toggleGroup = useCallback((key: string) => {
@@ -164,6 +179,18 @@ export function Sidebar() {
           COLLAPSE_STORAGE_KEY,
           JSON.stringify(next),
         );
+      } catch {
+        /* best effort */
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleRail = useCallback(() => {
+    setRail((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(RAIL_STORAGE_KEY, next ? "1" : "0");
       } catch {
         /* best effort */
       }
@@ -197,13 +224,19 @@ export function Sidebar() {
 
       <aside
         data-testid="sidebar"
+        data-rail={rail ? "true" : "false"}
         className={cn(
-          "flex w-64 shrink-0 flex-col border-r border-border bg-card",
-          "fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-out md:static md:translate-x-0",
+          "flex shrink-0 flex-col border-r border-border bg-card/60",
+          "fixed inset-y-0 left-0 z-50 w-64 transform transition-[transform,width] duration-200 ease-out md:static md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+          rail && "md:w-[4.5rem]",
         )}
       >
-        <SidebarHeader onClose={() => setMobileOpen(false)} />
+        <SidebarHeader
+          rail={rail}
+          onClose={() => setMobileOpen(false)}
+          onToggleRail={toggleRail}
+        />
         <nav
           className="scrollbar-clean flex-1 overflow-y-auto px-3 pb-2 pt-3"
           data-testid="sidebar-nav"
@@ -213,27 +246,57 @@ export function Sidebar() {
               key={group.key}
               group={group}
               pathname={pathname}
+              rail={rail}
               collapsed={!!collapsed[group.key]}
               onToggle={() => toggleGroup(group.key)}
             />
           ))}
         </nav>
-        <SidebarFooter />
+        <SidebarFooter rail={rail} />
       </aside>
     </>
   );
 }
 
-function SidebarHeader({ onClose }: { onClose: () => void }) {
+function SidebarHeader({
+  rail,
+  onClose,
+  onToggleRail,
+}: {
+  rail: boolean;
+  onClose: () => void;
+  onToggleRail: () => void;
+}) {
   return (
-    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5">
+    <div
+      className={cn(
+        "flex h-14 shrink-0 items-center gap-2 border-b border-border px-5",
+        rail && "md:justify-center md:px-0",
+      )}
+    >
       <div
-        className="flex h-7 w-7 items-center justify-center rounded-lg bg-ai text-white shadow-sm"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ai text-ai-foreground shadow-sm"
         aria-hidden
       >
         <Sparkles className="h-4 w-4" />
       </div>
-      <span className="text-sm font-semibold tracking-tight">DM Tool</span>
+      <span className={cn("text-sm font-semibold tracking-tight", rail && "md:hidden")}>
+        DM Tool
+      </span>
+      {/* Desktop rail toggle — keeps the sidebar quiet and out of the way. */}
+      <button
+        type="button"
+        aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
+        aria-pressed={rail}
+        onClick={onToggleRail}
+        data-testid="sidebar-rail-toggle"
+        className={cn(
+          "ml-auto hidden h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:inline-flex",
+          rail && "md:ml-0",
+        )}
+      >
+        {rail ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+      </button>
       <button
         type="button"
         aria-label="Close navigation"
@@ -249,14 +312,19 @@ function SidebarHeader({ onClose }: { onClose: () => void }) {
 function NavGroupBlock({
   group,
   pathname,
+  rail,
   collapsed,
   onToggle,
 }: {
   group: NavGroup;
   pathname: string;
+  rail: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  // In rail mode the group header is pointless (no room for a label), so
+  // hide it on desktop and always show the items as an icon stack.
+  const itemsHidden = collapsed && !rail;
   return (
     <div
       className="mb-3 last:mb-0"
@@ -266,7 +334,10 @@ function NavGroupBlock({
         type="button"
         onClick={onToggle}
         aria-expanded={!collapsed}
-        className="group flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70 transition-colors hover:text-foreground"
+        className={cn(
+          "group flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70 transition-colors hover:text-foreground",
+          rail && "md:hidden",
+        )}
         data-testid={`sidebar-group-toggle-${group.key}`}
       >
         <span>{group.label}</span>
@@ -277,13 +348,11 @@ function NavGroupBlock({
           )}
         />
       </button>
-      {!collapsed && (
-        <ul className="mt-0.5 space-y-0.5">
-          {group.items.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} />
-          ))}
-        </ul>
-      )}
+      <ul className={cn("mt-0.5 space-y-0.5", itemsHidden && "hidden")}>
+        {group.items.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} rail={rail} />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -291,32 +360,34 @@ function NavGroupBlock({
 function NavLink({
   item,
   pathname,
-  variant = "primary",
+  rail,
 }: {
   item: NavItem;
   pathname: string;
-  variant?: "primary" | "secondary";
+  rail: boolean;
 }) {
   const Icon = item.icon;
   const active =
     pathname === item.href || pathname.startsWith(`${item.href}/`);
-  const isSecondary = variant === "secondary";
   return (
     <li>
       <Link
         href={item.href as never}
+        aria-label={item.label}
+        aria-current={active ? "page" : undefined}
+        title={rail ? item.label : undefined}
         data-testid={`sidebar-item-${item.href.slice(1) || "root"}`}
         className={cn(
-          "group relative flex items-center gap-2.5 rounded-lg px-3 transition-all duration-200",
-          isSecondary ? "py-1.5 text-sm" : "py-2 text-sm font-medium",
+          "group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200",
+          rail && "md:justify-center md:px-0",
           active
-            ? isSecondary
-              ? "bg-muted text-foreground"
-              : "bg-foreground text-background shadow-sm"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            ? "bg-muted text-foreground"
+            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
         )}
       >
-        {active && !isSecondary && (
+        {/* Quiet active indicator — a thin AI accent bar, not an inverted
+            pill, so the sidebar stays secondary to the content. */}
+        {active && (
           <span
             aria-hidden
             className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-ai"
@@ -324,17 +395,17 @@ function NavLink({
         )}
         <Icon
           className={cn(
-            isSecondary ? "h-3.5 w-3.5" : "h-4 w-4",
-            "shrink-0 transition-transform duration-200 group-hover:scale-[1.06]",
+            "h-4 w-4 shrink-0 transition-colors",
+            active ? "text-ai" : "text-muted-foreground group-hover:text-foreground",
           )}
         />
-        <span className="truncate">{item.label}</span>
+        <span className={cn("truncate", rail && "md:hidden")}>{item.label}</span>
       </Link>
     </li>
   );
 }
 
-function SidebarFooter() {
+function SidebarFooter({ rail }: { rail: boolean }) {
   const tenant = useTenant();
   const initials = makeInitials(
     tenant.user?.display_name ?? tenant.user?.email ?? "?",
@@ -346,11 +417,23 @@ function SidebarFooter() {
   return (
     <div
       data-testid="sidebar-footer"
-      className="shrink-0 border-t border-border bg-muted/30 px-3 py-3"
+      className={cn(
+        "shrink-0 border-t border-border bg-muted/20 px-3 py-3",
+        rail && "md:px-2",
+      )}
     >
+      {/* Theme control for small screens, where the topbar toggle is hidden
+          to protect the 375px layout. sm:hidden is the exact complement of
+          the topbar control (hidden sm:inline-flex) — no desktop duplication. */}
+      <div className="mb-2 flex justify-center sm:hidden">
+        <ThemeToggle />
+      </div>
       <Link
         href="/settings/billing"
-        className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
+        className={cn(
+          "flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted",
+          rail && "md:justify-center md:p-1",
+        )}
       >
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ai/15 text-xs font-semibold uppercase tracking-wide text-ai"
@@ -358,7 +441,7 @@ function SidebarFooter() {
         >
           {initials}
         </span>
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={cn("flex min-w-0 flex-1 flex-col", rail && "md:hidden")}>
           <span className="truncate text-xs font-semibold text-foreground">
             {tenant.user?.display_name ?? tenant.user?.email ?? "Workspace"}
           </span>
@@ -370,7 +453,12 @@ function SidebarFooter() {
           )}
         </div>
       </Link>
-      <div className="mt-2 flex items-center justify-between rounded-lg border border-ai-border/60 bg-ai-soft/70 px-3 py-1.5">
+      <div
+        className={cn(
+          "mt-2 flex items-center justify-between rounded-lg border border-ai-border/60 bg-ai-soft/60 px-3 py-1.5",
+          rail && "md:hidden",
+        )}
+      >
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ai-soft-foreground">
           Plan
         </span>

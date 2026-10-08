@@ -1,20 +1,16 @@
 import { Inbox } from "./_components/inbox";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export const dynamic = "force-dynamic";
 
 export default function LeadsPage() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Who to contact first
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your leads ranked by who&apos;s most worth your time today —
-          with the action to take and what to expect from each.
-        </p>
-      </div>
+    <PageShell data-testid="leads-page">
+      <PageHeader
+        title="Who to contact first"
+        description="Your leads ranked by who's most worth your time today — with the action to take and what to expect from each."
+      />
       <Inbox />
-    </div>
+    </PageShell>
   );
 }

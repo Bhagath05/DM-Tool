@@ -1,17 +1,16 @@
 import { HistoryPage } from "./_components/history-page";
 import { MeasureTabs } from "@/components/brain/measure-tabs";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export default function Page() {
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <MeasureTabs active="history" />
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">AI History</h1>
-        <p className="text-sm text-muted-foreground">
-          Recommendations your advisor made, what you completed, and what worked.
-        </p>
-      </div>
+    <PageShell data-testid="history-page">
+      <PageHeader
+        nav={<MeasureTabs active="history" />}
+        title="What the AI recommended, and how it turned out"
+        description="Recommendations your advisor made, what you completed, and what actually worked."
+      />
       <HistoryPage />
-    </div>
+    </PageShell>
   );
 }
