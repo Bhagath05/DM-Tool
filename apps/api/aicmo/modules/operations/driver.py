@@ -35,7 +35,7 @@ async def _recent_run(session: AsyncSession) -> OperationsRun | None:
 
 async def _active_brands(session: AsyncSession) -> list[tuple[uuid.UUID, uuid.UUID]]:
     """(brand_id, organization_id) for every active brand, system-wide."""
-    from aicmo.modules.orgs.models import Brand
+    from aicmo.modules.brands.models import Brand
 
     stmt = select(Brand.id, Brand.organization_id).where(Brand.status == "active")
     rows = (await session.execute(stmt)).all()
