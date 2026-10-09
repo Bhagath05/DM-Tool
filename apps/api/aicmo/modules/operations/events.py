@@ -18,7 +18,13 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aicmo.modules.belief.enums import BeliefStatus
+from aicmo.modules.belief.models import Belief
 from aicmo.modules.operations.models import DetectedEvent
+
+# A validated conclusion that newer measured outcomes now contradict — i.e. a
+# "previously effective" belief losing support. One active event per belief.
+_BELIEF_EVENT_TYPE = "belief_contradicted"
 
 log = structlog.get_logger()
 
@@ -198,4 +204,94 @@ async def detect_and_store(
         )
         session.add(row)
         created.append(row)
+    return created
+
+
+async def _active_belief_event_keys(
+    session: AsyncSession, *, brand_id: uuid.UUID
+) -> set[str]:
+    """dedupe_keys of still-open belief-contradiction events for this brand."""
+    stmt = select(DetectedEvent.dedupe_key).where(
+        DetectedEvent.brand_id == brand_id,
+        DetectedEvent.event_type == _BELIEF_EVENT_TYPE,
+        DetectedEvent.status.in_(("new", "acknowledged")),
+    )
+    return {row[0] for row in (await session.execute(stmt)).all()}
+
+
+async def detect_belief_contradictions(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    brand_id: uuid.UUID,
+    now: datetime | None = None,
+    limit: int = 10,
+) -> list[DetectedEvent]:
+    """Proactive signal (deterministic, NO LLM): a belief this brand had
+    VALIDATED is now CONTRADICTED by newer measured outcomes — a previously
+    effective conclusion losing support.
+
+    Grounded entirely in the belief's own status/confidence/evidence (set by the
+    deterministic reconciliation engine — never the LLM), brand-scoped, and
+    idempotent: one active event per belief (dedupe_key), so a standing
+    contradiction notifies once. It records a MEASURED ASSOCIATION, not a cause.
+    Does not commit.
+    """
+    now = now or datetime.now(UTC)
+    rows = (
+        (
+            await session.execute(
+                select(Belief)
+                .where(
+                    Belief.brand_id == brand_id,
+                    Belief.organization_id == organization_id,
+                    Belief.status == BeliefStatus.CONTRADICTED.value,
+                    # Only beliefs that were SUPPORTED at some point ("previously
+                    # effective"): validated_at is set when support existed.
+                    Belief.validated_at.is_not(None),
+                )
+                .order_by(Belief.updated_at.desc())
+                .limit(max(1, min(limit, 50)))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return []
+    active = await _active_belief_event_keys(session, brand_id=brand_id)
+    created: list[DetectedEvent] = []
+    for b in rows:
+        dedupe_key = f"{brand_id}:{_BELIEF_EVENT_TYPE}:{b.id}"
+        if dedupe_key in active:
+            continue  # already open — notify once per standing contradiction
+        statement = (b.statement or "")[:220]
+        event = DetectedEvent(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            brand_id=brand_id,
+            detected_at=now,
+            event_type=_BELIEF_EVENT_TYPE,
+            severity="high",
+            direction="negative",
+            metric="belief",
+            previous_value=None,
+            current_value=float(b.confidence),
+            change_pct=None,
+            title="A conclusion we'd validated is now contradicted",
+            summary=(
+                f'Newer measured outcomes now contradict something we had validated: '
+                f'"{statement}". This is a correlation from evaluated outcomes, not a '
+                f"proven cause — re-check it before relying on it, or run a test to confirm."
+            ),
+            evidence=[
+                f"belief confidence now {b.confidence}% "
+                f"({b.evidence_count} evidence item(s))",
+                (b.confidence_reason or "")[:200],
+            ],
+            dedupe_key=dedupe_key,
+            status="new",
+        )
+        session.add(event)
+        created.append(event)
     return created

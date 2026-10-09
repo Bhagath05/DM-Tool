@@ -107,8 +107,14 @@ async def run_operations_cycle(
                         previous=dict(prev.metrics or {}),
                         now=started,
                     )
-                    brand_events = len(evs)
-                    events_total += brand_events
+                # Belief-support change (Phase 7.3): a validated conclusion now
+                # contradicted by newer measured outcomes. Needs only the current
+                # belief state (no second snapshot), so it runs every cycle.
+                evs = list(evs) + await events.detect_belief_contradictions(
+                    session, organization_id=org_id, brand_id=brand_id, now=started
+                )
+                brand_events = len(evs)
+                events_total += brand_events
                 # 4.3 — measure goal progress from the fresh snapshot.
                 await goals.measure_goals(
                     session, brand_id=brand_id, metrics=metrics, now=started
