@@ -44,6 +44,25 @@ class MarketingBrainProfileSnapshot(BaseModel):
     goals: list[str] = Field(default_factory=list)
     # MARKETING: the owner's preferred channels/platforms.
     channels: list[str] = Field(default_factory=list)
+    # The owner-stated brand voice/tone (profile.brand_tone). USER_STATED.
+    brand_voice: str | None = None
+
+
+class MarketingBrainStrategySnapshot(BaseModel):
+    """The brand's CURRENT marketing strategy (latest strategist record).
+
+    SYSTEM_INFERRED: produced by the strategist from the profile — a derived
+    conclusion, not a measured fact. `present=False` when none exists yet; we
+    never fabricate a strategy. Only a bounded summary is surfaced (positioning
+    + who-to-target + the single highest-leverage move) to keep context small.
+    """
+
+    present: bool
+    status: str | None = None
+    positioning: str | None = None
+    target_summary: str | None = None
+    recommendation: str | None = None
+    created_at: datetime | None = None
 
 
 class MarketingBrainAnalyticsSnapshot(BaseModel):
@@ -145,6 +164,10 @@ class MarketingBrainContext(BaseModel):
     research: MarketingBrainResearchSnapshot = Field(default_factory=MarketingBrainResearchSnapshot)
 
     analytics: MarketingBrainAnalyticsSnapshot | None = None
+    # Current marketing strategy (derived) — distinct from evidence and outcomes.
+    strategy: MarketingBrainStrategySnapshot = Field(
+        default_factory=lambda: MarketingBrainStrategySnapshot(present=False)
+    )
     recommendations: list[MarketingBrainRecommendationRef] = Field(default_factory=list)
     outcomes: list[MarketingBrainOutcomeItem] = Field(default_factory=list)
     learning_insights: list[MarketingBrainLearningItem] = Field(default_factory=list)

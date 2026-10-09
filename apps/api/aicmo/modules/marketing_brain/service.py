@@ -19,6 +19,7 @@ from aicmo.modules.business_brain.models import BrainEvidence
 from aicmo.modules.business_brain.research_service import _require_brand
 from aicmo.modules.business_brain.schemas import EvidenceItem
 from aicmo.modules.learning.feedback import active_insights_for_module
+from aicmo.modules.marketing_brain.provenance import provenance_legend_block
 from aicmo.modules.marketing_brain.schemas import (
     MarketingBrainAnalyticsSnapshot,
     MarketingBrainContext,
@@ -27,8 +28,10 @@ from aicmo.modules.marketing_brain.schemas import (
     MarketingBrainProfileSnapshot,
     MarketingBrainRecommendationRef,
     MarketingBrainResearchSnapshot,
+    MarketingBrainStrategySnapshot,
 )
 from aicmo.modules.onboarding import service as onboarding_service
+from aicmo.modules.strategist import service as strategist_service
 from aicmo.tenancy.context import TenantContext
 
 # Caps keep prompt/context bounded and deterministic.
@@ -66,6 +69,7 @@ def build_profile_snapshot(profile_row) -> MarketingBrainProfileSnapshot:
         pricing=profile_row.pricing,
         goals=list(profile_row.goals or []),
         channels=list(profile_row.preferred_platforms or []),
+        brand_voice=getattr(profile_row, "brand_tone", None) or None,
     )
 
 
@@ -132,6 +136,26 @@ def to_learning_items(rows) -> list[MarketingBrainLearningItem]:
         )
         for row in rows
     ]
+
+
+def to_strategy_snapshot(record) -> MarketingBrainStrategySnapshot:
+    """Map the latest strategist record → a bounded strategy summary.
+
+    `present=False` when there's no strategy yet — never fabricated. Only
+    positioning + who-to-target + the single highest-leverage move are
+    surfaced, to keep the context small.
+    """
+    strategy = getattr(record, "strategy", None)
+    if record is None or not isinstance(strategy, dict) or not strategy:
+        return MarketingBrainStrategySnapshot(present=False)
+    return MarketingBrainStrategySnapshot(
+        present=True,
+        status=getattr(record, "status", None),
+        positioning=strategy.get("positioning"),
+        target_summary=strategy.get("target_summary"),
+        recommendation=strategy.get("recommendation"),
+        created_at=getattr(record, "created_at", None),
+    )
 
 
 async def build_context(
@@ -206,6 +230,11 @@ async def build_context(
     outcome_ctx = await load_outcome_context(session, brand_id=brand_id)
     outcomes = to_outcome_items(outcome_ctx)
 
+    # Current marketing strategy (brand-scoped; latest row = current). Derived,
+    # not measured — kept distinct from evidence and outcomes.
+    strategy_record = await strategist_service.latest(session, brand_id=brand_id)
+    strategy = to_strategy_snapshot(strategy_record)
+
     # Cross-domain lessons that influence business understanding — not BB facts.
     learning_rows = await active_insights_for_module(
         session,
@@ -261,6 +290,7 @@ async def build_context(
         icp_message=icps_resp.message,
         research=research,
         analytics=analytics_snap,
+        strategy=strategy,
         recommendations=recommendations,
         outcomes=outcomes,
         learning_insights=learning_insights,
@@ -276,7 +306,10 @@ def context_to_prompt_block(ctx: MarketingBrainContext) -> str:
         "=== MARKETING BRAIN CONTEXT (composed; do not invent missing fields) ===",
         f"Brand: {ctx.brand_id}",
         f"Known: {', '.join(ctx.known) if ctx.known else '(none)'}",
-        f"Unknown: {', '.join(ctx.unknown) if ctx.unknown else '(none)'}",
+        f"Unknown (UNKNOWN — gaps, do not guess): "
+        f"{', '.join(ctx.unknown) if ctx.unknown else '(none)'}",
+        "",
+        provenance_legend_block(),
     ]
     if ctx.profile.present:
         p = ctx.profile
@@ -296,6 +329,8 @@ def context_to_prompt_block(ctx: MarketingBrainContext) -> str:
             lines.append(f"Preferred channels: {', '.join(p.channels[:10])}")
         if p.goals:
             lines.append(f"Goals: {', '.join(p.goals[:6])}")
+        if p.brand_voice:
+            lines.append(f"Brand voice (USER_STATED): {p.brand_voice}")
     else:
         lines.append("Profile: MISSING — no business profile for this brand.")
 
@@ -357,6 +392,20 @@ def context_to_prompt_block(ctx: MarketingBrainContext) -> str:
         )
     else:
         lines.append("ANALYTICS: unavailable")
+
+    if ctx.strategy.present:
+        s = ctx.strategy
+        lines.append(
+            "CURRENT STRATEGY (SYSTEM_INFERRED — derived from the profile, not measured):"
+        )
+        if s.positioning:
+            lines.append(f"- Positioning: {s.positioning[:300]}")
+        if s.target_summary:
+            lines.append(f"- Target: {s.target_summary[:200]}")
+        if s.recommendation:
+            lines.append(f"- Highest-leverage move: {s.recommendation[:200]}")
+    else:
+        lines.append("CURRENT STRATEGY: none yet — no strategy generated for this brand.")
 
     lines.append("ADVISOR RECOMMENDATIONS (tasks — not Business Brain evidence):")
     if not ctx.recommendations:
