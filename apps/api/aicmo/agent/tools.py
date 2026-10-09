@@ -13,6 +13,7 @@ registered or executed here — that boundary belongs to Phase 2.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,7 @@ from aicmo.modules.business_brain.schemas import (
 )
 from aicmo.modules.insights import service as insights_service
 from aicmo.modules.insights.schemas import InsightFeedResponse
+from aicmo.modules.learning import service as learning_service
 from aicmo.modules.learning.feedback import active_insights_for_module
 from aicmo.modules.marketing_brain import service as mb_service
 from aicmo.modules.marketing_brain.schemas import (
@@ -50,8 +52,12 @@ from aicmo.modules.marketing_brain.schemas import (
 from aicmo.modules.onboarding import service as onboarding_service
 from aicmo.modules.performance import service as performance_service
 from aicmo.modules.performance.schemas import PerformanceOverview
+from aicmo.modules.strategist import service as strategist_service
 
 _ANALYTICS_VIEW = "analytics.view"
+# Matches the learning (Learning Lab) read endpoints' own gate so a user who can
+# read experiments via the API can read them via the tool, and no further.
+_LIBRARY_VIEW = "library.view"
 
 
 def _brand(ctx: ExecutionContext) -> uuid.UUID:
@@ -88,6 +94,10 @@ class MarketingInsightsInput(ToolInput):
     objective: str | None = Field(default=None, max_length=64)
 
 
+class ExperimentsInput(ToolInput):
+    limit: int = Field(default=10, ge=1, le=50, description="How many recent experiments to return.")
+
+
 # --- typed result wrappers for services that return rows/dicts --------------
 class RecommendationsResult(BaseModel):
     items: list[MarketingBrainRecommendationRef]
@@ -99,6 +109,40 @@ class OutcomesResult(BaseModel):
 
 class LearningInsightsResult(BaseModel):
     items: list[MarketingBrainLearningItem]
+
+
+class AgentStrategyView(BaseModel):
+    """Bounded view of the brand's current marketing strategy. `present=False`
+    when none exists — never fabricated. SYSTEM_INFERRED: derived from the
+    profile, not measured."""
+
+    present: bool
+    status: str | None = None
+    positioning: str | None = None
+    target_summary: str | None = None
+    recommendation: str | None = None
+    reason: str | None = None
+    expected_result: str | None = None
+    campaign_roadmap: list[str] = Field(default_factory=list)
+
+
+class AgentExperimentView(BaseModel):
+    """Decision-relevant fields of one experiment — the verbose internal
+    snapshots (context/variable dicts) are deliberately NOT surfaced to the
+    model. `confidence_score`/`sample_size` are measured, never invented."""
+
+    id: uuid.UUID
+    hypothesis: str | None = None
+    goal: str | None = None
+    platform: str | None = None
+    status: str
+    sample_size: int
+    confidence_score: float
+    created_at: datetime
+
+
+class ExperimentsResult(BaseModel):
+    items: list[AgentExperimentView]
 
 
 # --- handlers (thin adapters over existing services) ------------------------
@@ -157,6 +201,50 @@ async def _get_learning_insights(ctx: ExecutionContext, inp: LearningInsightsInp
         ctx.session, brand_id=_brand(ctx), module=inp.module, limit=inp.limit
     )
     return LearningInsightsResult(items=mb_service.to_learning_items(rows))
+
+
+async def _get_marketing_strategy(ctx: ExecutionContext, _inp: BaseModel) -> AgentStrategyView:
+    """The brand's CURRENT strategy (latest record). Reuses strategist.latest —
+    pure brand-scoped DB read, no generation. present=False when none exists."""
+    record = await strategist_service.latest(ctx.session, brand_id=_brand(ctx))
+    strategy = getattr(record, "strategy", None)
+    if record is None or not isinstance(strategy, dict) or not strategy:
+        return AgentStrategyView(present=False)
+    roadmap = strategy.get("campaign_roadmap")
+    return AgentStrategyView(
+        present=True,
+        status=getattr(record, "status", None),
+        positioning=strategy.get("positioning"),
+        target_summary=strategy.get("target_summary"),
+        recommendation=strategy.get("recommendation"),
+        reason=strategy.get("reason"),
+        expected_result=strategy.get("expected_result"),
+        campaign_roadmap=[str(x) for x in roadmap][:6] if isinstance(roadmap, list) else [],
+    )
+
+
+async def _get_experiments(ctx: ExecutionContext, inp: ExperimentsInput) -> ExperimentsResult:
+    """Recent experiments this brand has run. Reuses learning.list_experiments —
+    pure brand-scoped DB read. Surfaces only decision-relevant fields; measured
+    sample_size/confidence are reported as-is, never invented."""
+    rows = await learning_service.list_experiments(
+        ctx.session, brand_id=_brand(ctx), limit=inp.limit
+    )
+    return ExperimentsResult(
+        items=[
+            AgentExperimentView(
+                id=r.id,
+                hypothesis=r.hypothesis,
+                goal=r.goal,
+                platform=r.platform,
+                status=r.status,
+                sample_size=r.sample_size,
+                confidence_score=r.confidence_score,
+                created_at=r.created_at,
+            )
+            for r in rows
+        ]
+    )
 
 
 async def _evaluate_creative(ctx: ExecutionContext, _inp: BaseModel) -> CreativeEvaluationResponse:
@@ -284,6 +372,43 @@ BUILTIN_TOOLS: list[ToolDefinition] = [
         tenant_scope=TenantScope.BRAND,
         provenance=True,
         provenance_note="Advisor recommendations with confidence.",
+    ),
+    ToolDefinition(
+        name="get_marketing_strategy",
+        description=(
+            "The brand's CURRENT marketing strategy: positioning, who to target, "
+            "the single highest-leverage move, and the campaign roadmap. Use for "
+            "'what is our strategy' / 'what should our plan be'. Returns "
+            "present=false when no strategy has been generated yet — never invents one."
+        ),
+        category="strategy",
+        operation_class=OperationClass.READ,
+        input_schema=EmptyInput,
+        output_schema=AgentStrategyView,
+        handler=_get_marketing_strategy,
+        permission=_ANALYTICS_VIEW,
+        tenant_scope=TenantScope.BRAND,
+        provenance=True,
+        provenance_note="Derived strategy (SYSTEM_INFERRED), not a measured outcome.",
+    ),
+    ToolDefinition(
+        name="get_experiments",
+        description=(
+            "Recent marketing experiments this brand has run (hypothesis, platform, "
+            "status, sample size, confidence). Use for 'what did our previous "
+            "experiments teach us' or to compare tested approaches. Reports measured "
+            "sample size/confidence as-is and never claims an experiment succeeded "
+            "without a measured result."
+        ),
+        category="learning",
+        operation_class=OperationClass.READ,
+        input_schema=ExperimentsInput,
+        output_schema=ExperimentsResult,
+        handler=_get_experiments,
+        permission=_LIBRARY_VIEW,
+        tenant_scope=TenantScope.BRAND,
+        provenance=True,
+        provenance_note="Measured experiment records; successes require evaluated results.",
     ),
     ToolDefinition(
         name="get_outcomes",

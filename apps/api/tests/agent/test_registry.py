@@ -124,7 +124,8 @@ def test_unknown_tool_rejected():
 def test_list_tools_metadata_is_safe():
     reg = get_default_registry()
     tools = reg.list_tools()
-    assert len(tools) == 12
+    # Phase 7.1 added get_marketing_strategy + get_experiments (READ) → 14.
+    assert len(tools) == 14
     keys = set(tools[0])
     assert "handler" not in keys and "output_schema" in keys and "input_schema" in keys
     import json

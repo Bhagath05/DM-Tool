@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from aicmo.modules.trust.enforcement import TrustEnvelope
 
@@ -31,6 +31,17 @@ class ProposedToolCall(BaseModel):
     tool_name: str = Field(max_length=64)
     arguments: dict = Field(default_factory=dict)
     purpose: str = Field(default="", max_length=280)
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def _coerce_arguments(cls, v: object) -> dict:
+        """Non-strict LLM output occasionally emits ``arguments`` as a list,
+        string, or null (e.g. ``["limit"]``) instead of an object. Coerce any
+        non-dict to an empty dict so ONE malformed tool call can't fail the whole
+        turn. This never weakens validation: the tool's own typed input schema
+        still validates the (now-empty) arguments at execution and applies its
+        defaults, and a malformed shape can't smuggle a tenant/brand id."""
+        return v if isinstance(v, dict) else {}
     # For a CONSEQUENTIAL proposal, the model may also supply a human-readable
     # reason + expected effect. These are bounded DATA for the approval card —
     # never authority. Ignored for READ tools.
