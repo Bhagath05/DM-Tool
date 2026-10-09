@@ -125,7 +125,8 @@ def test_list_tools_metadata_is_safe():
     reg = get_default_registry()
     tools = reg.list_tools()
     # Phase 7.1 added get_marketing_strategy + get_experiments (READ) → 14.
-    assert len(tools) == 14
+    # Phase 7.4 added get_experiment_results + evaluate_experiment_evidence → 16.
+    assert len(tools) == 16
     keys = set(tools[0])
     assert "handler" not in keys and "output_schema" in keys and "input_schema" in keys
     import json

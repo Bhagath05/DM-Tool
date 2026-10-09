@@ -40,7 +40,19 @@ from aicmo.modules.business_brain.schemas import (
 from aicmo.modules.insights import service as insights_service
 from aicmo.modules.insights.schemas import InsightFeedResponse
 from aicmo.modules.learning import service as learning_service
+from aicmo.modules.learning.experiment_contract import (
+    EvidenceAssessment,
+    EvidenceVerdict,
+    PrimaryMetric,
+    _Side,
+    assess_evidence,
+)
 from aicmo.modules.learning.feedback import active_insights_for_module
+from aicmo.modules.learning.models import CampaignExperiment
+from aicmo.modules.learning.schemas import (
+    CampaignExperimentResponse,
+    ExperimentResultResponse,
+)
 from aicmo.modules.marketing_brain import service as mb_service
 from aicmo.modules.marketing_brain.schemas import (
     MarketingBrainContext,
@@ -145,6 +157,39 @@ class ExperimentsResult(BaseModel):
     items: list[AgentExperimentView]
 
 
+class ExperimentResultsInput(ToolInput):
+    experiment_id: uuid.UUID = Field(description="The experiment to read measured results for.")
+
+
+class ExperimentResultsResult(BaseModel):
+    """One experiment + its measured result snapshots. `found=False` when the id
+    is not this brand's — never leaks another tenant's data, never invents rows."""
+
+    found: bool
+    experiment: CampaignExperimentResponse | None = None
+    results: list[ExperimentResultResponse] = Field(default_factory=list)
+
+
+class EvaluateEvidenceInput(ToolInput):
+    experiment_id: uuid.UUID = Field(description="The variant under test.")
+    baseline_experiment_id: uuid.UUID | None = Field(
+        default=None, description="Optional comparison variant. Omit to assess readiness only."
+    )
+    primary_metric: PrimaryMetric = Field(
+        default=PrimaryMetric.LEADS, description="Which measured metric decides the test."
+    )
+
+
+# Maps the chosen metric to the measured field on a result snapshot.
+_METRIC_ATTR: dict[PrimaryMetric, str] = {
+    PrimaryMetric.LEADS: "leads",
+    PrimaryMetric.ENGAGEMENT_RATE: "engagement_rate",
+    PrimaryMetric.CTR: "ctr",
+    PrimaryMetric.REACH: "reach",
+    PrimaryMetric.VIEWS: "views",
+}
+
+
 # --- handlers (thin adapters over existing services) ------------------------
 async def _get_marketing_context(ctx: ExecutionContext, _inp: BaseModel) -> MarketingBrainContext:
     return await mb_service.build_context(ctx.session, tenant=ctx.tenant)
@@ -244,6 +289,87 @@ async def _get_experiments(ctx: ExecutionContext, inp: ExperimentsInput) -> Expe
             )
             for r in rows
         ]
+    )
+
+
+async def _load_brand_experiment(ctx: ExecutionContext, experiment_id: uuid.UUID) -> CampaignExperiment | None:
+    """Load ONE experiment, strictly scoped to the active brand. Returns None for
+    a nonexistent id OR another tenant's id — the caller never learns which."""
+    from sqlalchemy import select as _select
+
+    return (
+        await ctx.session.execute(
+            _select(CampaignExperiment).where(
+                CampaignExperiment.id == experiment_id,
+                CampaignExperiment.brand_id == _brand(ctx),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _get_experiment_results(ctx: ExecutionContext, inp: ExperimentResultsInput) -> ExperimentResultsResult:
+    """What data an experiment actually collected. Brand-scoped; honest when the
+    experiment is not this brand's or has no measured results yet."""
+    exp = await _load_brand_experiment(ctx, inp.experiment_id)
+    if exp is None:
+        return ExperimentResultsResult(found=False)
+    results = await learning_service.list_results_for_experiment(
+        ctx.session, experiment_id=exp.id
+    )
+    return ExperimentResultsResult(
+        found=True,
+        experiment=CampaignExperimentResponse.model_validate(exp),
+        results=results,
+    )
+
+
+def _side_from(exp: CampaignExperiment, results: list[ExperimentResultResponse], metric: PrimaryMetric) -> _Side:
+    """Build the pure evidence-side view from the LATEST measured snapshot."""
+    latest = results[0] if results else None  # list_results_for_experiment: newest first
+    metric_value = float(getattr(latest, _METRIC_ATTR[metric])) if latest is not None else None
+    return _Side(
+        goal=exp.goal,
+        asset_type=exp.source_asset_type,
+        platform=exp.platform,
+        variable_choices=dict(exp.variable_choices or {}),
+        impressions=int(latest.impressions) if latest is not None else 0,
+        metric_value=metric_value,
+        data_strength=float(latest.confidence_score) if latest is not None else 0.0,
+    )
+
+
+async def _evaluate_experiment_evidence(ctx: ExecutionContext, inp: EvaluateEvidenceInput) -> EvidenceAssessment:
+    """Deterministic evidence-integrity verdict over MEASURED results. Never
+    invents significance/confidence; brand-scoped; honest when data is missing."""
+    primary_exp = await _load_brand_experiment(ctx, inp.experiment_id)
+    if primary_exp is None:
+        return EvidenceAssessment(
+            verdict=EvidenceVerdict.INSUFFICIENT_EVIDENCE,
+            primary_metric=inp.primary_metric,
+            reasons=["The experiment is not available for this brand."],
+        )
+    primary_results = await learning_service.list_results_for_experiment(
+        ctx.session, experiment_id=primary_exp.id
+    )
+    primary_side = _side_from(primary_exp, primary_results, inp.primary_metric)
+
+    baseline_side = None
+    if inp.baseline_experiment_id is not None:
+        baseline_exp = await _load_brand_experiment(ctx, inp.baseline_experiment_id)
+        if baseline_exp is None:
+            return EvidenceAssessment(
+                verdict=EvidenceVerdict.INSUFFICIENT_EVIDENCE,
+                primary_metric=inp.primary_metric,
+                primary_value=primary_side.metric_value,
+                reasons=["The baseline experiment is not available for this brand."],
+            )
+        baseline_results = await learning_service.list_results_for_experiment(
+            ctx.session, experiment_id=baseline_exp.id
+        )
+        baseline_side = _side_from(baseline_exp, baseline_results, inp.primary_metric)
+
+    return assess_evidence(
+        primary_metric=inp.primary_metric, primary=primary_side, baseline=baseline_side
     )
 
 
@@ -409,6 +535,45 @@ BUILTIN_TOOLS: list[ToolDefinition] = [
         tenant_scope=TenantScope.BRAND,
         provenance=True,
         provenance_note="Measured experiment records; successes require evaluated results.",
+    ),
+    ToolDefinition(
+        name="get_experiment_results",
+        description=(
+            "The measured results an experiment actually collected (impressions, reach, "
+            "engagement, leads, ctr). Use to answer 'what data did we collect' for a "
+            "specific experiment. Returns found=false when the experiment is not this "
+            "brand's, and an empty result list when nothing has been measured yet — "
+            "never invents numbers."
+        ),
+        category="learning",
+        operation_class=OperationClass.READ,
+        input_schema=ExperimentResultsInput,
+        output_schema=ExperimentResultsResult,
+        handler=_get_experiment_results,
+        permission=_LIBRARY_VIEW,
+        tenant_scope=TenantScope.BRAND,
+        provenance=True,
+        provenance_note="Measured result snapshots for one experiment; empty when unmeasured.",
+    ),
+    ToolDefinition(
+        name="evaluate_experiment_evidence",
+        description=(
+            "Deterministically weigh whether there is enough comparable, measured "
+            "evidence to conclude an experiment — optionally against a baseline variant. "
+            "Returns insufficient_evidence / incomparable / inconclusive / supported / "
+            "contradicted with the checks behind it. Never fabricates a significance or "
+            "confidence number, and treats any result as measured association, not proof "
+            "of cause. Use before claiming an experiment 'won'."
+        ),
+        category="learning",
+        operation_class=OperationClass.READ,
+        input_schema=EvaluateEvidenceInput,
+        output_schema=EvidenceAssessment,
+        handler=_evaluate_experiment_evidence,
+        permission=_ANALYTICS_VIEW,
+        tenant_scope=TenantScope.BRAND,
+        provenance=True,
+        provenance_note="Deterministic verdict over measured results; association, not cause.",
     ),
     ToolDefinition(
         name="get_outcomes",
