@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from aicmo.config import get_settings
 from aicmo.llm.providers.base import LLMMessage, LLMProvider, LLMResult, LLMUsage
+from aicmo.llm.reliability import LLM_MAX_RETRIES, LLM_REQUEST_TIMEOUT_SECONDS
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -26,7 +27,13 @@ class AnthropicProvider(LLMProvider):
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
-        self._client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        # Explicit, bounded timeout + the SDK's native (single) retry layer:
+        # exponential backoff + jitter + Retry-After, transient failures only.
+        self._client = AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=LLM_MAX_RETRIES,
+        )
 
     async def generate_structured(
         self,

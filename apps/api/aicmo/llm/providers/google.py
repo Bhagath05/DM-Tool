@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from aicmo.config import get_settings
 from aicmo.llm.providers.base import LLMMessage, LLMProvider, LLMResult, LLMUsage
+from aicmo.llm.reliability import google_http_options
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -89,7 +90,12 @@ class GoogleProvider(LLMProvider):
         settings = get_settings()
         if not settings.google_api_key:
             raise RuntimeError("GOOGLE_API_KEY is not set")
-        self._client = genai.Client(api_key=settings.google_api_key)
+        # Explicit, bounded request timeout + a jittered exponential-backoff
+        # retry over transient statuses only (never 4xx auth/validation).
+        self._client = genai.Client(
+            api_key=settings.google_api_key,
+            http_options=google_http_options(),
+        )
 
     async def generate_structured(
         self,
