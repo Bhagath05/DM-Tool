@@ -53,7 +53,10 @@ async def shutdown(ctx: dict) -> None:
 # discovers them. Phase 0 ships only the reference job.
 from aicmo.auth.email_delivery import AUTH_EMAIL_JOB, AUTH_EMAIL_MAX_TRIES  # noqa: E402
 from aicmo.auth.tasks import send_auth_email  # noqa: E402
-from aicmo.modules.advisor.tasks import evaluate_advisor_outcomes  # noqa: E402
+from aicmo.modules.advisor.tasks import (  # noqa: E402
+    enqueue_learning_cycle_cron,
+    evaluate_advisor_outcomes,
+)
 from aicmo.modules.belief.tasks import form_brand_beliefs  # noqa: E402
 from aicmo.modules.business_brain.tasks import (  # noqa: E402
     run_business_brain_research,
@@ -116,6 +119,19 @@ CRON_JOBS: list = [
         collect_content_metrics_cron,
         hour={3, 15},
         minute=0,
+        second=0,
+        run_at_startup=False,
+    ),
+    # Phase 7.5 follow-up — the learning-loop scheduler. Once a day it fans out
+    # one evaluate_advisor_outcomes per active brand (evaluate due outcomes →
+    # form eligible beliefs → reconcile), so the measured-outcome→belief loop
+    # runs automatically. Reuses the existing registered job + enqueue path;
+    # respects the jobs_enabled kill switch; daily _job_id dedup keeps it
+    # idempotent. Offset from the other crons to spread load.
+    cron(
+        enqueue_learning_cycle_cron,
+        hour=2,
+        minute=30,
         second=0,
         run_at_startup=False,
     ),
