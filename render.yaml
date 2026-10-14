@@ -20,7 +20,8 @@
 #   3. REDIS_URL             must be the managed Redis (NOT localhost — the
 #      boot guard rejects localhost in production; worker/queue depend on it)
 #   4. SENTRY_DSN, IP_HASH_PEPPER, MEDIA_SIGNING_SECRET, INTEGRATION_TOKEN_KEY
-#   5. The default LLM provider key (ANTHROPIC_API_KEY by default)
+#   5. The default LLM provider key (OPENAI_API_KEY — LLM_DEFAULT_PROVIDER
+#      defaults to openai / LLM_DEFAULT_MODEL=gpt-5.6)
 #   6. MEDIA_BACKEND=r2/s3 + S3_BUCKET + creds  (durable generated media)
 # Deploying FROM this blueprint wires DATABASE_URL + REDIS_URL automatically
 # via fromDatabase/fromService — a manually-created service does not.
@@ -79,7 +80,9 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
       # ---- Secrets (set in the Render dashboard; never commit) ----
-      # Needed for AI generation to actually run (LLM_DEFAULT_PROVIDER=anthropic):
+      # Needed for AI generation to actually run. LLM_DEFAULT_PROVIDER defaults to
+      # openai, so OPENAI_API_KEY is the required key; set ANTHROPIC/GOOGLE only if
+      # you change LLM_DEFAULT_PROVIDER + LLM_DEFAULT_MODEL to that provider:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
@@ -144,7 +147,8 @@ services:
         value: "1"
       # The worker runs the same jobs the API enqueues — content/media
       # generation, publishing, the daily operations cycle — so it needs the
-      # same secrets, not just Anthropic. Missing keys here mean jobs fail at
+      # same secrets, including the default provider's key (OPENAI_API_KEY).
+      # Missing keys here mean jobs fail at
       # run time (not boot), which is exactly the kind of silent gap the
       # stabilization pass is closing.
       - key: ANTHROPIC_API_KEY
