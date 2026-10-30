@@ -29,3 +29,9 @@ class MarketingStrategyRecord(Base, TimestampMixin, TenantMixin):
     # The MarketingStrategy payload (JSONB); NULL until the async job completes.
     strategy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 7.15 — explainable evidence grounding: which evidence-graded beliefs
+    # (from the belief memory) informed this strategy, with confidence; or an
+    # INSUFFICIENT_EVIDENCE marker when the brand has no validated beliefs yet.
+    # Server-populated from the belief resolver, never by the LLM. NULL for
+    # strategies generated before this field existed.
+    evidence_grounding: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

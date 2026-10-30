@@ -33,11 +33,14 @@ async def generate_strategy(
     profile: BusinessProfileResponse,
     learning_block: str = "",
     goals_block: str = "",
+    belief_block: str = "",
 ) -> MarketingStrategy:
     """Pure of the DB so it can be unit-tested with a mocked LLM router.
 
     `learning_block` (Module 6) injects learned lessons; `goals_block` (4.3)
-    injects the brand's active goals so the strategy serves them."""
+    injects the brand's active goals; `belief_block` (Phase 7.15) injects the
+    brand's evidence-graded beliefs so the strategy is grounded in what the
+    business has actually learned."""
     router = get_llm_router()
     result = await router.generate(
         response_schema=MarketingStrategy,
@@ -46,7 +49,7 @@ async def generate_strategy(
             LLMMessage(
                 role="user",
                 content=prompts.build_strategy_prompt(
-                    profile, learning_block, goals_block
+                    profile, learning_block, goals_block, belief_block
                 ),
             ),
         ],
@@ -104,19 +107,29 @@ async def run_strategy(
     snapshot: BusinessProfileResponse,
     learning_block: str = "",
     goals_block: str = "",
+    belief_block: str = "",
+    evidence_grounding: dict | None = None,
 ) -> None:
     """Background task — generate then persist. Never raises (worker safety);
-    a failure is recorded on the row so the UI can surface + retry."""
+    a failure is recorded on the row so the UI can surface + retry.
+
+    ``evidence_grounding`` is the server-computed provenance (which beliefs
+    grounded the strategy, or INSUFFICIENT_EVIDENCE) and is persisted on both
+    success and failure so the record always explains its evidence basis."""
     try:
-        strategy = await generate_strategy(snapshot, learning_block, goals_block)
+        strategy = await generate_strategy(snapshot, learning_block, goals_block, belief_block)
     except Exception as e:
         log.warning("strategist.generate.failed", error=str(e)[:200])
         async with SessionLocal() as session:
-            await _finish(session, record_id, status="failed", payload=None, error=str(e)[:1000])
+            await _finish(
+                session, record_id, status="failed", payload=None, error=str(e)[:1000],
+                evidence_grounding=evidence_grounding,
+            )
         return
     async with SessionLocal() as session:
         await _finish(
-            session, record_id, status="completed", payload=strategy.model_dump(), error=None
+            session, record_id, status="completed", payload=strategy.model_dump(), error=None,
+            evidence_grounding=evidence_grounding,
         )
 
 
@@ -127,6 +140,7 @@ async def _finish(
     status: str,
     payload: dict | None,
     error: str | None,
+    evidence_grounding: dict | None = None,
 ) -> None:
     row = await session.get(MarketingStrategyRecord, uuid.UUID(str(record_id)))
     if row is None:
@@ -134,4 +148,6 @@ async def _finish(
     row.status = status
     row.strategy = payload
     row.error = error
+    if evidence_grounding is not None:
+        row.evidence_grounding = evidence_grounding
     await session.commit()

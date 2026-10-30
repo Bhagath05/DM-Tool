@@ -72,6 +72,18 @@ class MarketingStrategy(BaseModel):
     expected_result: str = Field(description="Plain-language outcome, always a range — never a single magic number.")
 
 
+# ---------- Evidence grounding (Phase 7.15/7.16) ----------
+#
+# Server-populated provenance (never LLM-written): which evidence-graded beliefs
+# informed the strategy, or an explicit INSUFFICIENT_EVIDENCE marker. Reuses the
+# shared belief-grounding foundation so every engine grounds the same way.
+
+from aicmo.modules.belief.grounding import EvidenceGrounding  # noqa: E402
+
+# Back-compat alias for the strategy response field + existing imports.
+StrategyEvidenceGrounding = EvidenceGrounding
+
+
 # ---------- API request/response ----------
 
 StrategyStatus = Literal["pending", "completed", "failed"]
@@ -86,6 +98,9 @@ class MarketingStrategyResponse(BaseModel):
     error: str | None
     created_at: datetime
     updated_at: datetime
+    # The evidence that grounded this strategy (Phase 7.15). NULL for strategies
+    # generated before this field existed.
+    evidence_grounding: StrategyEvidenceGrounding | None = None
 
 
 class MarketingStrategyList(BaseModel):

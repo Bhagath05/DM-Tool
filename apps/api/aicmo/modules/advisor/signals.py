@@ -21,6 +21,7 @@ from aicmo.modules.advisor.lead_context import load_lead_context
 from aicmo.modules.advisor.outcomes import load_outcome_context
 from aicmo.modules.advisor.schemas import DataSourceRef
 from aicmo.modules.analytics import service as analytics_service
+from aicmo.modules.belief.grounding import EvidenceGrounding
 from aicmo.modules.marketing_analytics import service as marketing_analytics_service
 from aicmo.modules.marketing_analytics.schemas import AdvisorAnalyticsSignal
 from aicmo.modules.marketing_analytics.signal_prompt import signal_to_prompt_block
@@ -52,6 +53,11 @@ class IntelligenceSignals:
     # Phase A — unified Marketing Brain context (BB evidence + ICP + learning…).
     # Optional: composition failures must never abort intelligence.
     marketing_brain: MarketingBrainContext | None = None
+    # Phase 7.16 — the brand's evidence-graded beliefs (what it has LEARNED), as
+    # a prompt block + structured provenance. Optional + defensive: a grounding
+    # failure must never abort recommendation generation.
+    belief_block: str = ""
+    belief_grounding: EvidenceGrounding | None = None
 
 
 async def gather_intelligence_signals(
@@ -71,6 +77,8 @@ async def gather_intelligence_signals(
     _, setup_steps = brain_completeness(brain)
 
     marketing_brain: MarketingBrainContext | None = None
+    belief_block = ""
+    belief_grounding: EvidenceGrounding | None = None
     if tenant is not None and tenant.brand_id is not None:
         try:
             from aicmo.modules.marketing_brain.service import build_context
@@ -78,6 +86,17 @@ async def gather_intelligence_signals(
             marketing_brain = await build_context(session, tenant=tenant)
         except Exception as e:  # never abort advisor for a context compose miss
             log.warning("advisor.marketing_brain_context_failed", error=str(e)[:200])
+        # Phase 7.16 — ground recommendations in the brand's evidence-graded
+        # beliefs (reuses the shared belief-grounding foundation). Defensive: a
+        # grounding failure must never abort recommendation generation.
+        try:
+            from aicmo.modules.belief.grounding import resolve_evidence_grounding
+
+            belief_block, belief_grounding = await resolve_evidence_grounding(
+                session, tenant=tenant
+            )
+        except Exception as e:
+            log.warning("advisor.belief_grounding_failed", error=str(e)[:200])
 
     outcome_ctx = await load_outcome_context(session, brand_id=resolved_brand)
     connector_ctx = await load_connector_context(session, brand_id=resolved_brand)
@@ -111,6 +130,18 @@ async def gather_intelligence_signals(
     data_sources.extend(connector_ctx.get("data_sources", []))
     data_sources.extend(content_ctx.get("data_sources", []))
     data_sources.extend(lead_ctx.get("data_sources", []))
+    # Phase 7.16 — surface the evidence that grounded this run as data sources
+    # (explainable provenance) without inventing anything: each is a real,
+    # server-derived belief with its confidence.
+    if belief_grounding is not None:
+        for b in belief_grounding.beliefs[:5]:
+            data_sources.append(
+                DataSourceRef(
+                    key=f"belief:{b.subject_key}",
+                    label=f"Learned: {b.statement[:80]}",
+                    value=f"{b.confidence}% confident ({b.evidence_count} evidence)",
+                )
+            )
 
     activity_signals = sum(
         1 for n in (overview.total_leads, overview.leads_7d, overview.leads_30d) if n > 0
@@ -133,6 +164,8 @@ async def gather_intelligence_signals(
         activity_signals=activity_signals,
         analytics_signal=analytics_signal,
         marketing_brain=marketing_brain,
+        belief_block=belief_block,
+        belief_grounding=belief_grounding,
     )
 
 
@@ -166,6 +199,17 @@ def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int
                 "",
             ]
         )
+    # Phase 7.16 — what this brand has LEARNED (evidence-graded beliefs). Treat a
+    # high-confidence ACTIVE belief as established; never contradict one without
+    # flagging it; when this is INSUFFICIENT_EVIDENCE, frame picks as hypotheses.
+    parts.extend(
+        [
+            "=== LEARNED BELIEFS (evidence-graded; validated findings vs hypotheses) ===",
+            signals.belief_block
+            or "(no validated beliefs yet — INSUFFICIENT_EVIDENCE; recommend as hypotheses to test)",
+            "",
+        ]
+    )
     parts.extend(
         [
             "=== 2. HISTORICAL OUTCOMES (what worked / failed) ===",

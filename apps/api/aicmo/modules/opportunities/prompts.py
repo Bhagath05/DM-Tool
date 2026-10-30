@@ -83,6 +83,7 @@ def build_opportunity_user_prompt(
     recent_ads_summary: str | None,
     signals: list[str],
     memory_block: str | None = None,
+    belief_block: str | None = None,
 ) -> str:
     """Compose the user prompt — all signals pre-flattened by the composer."""
     platforms = ", ".join(profile.preferred_platforms) or "(none chosen)"
@@ -94,6 +95,14 @@ def build_opportunity_user_prompt(
         "\n".join(f"- {s}" for s in signals) if signals else "(no extra signals)"
     )
     memory_section = memory_block or ""
+    belief_section = (
+        "# What this brand has LEARNED (evidence-graded beliefs — prefer these over "
+        "guesses; do not pick an opportunity that contradicts a high-confidence ACTIVE "
+        "belief without saying why)\n" + belief_block
+        if belief_block
+        else "# Learned beliefs\n(no validated beliefs yet — INSUFFICIENT_EVIDENCE; "
+        "treat picks as hypotheses to validate)"
+    )
 
     return f"""Pick this founder's content + ad opportunities for this week.
 
@@ -132,6 +141,8 @@ Audience: {profile.target_audience}
 {signals_block}
 
 {memory_section}
+
+{belief_section}
 
 # Your job
 

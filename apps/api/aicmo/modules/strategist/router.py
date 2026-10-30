@@ -56,10 +56,21 @@ async def generate(
     goals_block = await ops_goals.active_goals_context(
         session, brand_id=tenant.brand_id
     )
+    # Phase 7.15 — ground the strategy in the brand's evidence-graded beliefs
+    # (what it has actually learned) and record the explainable provenance.
+    from aicmo.modules.strategist import grounding
+
+    belief_block, evidence = await grounding.resolve_strategy_evidence(session, tenant=tenant)
     record = await service.create_pending(session, tenant=tenant)
     # Generate off the request path (big LLM call); the client polls /latest.
     background.add_task(
-        service.run_strategy, str(record.id), snapshot, learning_block, goals_block
+        service.run_strategy,
+        str(record.id),
+        snapshot,
+        learning_block,
+        goals_block,
+        belief_block,
+        evidence.model_dump(mode="json"),
     )
     return MarketingStrategyResponse.model_validate(record)
 

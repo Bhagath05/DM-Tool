@@ -96,6 +96,38 @@ def test_prompt_states_when_no_lessons_yet():
     assert "no lessons learned yet" in prompt
 
 
+def test_prompt_injects_belief_evidence():
+    # Phase 7.15 — evidence-graded beliefs flow into the strategy prompt.
+    block = "=== ACTIVE BELIEFS ===\n- [channel] Reels beat static for leads (confidence 82%)"
+    prompt = prompts.build_strategy_prompt(_profile(), belief_block=block)
+    assert "Reels beat static for leads" in prompt
+    assert "LEARNED from real results" in prompt
+
+
+def test_prompt_states_insufficient_evidence_when_no_beliefs():
+    prompt = prompts.build_strategy_prompt(_profile())
+    assert "INSUFFICIENT_EVIDENCE" in prompt
+
+
+def test_system_prompt_respects_learned_evidence():
+    assert "LEARNED EVIDENCE" in prompts.SYSTEM_PROMPT
+    assert "INSUFFICIENT_EVIDENCE" in prompts.SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_generate_strategy_passes_belief_block_to_prompt(monkeypatch):
+    strategy = MarketingStrategy.model_validate(_valid_strategy())
+    fake_router = SimpleNamespace(
+        generate=AsyncMock(return_value=SimpleNamespace(data=strategy))
+    )
+    monkeypatch.setattr(service, "get_llm_router", lambda: fake_router)
+
+    await service.generate_strategy(_profile(), belief_block="BELIEF_MARKER_XYZ")
+
+    content = fake_router.generate.await_args.kwargs["messages"][0].content
+    assert "BELIEF_MARKER_XYZ" in content
+
+
 @pytest.mark.asyncio
 async def test_generate_strategy_calls_llm_with_our_schema(monkeypatch):
     strategy = MarketingStrategy.model_validate(_valid_strategy())

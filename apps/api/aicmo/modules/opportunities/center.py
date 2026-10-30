@@ -23,11 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
 from aicmo.modules.ads.models import GeneratedAd
+from aicmo.modules.advisor.dedupe import fingerprint_for_opportunity, should_suppress
+from aicmo.modules.advisor.models import AdvisorRecommendation
 from aicmo.modules.analytics import service as analytics_service
 from aicmo.modules.content.models import GeneratedContent
 from aicmo.modules.leads.models import Lead
 from aicmo.modules.onboarding.schemas import BusinessAnalysis, BusinessProfileResponse
-from aicmo.tenancy.context import TenantContext
 from aicmo.modules.opportunities.prompts import (
     OPPORTUNITY_SYSTEM_PROMPT,
     build_opportunity_user_prompt,
@@ -41,9 +42,8 @@ from aicmo.modules.opportunities.schemas import (
     _OpportunityCenterNarrative,
     derive_opportunity_id,
 )
-from aicmo.modules.advisor.dedupe import fingerprint_for_opportunity, should_suppress
-from aicmo.modules.advisor.models import AdvisorRecommendation
 from aicmo.modules.trends import service as trends_service
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -106,11 +106,23 @@ async def build_opportunity_center(
         memory_rows = await load_brand_memory(session, brand_id=profile.brand_id)
         memory_block = build_memory_context_block(memory_rows)
 
+    # Phase 7.16 — ground the (legacy) opportunity narrative in the brand's
+    # evidence-graded beliefs too. Defensive: a grounding miss must never abort.
+    belief_block: str | None = None
+    if tenant is not None and tenant.brand_id is not None:
+        try:
+            from aicmo.modules.belief.grounding import resolve_evidence_grounding
+
+            belief_block, _grounding = await resolve_evidence_grounding(session, tenant=tenant)
+        except Exception as e:
+            log.warning("opportunities.belief_grounding_failed", error=str(e)[:200])
+
     narrative = await _generate_narrative(
         profile=profile,
         composed=composed,
         memory_block=memory_block,
         memory_rows=memory_rows if settings.advisor_engine_enabled else None,
+        belief_block=belief_block,
     )
     report = _assemble_report(narrative=narrative, composed=composed)
 
@@ -347,6 +359,7 @@ async def _generate_narrative(
     composed: dict,
     memory_block: str | None = None,
     memory_rows: list[AdvisorRecommendation] | None = None,
+    belief_block: str | None = None,
 ) -> _OpportunityCenterNarrative:
     from aicmo.config import get_settings
 
@@ -361,6 +374,7 @@ async def _generate_narrative(
         recent_ads_summary=composed["recent_ads_summary"],
         signals=composed["signals"],
         memory_block=memory_block,
+        belief_block=belief_block,
     )
     try:
         result = await router.generate(

@@ -27,12 +27,21 @@ explain it in everyday words.
 - Every action is concrete and verb-led ("Post a 60-second reel showing…").
 - If a channel genuinely doesn't fit (e.g. influencer marketing for a tiny local \
 plumber), say so honestly in `focus`/`why` and set priority "low" — never pad.
+- Respect the brand's LEARNED EVIDENCE (the "What this brand has learned" section): \
+treat a high-confidence ACTIVE belief as established — do not contradict one without \
+explicitly flagging the conflict and your reason in the relevant `why`. When that \
+section says INSUFFICIENT_EVIDENCE, present the plan as an initial hypothesis grounded \
+in the business facts and calibrate the lead move's confidence down — never claim \
+proven results you do not have.
 
 Output only what the response schema asks for."""
 
 
 def build_strategy_prompt(
-    profile: BusinessProfileResponse, learning_block: str = "", goals_block: str = ""
+    profile: BusinessProfileResponse,
+    learning_block: str = "",
+    goals_block: str = "",
+    belief_block: str = "",
 ) -> str:
     products = ", ".join(profile.products) or "(not specified — infer from industry)"
     services = ", ".join(profile.services) or "(not specified — infer from industry)"
@@ -86,6 +95,9 @@ Competitors: {competitors}
 
 # Prior AI analysis (build on this, don't contradict it)
 {analysis_block}
+
+# What this brand has LEARNED from real results (evidence-graded beliefs — prefer these over guesses; do not contradict a high-confidence ACTIVE belief without flagging it)
+{belief_block or "(no validated beliefs yet — INSUFFICIENT_EVIDENCE; plan from the business facts above as an initial hypothesis)"}
 
 # Lessons learned so far (from this brand's real results — prefer these over guesses)
 {learning_block or "(no lessons learned yet — plan from the business facts above)"}
