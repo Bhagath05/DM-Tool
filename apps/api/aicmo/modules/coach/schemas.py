@@ -16,6 +16,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Phase 7.18 — server-derived evidence provenance attached to every Coach
+# response (never LLM-written). Reuses the SHARED grounding foundation; the Coach
+# does not define its own provenance shape. Mirrors how the Strategist attaches
+# ``evidence_grounding`` to its strategy DTO.
+from aicmo.modules.belief.grounding import EvidenceGrounding
+
 FeasibilityLabel = Literal[
     "Highly achievable",
     "Achievable with strong execution",
@@ -122,6 +128,11 @@ class RealityCheck(BaseModel):
         default_factory=list,
         description="Plain-English reasons that fed the heuristic score.",
     )
+    # Phase 7.18 — server-derived provenance: which evidence-graded beliefs
+    # grounded this advisory, their server-derived (freshness-adjusted) confidence,
+    # and any contradicting findings. NULL / insufficient_evidence when the brand
+    # has no validated beliefs yet. Never written by the LLM.
+    evidence_grounding: EvidenceGrounding | None = None
 
 
 # ---------- request shape ----------
@@ -248,6 +259,8 @@ class WeeklyPlan(BaseModel):
     signals_used: list[str] = Field(default_factory=list)
     # ISO timestamp for client-side cache decisions.
     generated_at: str
+    # Phase 7.18 — server-derived evidence provenance (see RealityCheck).
+    evidence_grounding: EvidenceGrounding | None = None
 
 
 # ===================================================================
@@ -290,3 +303,5 @@ class AnalyticsSummary(BaseModel):
     # Transparency: same provenance pattern as WeeklyPlan.
     signals_used: list[str] = Field(default_factory=list)
     generated_at: str
+    # Phase 7.18 — server-derived evidence provenance (see RealityCheck).
+    evidence_grounding: EvidenceGrounding | None = None

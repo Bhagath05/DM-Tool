@@ -46,6 +46,8 @@ async def post_reality_check(
 ) -> RealityCheck:
     profile = await _require_profile(session, tenant.brand_id)
     return await evaluate_goal(
+        session,
+        tenant=tenant,
         profile=profile,
         goal_text=payload.goal_text,
         timeline_hint=payload.timeline_hint,
@@ -63,7 +65,7 @@ async def get_weekly_plan(
         return WeeklyPlan.model_validate(cached)
 
     profile = await _require_profile(session, tenant.brand_id)
-    plan = await build_weekly_plan(session, profile=profile)
+    plan = await build_weekly_plan(session, profile=profile, tenant=tenant)
     await cache_set(cache_key, plan.model_dump(mode="json"), ttl_seconds=43_200)
     return plan
 
@@ -74,4 +76,4 @@ async def get_analytics_summary(
     tenant: TenantContext = Depends(require_permission("analytics.view")),
 ) -> AnalyticsSummary:
     profile = await _require_profile(session, tenant.brand_id)
-    return await build_analytics_summary(session, profile=profile)
+    return await build_analytics_summary(session, profile=profile, tenant=tenant)

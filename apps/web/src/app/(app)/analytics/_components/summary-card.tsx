@@ -3,6 +3,7 @@
 import { ArrowRight, Loader2, RefreshCw, Sparkles, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type AnalyticsSummary } from "@/lib/api";
@@ -176,6 +177,8 @@ export function AnalyticsSummaryCard({
             </ul>
           </details>
         )}
+
+        <EvidenceProvenance grounding={summary.evidence_grounding} />
       </CardContent>
     </Card>
   );

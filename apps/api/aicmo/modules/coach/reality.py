@@ -14,9 +14,11 @@ fallback narrative. The founder NEVER gets a 5xx for an advisory call.
 from __future__ import annotations
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
+from aicmo.modules.coach.grounding import resolve_coach_evidence
 from aicmo.modules.coach.heuristics import label_for_score, score_goal
 from aicmo.modules.coach.prompts import SYSTEM_PROMPT, build_user_prompt
 from aicmo.modules.coach.schemas import (
@@ -27,6 +29,7 @@ from aicmo.modules.coach.schemas import (
     _RealityNarrative,
 )
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -34,16 +37,20 @@ log = structlog.get_logger()
 
 
 async def evaluate_goal(
+    session: AsyncSession,
     *,
+    tenant: TenantContext,
     profile: BusinessProfileResponse,
     goal_text: str,
     timeline_hint: str | None = None,
 ) -> RealityCheck:
-    """Score the goal + generate the advisory narrative around it."""
+    """Score the goal + generate the advisory narrative around it, grounded in
+    the brand's evidence-graded beliefs (Phase 7.17)."""
     score, signals = score_goal(
         profile=profile, goal_text=goal_text, timeline_hint=timeline_hint
     )
     label = label_for_score(score)
+    belief_block, evidence = await resolve_coach_evidence(session, tenant=tenant)
 
     narrative = await _generate_narrative(
         profile=profile,
@@ -52,6 +59,7 @@ async def evaluate_goal(
         feasibility_score=score,
         feasibility_label=label,
         signals=signals,
+        belief_block=belief_block,
     )
 
     return RealityCheck(
@@ -63,6 +71,7 @@ async def evaluate_goal(
         risk_flags=narrative.risk_flags,
         strategic_notes=narrative.strategic_notes,
         score_signals=signals,
+        evidence_grounding=evidence,
     )
 
 
@@ -74,6 +83,7 @@ async def _generate_narrative(
     feasibility_score: int,
     feasibility_label: str,
     signals: list[str],
+    belief_block: str = "",
 ) -> _RealityNarrative:
     """LLM call. Returns a fallback narrative on failure — never raises."""
     router = get_llm_router()
@@ -84,6 +94,7 @@ async def _generate_narrative(
         feasibility_score=feasibility_score,
         feasibility_label=feasibility_label,  # type: ignore[arg-type]
         signals=signals,
+        belief_block=belief_block,
     )
     try:
         result = await router.generate(

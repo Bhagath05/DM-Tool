@@ -22,6 +22,7 @@ from aicmo.modules.coach.prompts import (
 )
 from aicmo.modules.coach.schemas import AnalyticsSummary
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -32,10 +33,19 @@ async def build_analytics_summary(
     session: AsyncSession,
     *,
     profile: BusinessProfileResponse,
+    tenant: TenantContext | None = None,
 ) -> AnalyticsSummary:
-    """Single public entry point. Read-only — never writes to the DB."""
+    """Single public entry point. Read-only — never writes to the DB. Grounded in
+    the brand's evidence-graded beliefs (Phase 7.17) when a tenant is supplied."""
+    from aicmo.modules.coach.grounding import resolve_coach_evidence
+
     composed = await _compose(session, profile=profile)
-    narrative = await _narrate(profile=profile, composed=composed)
+    belief_block, evidence = (
+        await resolve_coach_evidence(session, tenant=tenant)
+        if tenant is not None
+        else ("", None)
+    )
+    narrative = await _narrate(profile=profile, composed=composed, belief_block=belief_block)
     return AnalyticsSummary(
         headline=narrative.headline,
         what_to_do_next=narrative.what_to_do_next,
@@ -46,6 +56,7 @@ async def build_analytics_summary(
         top_assets_blurb=narrative.top_assets_blurb,
         signals_used=composed["signals"],
         generated_at=datetime.now(UTC).isoformat(),
+        evidence_grounding=evidence,
     )
 
 
@@ -167,6 +178,7 @@ async def _narrate(
     *,
     profile: BusinessProfileResponse,
     composed: dict,
+    belief_block: str = "",
 ) -> AnalyticsSummary:
     router = get_llm_router()
     profile_stage = (
@@ -182,6 +194,7 @@ async def _narrate(
         sources_summary=composed["sources_summary"],
         landing_pages_summary=composed["landing_pages_summary"],
         top_assets_summary=composed["top_assets_summary"],
+        belief_block=belief_block,
     )
     try:
         result = await router.generate(

@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RealityCheck, RiskSeverity } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -192,6 +193,8 @@ export function RealityCheckCard({
             </ul>
           </details>
         )}
+
+        <EvidenceProvenance grounding={check.evidence_grounding} />
       </CardContent>
     </Card>
   );
