@@ -7,6 +7,7 @@ router use before falling back to global defaults.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from aicmo.llm.tasks import ALLOWED_LLM_PROVIDERS, KNOWN_LLM_TASKS, LLMTask
@@ -23,6 +24,12 @@ class LLMTaskPolicy:
 
 class LLMTaskPolicyError(ValueError):
     """Invalid task id or malformed LLM_TASK_MODELS configuration."""
+
+
+class ProviderModelResolutionError(ValueError):
+    """A provider was selected (explicitly or by policy) but no model could be
+    paired with it without silently borrowing another provider's default model.
+    A clear, typed configuration error — never a silent cross-provider pairing."""
 
 
 def parse_llm_task_models(raw: str) -> dict[str, tuple[str, str]]:
@@ -113,6 +120,50 @@ def resolve_task_route(
     if not (default_model or "").strip():
         raise LLMTaskPolicyError("LLM_DEFAULT_MODEL is empty")
     return default_provider, default_model.strip()
+
+
+def resolve_model_for_provider(
+    chosen_provider: str,
+    *,
+    explicit_model: str | None,
+    policy_provider: str | None,
+    policy_model: str | None,
+    default_provider: str,
+    provider_default_model: Callable[[str], str | None],
+) -> str:
+    """Resolve the model to use WITH ``chosen_provider`` — never another
+    provider's default model (Phase 7.19B).
+
+    Precedence:
+      1. An explicit ``model`` override is always honoured — the caller owns the
+         pairing, and the provider validates compatibility at call time (an
+         incompatible pair surfaces a typed provider error, e.g. model-not-found).
+      2. Otherwise the task-policy model is used ONLY when it belongs to the
+         chosen provider (the chosen provider equals the provider the policy /
+         global default produced that model for).
+      3. Otherwise the chosen provider's OWN configured default model is used,
+         if it has one (e.g. OLLAMA_MODEL for ``ollama``; LLM_DEFAULT_MODEL for
+         the global default provider).
+      4. Otherwise raise ``ProviderModelResolutionError`` — we never fall back to
+         a different provider's default model (the 7.19A edge case that sent an
+         OpenAI model name to Ollama).
+    """
+    if explicit_model is not None:
+        return explicit_model
+
+    policy_source_provider = policy_provider or default_provider
+    if chosen_provider == policy_source_provider and policy_model is not None:
+        return policy_model
+
+    own_default = provider_default_model(chosen_provider)
+    if own_default:
+        return own_default
+
+    raise ProviderModelResolutionError(
+        f"Provider {chosen_provider!r} was selected without a model and has no "
+        f"configured default model. Specify a model explicitly (e.g. via "
+        f"LLM_TASK_MODELS as '{chosen_provider}/<model>')."
+    )
 
 
 def describe_task_policy(

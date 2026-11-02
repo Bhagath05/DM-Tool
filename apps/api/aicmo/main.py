@@ -147,6 +147,21 @@ async def lifespan(app: FastAPI):
             log.info("jobs.pool.ready")
         except Exception as e:
             log.warning("jobs.pool.unavailable", error=str(e))
+    # Phase 7.19 — validate the Ollama local-inference config at startup WITHOUT
+    # making it a hard dependency. Never raises: a misconfigured or disabled local
+    # provider must not block the API from booting (external providers still work).
+    try:
+        from aicmo.llm.ollama_config import get_ollama_config
+
+        _ollama_cfg = get_ollama_config()
+        if _ollama_cfg.enabled:
+            log.info(
+                "ollama.enabled", base_url=_ollama_cfg.base_url, model=_ollama_cfg.model
+            )
+        else:
+            log.info("ollama.disabled")
+    except Exception as e:
+        log.warning("ollama.config_invalid", error=str(e)[:200])
     yield
     pool = getattr(app.state, "arq_pool", None)
     if pool is not None:
