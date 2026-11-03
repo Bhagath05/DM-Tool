@@ -33,6 +33,7 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aicmo.modules.business_dna import economics
 from aicmo.modules.business_dna.schemas import (
     BusinessDna,
     ContextProvenance,
@@ -306,7 +307,7 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
         )
     for ap in audience_patterns:
         score = getattr(ap, "confidence_score", None)
-        conf = int(round(float(score) * 100)) if isinstance(score, (int, float)) else None
+        conf = round(float(score) * 100) if isinstance(score, (int, float)) else None
         if conf is not None:
             conf = max(0, min(conf, 100))
         audience_items.append(
@@ -475,7 +476,7 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
     for o in mb.outcomes:
         if o.kind != "evaluated_success":
             continue
-        score = int(round(o.effectiveness_score)) if o.effectiveness_score is not None else None
+        score = round(o.effectiveness_score) if o.effectiveness_score is not None else None
         if score is not None:
             score = max(0, min(score, 100))
         perf_items.append(
@@ -519,20 +520,25 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
         _facet("learning", "Learning & Recommendation Intelligence", learning_items, source_present=profile_present)
     )
 
-    # ---- 10. Business Economics (DEFERRED — Stage 2) ------------------------
+    # ---- 10. Business Economics (Phase 7.20 Stage 2, migration-free) --------
+    # Deterministic: owner-stated budget/pricing/targets + measured conversion
+    # economics, with calculators ready and INSUFFICIENT_EVIDENCE for inputs not
+    # yet captured. Persisting structured economics inputs is deferred (migration,
+    # pending approval). Reuses the profile row + analytics already fetched above.
+    econ = economics.resolve_economics(profile_row=profile_row, analytics=mb.analytics)
+    econ_status_map = {
+        "populated": FacetStatus.POPULATED,
+        "insufficient_evidence": FacetStatus.INSUFFICIENT_EVIDENCE,
+        "unknown": FacetStatus.UNKNOWN,
+    }
     facets.append(
         DnaFacet(
             key="economics",
             title="Business Economics",
-            status=FacetStatus.UNKNOWN,
-            provenance_tiers=[ContextProvenance.UNKNOWN],
-            items=[],
-            note=(
-                "Business Economics (price points, margin, CAC, LTV, payback, "
-                "revenue targets) is deferred to Phase 7.20 Stage 2; no persistent "
-                "unit-economics model exists yet. Owner-stated pricing/budget appear "
-                "under the offer_positioning facet."
-            ),
+            status=econ_status_map[econ.status],
+            provenance_tiers=_tiers(econ.items),
+            items=econ.items,
+            note=econ.note,
         )
     )
 
@@ -540,7 +546,12 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
     facets.sort(key=lambda f: _FACET_ORDER.index(f.key))
 
     limitations = list(mb.limitations)
-    limitations.append("Business Economics facet is deferred (Phase 7.20 Stage 2).")
+    limitations.append(
+        "Business Economics is migration-free: owner-stated inputs + measured "
+        "conversion economics are surfaced and the calculators are ready, but "
+        "margin/LTV/CAC/break-even stay INSUFFICIENT_EVIDENCE until their precise "
+        "inputs are captured (persisting them needs a migration, pending approval)."
+    )
     limitations.append(
         "The legacy competitors module is not consulted here; market facts come "
         "from the evidence-grounded Business Brain research path."

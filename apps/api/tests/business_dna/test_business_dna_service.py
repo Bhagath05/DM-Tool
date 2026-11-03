@@ -152,11 +152,16 @@ def _grounding_empty() -> EvidenceGrounding:
 
 
 def _profile_row() -> SimpleNamespace:
+    # Mirrors the real BusinessProfile row: brand-identity + USPs + analysis, AND
+    # the economics-relevant fields the Stage-2 resolver reads from the row.
     return SimpleNamespace(
         analysis={"business_summary": "A mobile grooming van business.", "audience_insights": ["Values convenience"]},
         brand_tone="friendly", brand_colors=["#0a0", "#fff"], fonts=["Inter"],
         keywords=["grooming", "mobile"], brand_rules=["Never over-promise"],
         writing_style="Warm and concise", unique_selling_points=["Comes to your home"],
+        business_location="Austin, TX", monthly_budget_band="$100-500",
+        pricing="$65 full groom", primary_goal_text="200 bookings/mo",
+        products=["Full groom"], services=["Bath"],
     )
 
 
@@ -202,7 +207,9 @@ async def test_complete_dna_has_all_ten_facets_populated(monkeypatch):
     by = {f.key: f for f in dna.facets}
     for k in ("identity", "brand_identity", "offer_positioning", "audience", "market", "evidence", "beliefs", "performance", "learning"):
         assert by[k].status == FacetStatus.POPULATED, k
-    assert by["economics"].status == FacetStatus.UNKNOWN
+    # Stage 2: economics is now live (owner-stated budget/pricing + measured
+    # conversion economics present on the full fixture) → POPULATED, not UNKNOWN.
+    assert by["economics"].status == FacetStatus.POPULATED
     assert dna.brand_id == _BRAND and dna.organization_id == _ORG
 
 
@@ -272,15 +279,26 @@ async def test_partial_dna_marks_empty_facets_insufficient_or_unknown(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_economics_is_always_deferred_unknown(monkeypatch):
+async def test_economics_facet_live_with_deferred_persistence(monkeypatch):
+    """Stage 2: the economics facet is populated migration-free — owner-stated
+    budget/pricing (USER_STATED) + measured conversion economics (MEASURED), with
+    margin/LTV/CAC/break-even surfaced as INSUFFICIENT_EVIDENCE (never fabricated)
+    and structured-input persistence explicitly deferred to a migration."""
     _patch(monkeypatch, mb=_full_mb(), grounding=_grounding_full(), profile_row=_profile_row(), patterns=[_audience_pattern()])
     dna = await dna_service.get_business_dna(object(), tenant=_tenant())
     econ = dna.facet("economics")
     assert econ is not None
-    assert econ.status == FacetStatus.UNKNOWN
-    assert econ.items == []
-    assert econ.provenance_tiers == [ContextProvenance.UNKNOWN]
-    assert "Stage 2" in (econ.note or "")
+    assert econ.status == FacetStatus.POPULATED
+    labels = {i.label for i in econ.items}
+    # Owner-stated budget/pricing came through as USER_STATED.
+    assert any("budget" in label.lower() for label in labels)
+    assert any(i.provenance == ContextProvenance.USER_STATED for i in econ.items)
+    # Measured conversion economics present.
+    assert any(i.provenance == ContextProvenance.MEASURED for i in econ.items)
+    # Uncaptured quantitative metrics are honest INSUFFICIENT_EVIDENCE.
+    assert any("INSUFFICIENT_EVIDENCE" in (i.detail or "") for i in econ.items)
+    assert any("Gross margin" in label for label in labels)
+    assert "provenance" in (econ.note or "").lower()
 
 
 @pytest.mark.asyncio
@@ -301,8 +319,10 @@ async def test_deterministic_output_apart_from_timestamp(monkeypatch):
     tenant = _tenant()
     a = await dna_service.get_business_dna(object(), tenant=tenant)
     b = await dna_service.get_business_dna(object(), tenant=tenant)
-    da = a.model_dump(mode="json"); da.pop("generated_at")
-    db = b.model_dump(mode="json"); db.pop("generated_at")
+    da = a.model_dump(mode="json")
+    da.pop("generated_at")
+    db = b.model_dump(mode="json")
+    db.pop("generated_at")
     assert da == db
 
 

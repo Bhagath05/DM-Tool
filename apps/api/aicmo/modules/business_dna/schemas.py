@@ -18,11 +18,11 @@ from pydantic import BaseModel, Field
 from aicmo.modules.marketing_brain.provenance import ContextProvenance
 
 __all__ = [
-    "ContextProvenance",
-    "FacetStatus",
-    "DnaItem",
-    "DnaFacet",
     "BusinessDna",
+    "ContextProvenance",
+    "DnaFacet",
+    "DnaItem",
+    "FacetStatus",
 ]
 
 
