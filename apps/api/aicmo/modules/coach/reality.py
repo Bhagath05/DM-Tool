@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.llm import get_llm_router
 from aicmo.llm.providers.base import LLMMessage
-from aicmo.modules.coach.grounding import resolve_coach_evidence
+from aicmo.modules.coach.grounding import coach_economics_block, resolve_coach_evidence
 from aicmo.modules.coach.heuristics import label_for_score, score_goal
 from aicmo.modules.coach.prompts import SYSTEM_PROMPT, build_user_prompt
 from aicmo.modules.coach.schemas import (
@@ -51,6 +51,7 @@ async def evaluate_goal(
     )
     label = label_for_score(score)
     belief_block, evidence = await resolve_coach_evidence(session, tenant=tenant)
+    economics_block = await coach_economics_block(session, tenant=tenant)
 
     narrative = await _generate_narrative(
         profile=profile,
@@ -60,6 +61,7 @@ async def evaluate_goal(
         feasibility_label=label,
         signals=signals,
         belief_block=belief_block,
+        economics_block=economics_block,
     )
 
     return RealityCheck(
@@ -84,6 +86,7 @@ async def _generate_narrative(
     feasibility_label: str,
     signals: list[str],
     belief_block: str = "",
+    economics_block: str = "",
 ) -> _RealityNarrative:
     """LLM call. Returns a fallback narrative on failure — never raises."""
     router = get_llm_router()
@@ -95,6 +98,7 @@ async def _generate_narrative(
         feasibility_label=feasibility_label,  # type: ignore[arg-type]
         signals=signals,
         belief_block=belief_block,
+        economics_block=economics_block,
     )
     try:
         result = await router.generate(

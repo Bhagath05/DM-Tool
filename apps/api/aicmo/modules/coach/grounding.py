@@ -44,3 +44,30 @@ async def coach_belief_block(session: AsyncSession, *, tenant: TenantContext) ->
     failure (never raises — advisory Coach calls must degrade gracefully)."""
     block, _grounding = await resolve_coach_evidence(session, tenant=tenant)
     return block
+
+
+async def coach_economics_block(session: AsyncSession, *, tenant: TenantContext) -> str:
+    """Phase 7.20 Stage 3b.1 — the brand's Business Economics as a deterministic,
+    provenance-tagged prompt block, or "" when nothing is captured or on any
+    failure (never raises — advisory Coach calls must degrade gracefully).
+
+    Reuses the canonical, facet-scoped ``get_business_dna.get_economics_facet``
+    (no full-DNA build, no duplicated composition). Brand-scoped via TenantContext;
+    read-only. Each line keeps its server-derived provenance tier so the LLM can
+    tell owner-stated/verified figures from derived ones and never upgrades them.
+    """
+    try:
+        from aicmo.modules.business_dna.service import get_economics_facet
+
+        facet = await get_economics_facet(session, tenant=tenant)
+    except Exception as e:
+        log.warning("coach.economics_facet_failed", error=str(e)[:200])
+        return ""
+    items = list(facet.items)
+    if not items:
+        return ""
+    lines: list[str] = []
+    for i in items[:16]:
+        prov = getattr(i.provenance, "value", i.provenance)
+        lines.append(f"- [{prov}] {i.label}: {i.detail or 'n/a'}")
+    return "\n".join(lines)

@@ -33,6 +33,28 @@ def _belief_section(belief_block: str) -> str:
         + body
     )
 
+
+# Phase 7.20 Stage 3b.1 — the Coach reads the canonical Business DNA economics
+# facet (owner-stated + measured + deterministically-computed financials). The LLM
+# must never calculate or upgrade an authoritative figure.
+_ECONOMICS_DISCIPLINE = (
+    "- Respect the brand's BUSINESS ECONOMICS: use every financial figure EXACTLY as "
+    "given — never invent, estimate, or 'upgrade' one. A USER_STATED or VERIFIED value "
+    "is authoritative; a SYSTEM_INFERRED figure is derived; an INSUFFICIENT_EVIDENCE "
+    "metric stays unknown (do NOT compute it yourself). Keep every recommendation "
+    "affordable within the stated budget."
+)
+
+
+def _economics_section(economics_block: str) -> str:
+    body = economics_block or (
+        "(no business economics captured — do not assume budget, price, margin, CAC or LTV)"
+    )
+    return (
+        "# Business economics (read-only — server-derived or owner-stated with "
+        "provenance; never invent or change a figure)\n" + body
+    )
+
 SYSTEM_PROMPT = (
     """You are a senior growth strategist + honest mentor — \
 NOT a yes-man, NOT a naysayer. Your job is to translate AMBITION into \
@@ -66,6 +88,7 @@ notes are observations a real operator would mention.
 
 """
     + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -79,6 +102,7 @@ def build_user_prompt(
     feasibility_label: FeasibilityLabel,
     signals: list[str],
     belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     platforms = ", ".join(profile.preferred_platforms) or "(none chosen)"
     location = profile.business_location or "(not specified)"
@@ -92,6 +116,8 @@ def build_user_prompt(
     return f"""Produce a Reality Check for this founder's goal.
 
 {_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # The founder's goal
 "{goal_text}"
@@ -183,6 +209,7 @@ specific situation.
 
 """
     + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -198,6 +225,7 @@ def build_weekly_user_prompt(
     analysis_phase_summary: str | None,
     analysis_channels: list[str],
     belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     """Compose the user prompt for the weekly plan.
 
@@ -222,6 +250,8 @@ def build_weekly_user_prompt(
     return f"""Plan this founder's week.
 
 {_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # Business
 Name: {profile.business_name}
