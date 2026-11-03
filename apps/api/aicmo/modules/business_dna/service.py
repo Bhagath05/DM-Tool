@@ -33,7 +33,7 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aicmo.modules.business_dna import economics
+from aicmo.modules.business_dna import economics, economics_store
 from aicmo.modules.business_dna.schemas import (
     BusinessDna,
     ContextProvenance,
@@ -525,7 +525,10 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
     # economics, with calculators ready and INSUFFICIENT_EVIDENCE for inputs not
     # yet captured. Persisting structured economics inputs is deferred (migration,
     # pending approval). Reuses the profile row + analytics already fetched above.
-    econ = economics.resolve_economics(profile_row=profile_row, analytics=mb.analytics)
+    stored_economics = economics_store.economics_from_row(profile_row)
+    econ = economics.resolve_economics(
+        profile_row=profile_row, analytics=mb.analytics, economics=stored_economics
+    )
     econ_status_map = {
         "populated": FacetStatus.POPULATED,
         "insufficient_evidence": FacetStatus.INSUFFICIENT_EVIDENCE,
