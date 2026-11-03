@@ -91,6 +91,13 @@ PROVENANCE_LEGEND: dict[str, str] = {
 }
 
 
+_ECON_STATUS_MAP = {
+    "populated": FacetStatus.POPULATED,
+    "insufficient_evidence": FacetStatus.INSUFFICIENT_EVIDENCE,
+    "unknown": FacetStatus.UNKNOWN,
+}
+
+
 def _require_brand(tenant: TenantContext) -> uuid.UUID:
     """Brand scope is authorization-derived — never a caller-supplied id alone."""
     if tenant.brand_id is None:
@@ -99,6 +106,20 @@ def _require_brand(tenant: TenantContext) -> uuid.UUID:
             "Pick a workspace first, then we can read its Business DNA.",
         )
     return tenant.brand_id
+
+
+def _economics_facet(econ: economics.EconomicsResolution) -> DnaFacet:
+    """Map an economics resolution → the canonical economics DnaFacet. Shared by
+    the full DNA build and the facet-scoped accessor so there is ONE economics
+    projection."""
+    return DnaFacet(
+        key="economics",
+        title="Business Economics",
+        status=_ECON_STATUS_MAP[econ.status],
+        provenance_tiers=_tiers(econ.items),
+        items=econ.items,
+        note=econ.note,
+    )
 
 
 def _tiers(items: list[DnaItem]) -> list[ContextProvenance]:
@@ -520,40 +541,25 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
         _facet("learning", "Learning & Recommendation Intelligence", learning_items, source_present=profile_present)
     )
 
-    # ---- 10. Business Economics (Phase 7.20 Stage 2, migration-free) --------
+    # ---- 10. Business Economics (Phase 7.20 Stage 2 + 2b) ------------------
     # Deterministic: owner-stated budget/pricing/targets + measured conversion
-    # economics, with calculators ready and INSUFFICIENT_EVIDENCE for inputs not
-    # yet captured. Persisting structured economics inputs is deferred (migration,
-    # pending approval). Reuses the profile row + analytics already fetched above.
+    # economics + persisted structured inputs, with margin/LTV/break-even computed
+    # when their inputs exist and INSUFFICIENT_EVIDENCE otherwise. Reuses the
+    # profile row + analytics already fetched above (no extra reads).
     stored_economics = economics_store.economics_from_row(profile_row)
     econ = economics.resolve_economics(
         profile_row=profile_row, analytics=mb.analytics, economics=stored_economics
     )
-    econ_status_map = {
-        "populated": FacetStatus.POPULATED,
-        "insufficient_evidence": FacetStatus.INSUFFICIENT_EVIDENCE,
-        "unknown": FacetStatus.UNKNOWN,
-    }
-    facets.append(
-        DnaFacet(
-            key="economics",
-            title="Business Economics",
-            status=econ_status_map[econ.status],
-            provenance_tiers=_tiers(econ.items),
-            items=econ.items,
-            note=econ.note,
-        )
-    )
+    facets.append(_economics_facet(econ))
 
     # Deterministic facet ordering.
     facets.sort(key=lambda f: _FACET_ORDER.index(f.key))
 
     limitations = list(mb.limitations)
     limitations.append(
-        "Business Economics is migration-free: owner-stated inputs + measured "
-        "conversion economics are surfaced and the calculators are ready, but "
-        "margin/LTV/CAC/break-even stay INSUFFICIENT_EVIDENCE until their precise "
-        "inputs are captured (persisting them needs a migration, pending approval)."
+        "Business Economics computes margin/LTV/break-even deterministically from "
+        "persisted inputs when present; CAC and budget utilization remain "
+        "INSUFFICIENT_EVIDENCE until a provider-verified spend source is connected."
     )
     limitations.append(
         "The legacy competitors module is not consulted here; market facts come "
@@ -570,3 +576,25 @@ async def get_business_dna(session: AsyncSession, *, tenant: TenantContext) -> B
         provenance_legend=dict(PROVENANCE_LEGEND),
         limitations=limitations,
     )
+
+
+async def get_economics_facet(session: AsyncSession, *, tenant: TenantContext) -> DnaFacet:
+    """Read-only Business Economics facet ALONE — the "request only the facet you
+    need" seam (Phase 7.20 Stage 3) for consumers that want economics context
+    without building the full Business DNA.
+
+    Reuses the canonical economics resolver + store; it does NOT build the full
+    Marketing Brain context, so it is cheap (one scoped profile read) and avoids
+    duplicate heavy composition. Brand-scoped via the caller's TenantContext;
+    read-only; deterministic; never writes. ``analytics`` is intentionally omitted
+    (consumers surface analytics separately) so this adds no analytics read.
+    """
+    brand_id = _require_brand(tenant)
+    profile_row = None
+    try:
+        profile_row = await onboarding_service.get_profile_or_none(session, brand_id)
+    except Exception as e:  # never abort a consumer for a profile read miss
+        log.warning("business_dna.economics_facet_profile_failed", error=str(e)[:200])
+    stored = economics_store.economics_from_row(profile_row)
+    econ = economics.resolve_economics(profile_row=profile_row, analytics=None, economics=stored)
+    return _economics_facet(econ)
