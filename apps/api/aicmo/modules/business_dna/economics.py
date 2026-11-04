@@ -292,6 +292,9 @@ class EconomicsResolution:
     note: str
     currency: str | None
     period: str | None
+    # Trust tier of ``period`` (USER_STATED when owner-stated, MEASURED when from
+    # measured analytics); None when there is no period. Never fabricated.
+    period_provenance: ContextProvenance | None = None
 
 
 def resolve_economics(
@@ -331,7 +334,12 @@ def resolve_economics(
                     source=f"profile.location ({cur_reason})",
                 )
             )
+    # Reporting period: owner-stated (USER_STATED) when supplied; otherwise filled
+    # from measured analytics below (MEASURED). Never inferred from a value.
     period = economics.reporting_period if (economics is not None and economics.reporting_period) else None
+    period_provenance: ContextProvenance | None = (
+        ContextProvenance.USER_STATED if period is not None else None
+    )
 
     # --- USER_STATED context from existing profile fields ---
     if profile_row is not None:
@@ -409,6 +417,7 @@ def resolve_economics(
     if analytics is not None:
         if period is None:
             period = "last 30 days"
+            period_provenance = ContextProvenance.MEASURED
         items.append(
             DnaItem(
                 label="Conversion rate (landing pages)",
@@ -495,7 +504,10 @@ def resolve_economics(
         "otherwise; CAC and budget utilization require a provider-verified spend "
         "source. No value is fabricated and the model never computes a figure."
     )
-    return EconomicsResolution(items=items, status=status, note=note, currency=currency, period=period)
+    return EconomicsResolution(
+        items=items, status=status, note=note, currency=currency,
+        period=period, period_provenance=period_provenance,
+    )
 
 
 def _val(economics: BusinessEconomics | None, fname: str) -> float | None:

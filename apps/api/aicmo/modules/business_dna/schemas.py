@@ -70,6 +70,13 @@ class DnaFacet(BaseModel):
     # silently dropped (reuses the existing belief contradiction mechanism).
     contradictions: list[DnaItem] = Field(default_factory=list)
     note: str | None = None
+    # The facet's actual reporting/measurement period, surfaced verbatim when the
+    # source provides one (Phase 7.20 Stage 3d — economics facet). Never inferred
+    # from a value; ``None`` means the period is genuinely unknown/absent.
+    # ``period_provenance`` carries its trust tier (USER_STATED when owner-stated,
+    # MEASURED when derived from measured analytics).
+    period: str | None = None
+    period_provenance: ContextProvenance | None = None
 
 
 class BusinessDna(BaseModel):

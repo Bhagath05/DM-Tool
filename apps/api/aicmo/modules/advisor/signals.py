@@ -291,18 +291,20 @@ def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int
 
     # Phase 7.20 Stage 3 — Business Economics (read-only, provenance-tagged). The
     # figures are server-derived or owner-stated; the model must use them as-is.
+    # Stage 3d: render via the canonical shared renderer (one source of truth — no
+    # inline duplicate), which also surfaces the reporting period when present.
     parts.extend(["", "=== 7. BUSINESS ECONOMICS (read-only) ==="])
+    from aicmo.modules.business_dna.service import render_economics_block
+
     econ = signals.economics_facet
-    econ_items = list(econ.items) if econ is not None else []
-    if econ_items:
+    rendered = render_economics_block(econ) if econ is not None else ""
+    if rendered:
         parts.append(
             "Use these figures EXACTLY as given. NEVER invent, estimate, or 'upgrade' "
             "a financial number. An INSUFFICIENT_EVIDENCE metric stays unknown — do not "
             "compute it yourself. A USER_STATED or VERIFIED value is authoritative."
         )
-        for i in econ_items[:16]:
-            prov = getattr(i.provenance, "value", i.provenance)
-            parts.append(f"- [{prov}] {i.label}: {i.detail or 'n/a'}")
+        parts.append(rendered)
     else:
         parts.append(
             "No business economics captured — do not assume budget, margin, CAC or LTV."

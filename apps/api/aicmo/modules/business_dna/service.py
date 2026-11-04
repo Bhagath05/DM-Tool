@@ -119,6 +119,8 @@ def _economics_facet(econ: economics.EconomicsResolution) -> DnaFacet:
         provenance_tiers=_tiers(econ.items),
         items=econ.items,
         note=econ.note,
+        period=econ.period,
+        period_provenance=econ.period_provenance,
     )
 
 
@@ -603,13 +605,22 @@ async def get_economics_facet(session: AsyncSession, *, tenant: TenantContext) -
 def render_economics_block(facet: DnaFacet, *, max_items: int = 16) -> str:
     """Shared, deterministic rendering of the economics facet → a provenance-tagged
     prompt block (Phase 7.20 Stage 3b.2). ONE renderer reused by every consumer
-    (Coach, Strategy, …) so economics reads identically everywhere. Returns "" when
-    the facet carries no items (honest absence). Each line keeps its server-derived
+    (Coach, Strategy, Advisor, …) so economics reads identically everywhere. Returns
+    "" when the facet carries no items and no reporting period (honest absence).
+
+    When the facet's source provided a reporting/measurement period it is surfaced
+    verbatim as a leading, provenance-tagged "Reporting period" line (Phase 7.20
+    Stage 3d) — never inferred from a value. Each item line keeps its server-derived
     provenance tier so the LLM never upgrades an owner-stated/verified figure."""
     items = list(facet.items)
-    if not items:
+    period = facet.period
+    if not items and not period:
         return ""
     lines: list[str] = []
+    if period:
+        pprov = facet.period_provenance
+        ptag = getattr(pprov, "value", pprov) if pprov is not None else "UNKNOWN"
+        lines.append(f"- [{ptag}] Reporting period: {period}")
     for i in items[:max_items]:
         prov = getattr(i.provenance, "value", i.provenance)
         lines.append(f"- [{prov}] {i.label}: {i.detail or 'n/a'}")
