@@ -34,13 +34,15 @@ async def generate_strategy(
     learning_block: str = "",
     goals_block: str = "",
     belief_block: str = "",
+    economics_block: str = "",
 ) -> MarketingStrategy:
     """Pure of the DB so it can be unit-tested with a mocked LLM router.
 
     `learning_block` (Module 6) injects learned lessons; `goals_block` (4.3)
     injects the brand's active goals; `belief_block` (Phase 7.15) injects the
-    brand's evidence-graded beliefs so the strategy is grounded in what the
-    business has actually learned."""
+    brand's evidence-graded beliefs; `economics_block` (Phase 7.20 Stage 3b.2)
+    injects the canonical, provenance-tagged Business Economics facet so the
+    strategy is grounded in the business's real financial reality."""
     router = get_llm_router()
     result = await router.generate(
         response_schema=MarketingStrategy,
@@ -49,7 +51,7 @@ async def generate_strategy(
             LLMMessage(
                 role="user",
                 content=prompts.build_strategy_prompt(
-                    profile, learning_block, goals_block, belief_block
+                    profile, learning_block, goals_block, belief_block, economics_block
                 ),
             ),
         ],
@@ -109,15 +111,20 @@ async def run_strategy(
     goals_block: str = "",
     belief_block: str = "",
     evidence_grounding: dict | None = None,
+    economics_block: str = "",
 ) -> None:
     """Background task — generate then persist. Never raises (worker safety);
     a failure is recorded on the row so the UI can surface + retry.
 
     ``evidence_grounding`` is the server-computed provenance (which beliefs
     grounded the strategy, or INSUFFICIENT_EVIDENCE) and is persisted on both
-    success and failure so the record always explains its evidence basis."""
+    success and failure so the record always explains its evidence basis.
+    ``economics_block`` (Phase 7.20 Stage 3b.2) is the read-only Business
+    Economics prompt block resolved on the request path."""
     try:
-        strategy = await generate_strategy(snapshot, learning_block, goals_block, belief_block)
+        strategy = await generate_strategy(
+            snapshot, learning_block, goals_block, belief_block, economics_block
+        )
     except Exception as e:
         log.warning("strategist.generate.failed", error=str(e)[:200])
         async with SessionLocal() as session:

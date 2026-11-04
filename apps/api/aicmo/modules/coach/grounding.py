@@ -57,17 +57,10 @@ async def coach_economics_block(session: AsyncSession, *, tenant: TenantContext)
     tell owner-stated/verified figures from derived ones and never upgrades them.
     """
     try:
-        from aicmo.modules.business_dna.service import get_economics_facet
+        from aicmo.modules.business_dna.service import get_economics_facet, render_economics_block
 
         facet = await get_economics_facet(session, tenant=tenant)
     except Exception as e:
         log.warning("coach.economics_facet_failed", error=str(e)[:200])
         return ""
-    items = list(facet.items)
-    if not items:
-        return ""
-    lines: list[str] = []
-    for i in items[:16]:
-        prov = getattr(i.provenance, "value", i.provenance)
-        lines.append(f"- [{prov}] {i.label}: {i.detail or 'n/a'}")
-    return "\n".join(lines)
+    return render_economics_block(facet)

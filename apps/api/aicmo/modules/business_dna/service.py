@@ -598,3 +598,19 @@ async def get_economics_facet(session: AsyncSession, *, tenant: TenantContext) -
     stored = economics_store.economics_from_row(profile_row)
     econ = economics.resolve_economics(profile_row=profile_row, analytics=None, economics=stored)
     return _economics_facet(econ)
+
+
+def render_economics_block(facet: DnaFacet, *, max_items: int = 16) -> str:
+    """Shared, deterministic rendering of the economics facet → a provenance-tagged
+    prompt block (Phase 7.20 Stage 3b.2). ONE renderer reused by every consumer
+    (Coach, Strategy, …) so economics reads identically everywhere. Returns "" when
+    the facet carries no items (honest absence). Each line keeps its server-derived
+    provenance tier so the LLM never upgrades an owner-stated/verified figure."""
+    items = list(facet.items)
+    if not items:
+        return ""
+    lines: list[str] = []
+    for i in items[:max_items]:
+        prov = getattr(i.provenance, "value", i.provenance)
+        lines.append(f"- [{prov}] {i.label}: {i.detail or 'n/a'}")
+    return "\n".join(lines)
