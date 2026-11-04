@@ -394,6 +394,7 @@ short honest blurb that says so — don't fabricate.
 
 """
     + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -408,15 +409,21 @@ def build_analytics_summary_user_prompt(
     landing_pages_summary: str,
     top_assets_summary: str,
     belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     """Compose the user prompt for the analytics summary.
 
     Each `*_summary` parameter is a pre-flattened string of facts produced
-    by the composer — the LLM only narrates, never queries.
+    by the composer — the LLM only narrates, never queries. ``economics_block``
+    (Phase 7.20 Stage 3b.4) is the canonical, provenance-tagged Business Economics
+    facet rendered by the shared renderer; the narrator uses it to explain
+    performance in financial terms, never to invent or recompute a figure.
     """
     return f"""Narrate this marketing dashboard for the founder.
 
 {_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # Business
 {profile_name}{" — " + profile_stage if profile_stage else ""}
