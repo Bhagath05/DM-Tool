@@ -119,16 +119,31 @@ jobs:
         continue-on-error: false
 
   # ---------------------------------------------------------------
-  # Tenant-isolation invariants — the 10 pinned tests that guard
-  # against cross-tenant data leaks, header tampering, and role
-  # escalation. These MUST pass for every commit.
+  # Tenant-isolation invariants + Business DNA PostgreSQL-backed tests.
+  # The pinned cross-tenant / header-tampering / role-escalation cases
+  # (tests/tenancy) PLUS the real-PostgreSQL Business DNA economics
+  # isolation, persistence (no-overwrite / re-analysis), migration
+  # reversibility, and authenticated API read/write-path tenant-isolation
+  # tests (tests/business_dna). All MUST pass for every commit. The CI
+  # database is migrated to head first so the PG-gated tests actually
+  # execute — they self-skip when no database is reachable, which would
+  # otherwise hide a regression.
   # ---------------------------------------------------------------
   tenant-invariants:
-    name: Tenant isolation invariants
+    name: Tenant isolation + Business DNA PostgreSQL tests
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/api
+    # Isolated, ephemeral CI database credentials (the throwaway postgres
+    # service below — never a production database). DATABASE_URL drives the
+    # app session + Alembic; TEST_DATABASE_URL drives the test-harness engine
+    # (tests/_dbtest). Both point at the same disposable CI service.
+    env:
+      DATABASE_URL: postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo
+      TEST_DATABASE_URL: postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo
+      AUTH_MODE: demo
+      API_ENV: development
     services:
       postgres:
         image: postgres:16
@@ -151,9 +166,9 @@ jobs:
         run: pip install uv
       - name: Sync dependencies
         run: uv sync --frozen
+      - name: Apply Alembic migrations to the clean CI database
+        run: uv run alembic upgrade head
       - name: Run tenancy invariants
         run: uv run pytest tests/tenancy/ -v
-        env:
-          DATABASE_URL: postgresql+psycopg://aicmo:aicmo@localhost:5432/aicmo
-          AUTH_MODE: demo
-          API_ENV: development
+      - name: Run Business DNA PostgreSQL-backed tests
+        run: uv run pytest tests/business_dna/ -v
