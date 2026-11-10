@@ -31,6 +31,21 @@ def sync_dsn() -> str:
     return async_dsn().replace("+psycopg", "", 1)
 
 
+def admin_dsn() -> str:
+    """Sync DSN for a *privileged* test connection used only for setup/teardown
+    that the application role must not be able to perform (e.g. CREATE/DROP ROLE
+    in the RLS enforcement tests).
+
+    Overridable via ``TEST_ADMIN_DATABASE_URL``; defaults to :func:`sync_dsn` so
+    environments where the test role is already an admin (e.g. the CI Postgres
+    service, whose ``aicmo`` role is the cluster superuser) keep working with no
+    config. Where the application role is a non-superuser (production-shaped
+    local dev), point this at a role with CREATEROLE/superuser — the dedicated
+    *administrative* connection — while the app role stays unprivileged.
+    """
+    return os.environ.get("TEST_ADMIN_DATABASE_URL", sync_dsn())
+
+
 def pg_reachable() -> bool:
     """True only if we can open AND authenticate a connection to the test DB."""
     try:

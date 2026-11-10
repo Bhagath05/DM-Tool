@@ -30,7 +30,7 @@ import uuid
 import pytest
 
 from aicmo.db import rls
-from tests._dbtest import sync_dsn
+from tests._dbtest import admin_dsn, sync_dsn
 
 # ---------------------------------------------------------------------
 #  1. Pure-function tests (no DB)
@@ -161,17 +161,22 @@ async def test_runtime_helpers_emit_set_config_when_flag_on(monkeypatch):
 # ---------------------------------------------------------------------
 
 _DSN = sync_dsn()
+_ADMIN_DSN = admin_dsn()
 _TEST_ROLE = "rls_probe_app_role"
 
 
-def _pg_or_skip():
+def _connect_or_skip(dsn: str):
     psycopg = pytest.importorskip("psycopg")
     try:
-        conn = psycopg.connect(_DSN, connect_timeout=3)
-    except Exception:  # noqa: BLE001
-        pytest.skip(f"Postgres not reachable at {_DSN}")
+        conn = psycopg.connect(dsn, connect_timeout=3)
+    except Exception:
+        pytest.skip("Postgres not reachable")
     conn.autocommit = True
     return conn
+
+
+def _pg_or_skip():
+    return _connect_or_skip(_DSN)
 
 
 def _set_org(cur, org_id: str | None):
@@ -186,51 +191,82 @@ def _set_bypass(cur, on: bool):
 
 @pytest.fixture()
 def rls_probe():
-    """A non-superuser role + TEMP table with the production org-scoped
-    policy, RLS enabled + FORCEd. Yields (cursor, org_a, org_b). Tears
-    everything down — temp table dies with the session, role is dropped."""
-    conn = _pg_or_skip()
-    cur = conn.cursor()
+    """A throwaway NON-superuser role + TEMP table with the production org-scoped
+    policy, RLS enabled + FORCEd. Yields (app_cursor, org_a, org_b).
+
+    Privilege boundary (the point of this fixture): the throwaway role must be
+    non-superuser so RLS genuinely applies, but CREATE/DROP ROLE is privileged.
+    So the role lifecycle (CREATE / GRANT / DROP) runs on a DEDICATED
+    administrative connection (``admin_dsn()``), while the RLS enforcement probe
+    runs on the ordinary APP connection (``sync_dsn()`` — the non-superuser
+    ``aicmo`` role in production-shaped setups) via ``SET ROLE``. The app role is
+    never granted elevated privileges. Where the app role is already an admin
+    (e.g. the CI Postgres superuser) both DSNs resolve to the same connection and
+    behaviour is unchanged. Everything is torn down: the temp table dies with the
+    session and the throwaway role is revoked + dropped."""
+    from psycopg import sql
+
+    admin = _connect_or_skip(_ADMIN_DSN)
+    app = _pg_or_skip()
+    acur, cur = admin.cursor(), app.cursor()
+    role = sql.Identifier(_TEST_ROLE)
+    app_user = sql.Identifier(app.info.user)  # the login role the probe runs as
     org_a, org_b = str(uuid.uuid4()), str(uuid.uuid4())
 
-    # Clean slate for the role (global object — must be idempotent).
-    cur.execute(f"DROP ROLE IF EXISTS {_TEST_ROLE}")
-    cur.execute(f"CREATE ROLE {_TEST_ROLE} NOLOGIN")
-    # Non-superuser owner so RLS actually applies (superusers bypass it).
-    cur.execute(f"SET ROLE {_TEST_ROLE}")
-    cur.execute(
-        "CREATE TEMP TABLE rls_probe ("
-        "  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),"
-        "  organization_id uuid NOT NULL,"
-        "  label text)"
-    )
-    # Exact production predicate for an org-scoped table.
-    pred = rls.policy_predicate("leads")
-    cur.execute(
-        f"CREATE POLICY p_probe ON rls_probe USING {pred} WITH CHECK {pred}"
-    )
-    cur.execute("ALTER TABLE rls_probe ENABLE ROW LEVEL SECURITY")
-    cur.execute("ALTER TABLE rls_probe FORCE ROW LEVEL SECURITY")
-
-    # Seed one row per org, under bypass.
-    _set_bypass(cur, True)
-    cur.execute(
-        "INSERT INTO rls_probe (organization_id, label) VALUES (%s,'A1'),(%s,'B1')",
-        (org_a, org_b),
-    )
-    _set_bypass(cur, False)
-    _set_org(cur, None)
+    # --- privileged role lifecycle on the ADMINISTRATIVE connection only ---
+    # Clean slate (global object — idempotent), then allow the app connection to
+    # assume the throwaway role so the probe can run as a guaranteed non-superuser.
+    acur.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(role))
+    acur.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(role))
+    acur.execute(sql.SQL("GRANT {} TO {}").format(role, app_user))
 
     try:
+        # --- everything below runs on the APP connection AS the throwaway
+        #     non-superuser role, so RLS actually applies (superusers bypass it) ---
+        cur.execute(sql.SQL("SET ROLE {}").format(role))
+        cur.execute(
+            "CREATE TEMP TABLE rls_probe ("
+            "  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),"
+            "  organization_id uuid NOT NULL,"
+            "  label text)"
+        )
+        # Exact production predicate for an org-scoped table.
+        pred = rls.policy_predicate("leads")
+        cur.execute(
+            f"CREATE POLICY p_probe ON rls_probe USING {pred} WITH CHECK {pred}"
+        )
+        cur.execute("ALTER TABLE rls_probe ENABLE ROW LEVEL SECURITY")
+        cur.execute("ALTER TABLE rls_probe FORCE ROW LEVEL SECURITY")
+
+        # Seed one row per org, under bypass.
+        _set_bypass(cur, True)
+        cur.execute(
+            "INSERT INTO rls_probe (organization_id, label) VALUES (%s,'A1'),(%s,'B1')",
+            (org_a, org_b),
+        )
+        _set_bypass(cur, False)
+        _set_org(cur, None)
+
         yield cur, org_a, org_b
     finally:
+        # App side: drop the probe-owned temp table (still SET ROLE'd), then reset
+        # and close — the temp table dies with the session regardless.
         try:
-            cur.execute("RESET ROLE")
             cur.execute("DROP TABLE IF EXISTS rls_probe")
-            cur.execute(f"DROP ROLE IF EXISTS {_TEST_ROLE}")
-        except Exception:  # noqa: BLE001
+            cur.execute("RESET ROLE")
+        except Exception:
             pass
-        conn.close()
+        app.close()
+        # Admin side: revoke membership + drop the throwaway role.
+        for stmt in (
+            sql.SQL("REVOKE {} FROM {}").format(role, app_user),
+            sql.SQL("DROP ROLE IF EXISTS {}").format(role),
+        ):
+            try:
+                acur.execute(stmt)
+            except Exception:
+                pass
+        admin.close()
 
 
 def test_tenant_a_cannot_read_tenant_b(rls_probe):

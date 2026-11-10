@@ -347,6 +347,10 @@ from aicmo.modules.creative.brief_router import router as creative_brief_router 
 
 app.include_router(creative_brief_router, prefix="/api/v1")
 
+from aicmo.modules.creative.gateway.router import router as creative_gateway_router  # noqa: E402
+
+app.include_router(creative_gateway_router, prefix="/api/v1")
+
 # Phase 6.5 — CRM core (pipelines, stages, deals + grounded AI next-action).
 from aicmo.modules.crm.router import router as crm_router  # noqa: E402
 
