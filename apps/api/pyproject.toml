@@ -13,9 +13,15 @@ dependencies = [
   "pydantic-settings>=2.14.2",  # Phase 5.7: GHSA-4xgf-cpjx-pc3j
   # Phase 5.7 — security floors for otherwise-transitive packages with known
   # CVEs (kept explicit so a future re-resolve can't silently drop below them).
+  # Phase 7.20 Stage 10 — raised for the 2026 CVE sweep surfaced by pip-audit.
   "starlette>=1.3.1",           # CVE-2026-48817/48818, PYSEC-2026-161/248/249
-  "pyjwt>=2.13.0",              # PYSEC-2026-175..179 (7 advisories)
-  "cryptography>=48.0.1",       # GHSA-537c-gmf6-5ccf
+  "pyjwt>=2.15.0",              # PYSEC-2026-4140..4183, GHSA-pxh4-856f-4h89
+  "cryptography>=50.0.0",       # 2026 advisories (was 48.0.1 / GHSA-537c-gmf6-5ccf)
+  "urllib3>=2.8.0",             # PYSEC-2026-4175/4176/4177 (via botocore/requests)
+  "certifi>=2026.10.18",        # 2026 CA-bundle advisory (via httpcore/requests)
+  "anyio>=4.14.2",              # 2026 advisory (via httpx/anthropic/google-genai)
+  "dnspython>=2.9.0",           # 2026 advisory (via email-validator → pydantic)
+  "pyasn1>=0.6.5",              # PYSEC-2026-3455/3456/3457, CVE-2026-119194..197
   # db
   "sqlalchemy[asyncio]>=2.0.36",
   "psycopg[binary,pool]>=3.2.3",
@@ -40,7 +46,7 @@ dependencies = [
   "sentry-sdk[fastapi]>=2.18.0",
   # trend intelligence
   "pytrends>=4.9.2",
-  "pillow>=12.2.0",
+  "pillow>=13.0.0",             # Phase 7.20 Stage 10 — 2026 CVE sweep (was 12.2.0)
   "imageio-ffmpeg>=0.6.0",
   "boto3>=1.43.37",
 ]
