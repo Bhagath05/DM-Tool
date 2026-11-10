@@ -113,8 +113,11 @@ async def run_reasoning(
             drafts = []
             for d in report.decisions:
                 kind, action_type = _action_type_for(d.affected_channels)
+                # Dedupe key for identical decision text. Not an authenticator;
+                # changing the algorithm would re-queue work already stored.
                 digest = hashlib.sha1(
-                    d.decision.lower().encode("utf-8")
+                    d.decision.lower().encode("utf-8"),
+                    usedforsecurity=False,
                 ).hexdigest()[:12]
                 drafts.append(scheduler.WorkDraft(
                     kind=kind, action_type=action_type,

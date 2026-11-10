@@ -60,7 +60,9 @@ def make_id(source_module: str, category: str, title: str) -> str:
     """Stable id from source+category+normalised title (also the dedupe basis)."""
     norm = _normalise_title(title)
     raw = f"{source_module}|{category}|{norm}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    # Content fingerprint for a stable feed id. Not an authenticator or
+    # integrity check; the digest is truncated and only distinguishes titles.
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
 def _normalise_title(title: str) -> str:
