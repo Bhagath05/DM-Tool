@@ -22,6 +22,7 @@ from aicmo.modules.coach.prompts import (
 )
 from aicmo.modules.coach.schemas import AnalyticsSummary
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -32,10 +33,31 @@ async def build_analytics_summary(
     session: AsyncSession,
     *,
     profile: BusinessProfileResponse,
+    tenant: TenantContext | None = None,
 ) -> AnalyticsSummary:
-    """Single public entry point. Read-only — never writes to the DB."""
+    """Single public entry point. Read-only — never writes to the DB. Grounded in
+    the brand's evidence-graded beliefs (Phase 7.17) when a tenant is supplied."""
+    from aicmo.modules.coach.grounding import coach_economics_block, resolve_coach_evidence
+
     composed = await _compose(session, profile=profile)
-    narrative = await _narrate(profile=profile, composed=composed)
+    belief_block, evidence = (
+        await resolve_coach_evidence(session, tenant=tenant)
+        if tenant is not None
+        else ("", None)
+    )
+    # Phase 7.20 Stage 3b.4 — read-only, brand-scoped Business Economics context so
+    # the summary can explain performance in financial terms. Reuses the canonical
+    # facet accessor + shared renderer; degrades to "" so a miss never breaks the
+    # advisory summary (the LLM never computes or upgrades a figure).
+    economics_block = (
+        await coach_economics_block(session, tenant=tenant) if tenant is not None else ""
+    )
+    narrative = await _narrate(
+        profile=profile,
+        composed=composed,
+        belief_block=belief_block,
+        economics_block=economics_block,
+    )
     return AnalyticsSummary(
         headline=narrative.headline,
         what_to_do_next=narrative.what_to_do_next,
@@ -46,6 +68,7 @@ async def build_analytics_summary(
         top_assets_blurb=narrative.top_assets_blurb,
         signals_used=composed["signals"],
         generated_at=datetime.now(UTC).isoformat(),
+        evidence_grounding=evidence,
     )
 
 
@@ -167,6 +190,8 @@ async def _narrate(
     *,
     profile: BusinessProfileResponse,
     composed: dict,
+    belief_block: str = "",
+    economics_block: str = "",
 ) -> AnalyticsSummary:
     router = get_llm_router()
     profile_stage = (
@@ -182,6 +207,8 @@ async def _narrate(
         sources_summary=composed["sources_summary"],
         landing_pages_summary=composed["landing_pages_summary"],
         top_assets_summary=composed["top_assets_summary"],
+        belief_block=belief_block,
+        economics_block=economics_block,
     )
     try:
         result = await router.generate(

@@ -61,6 +61,9 @@ async def generate(
     from aicmo.modules.strategist import grounding
 
     belief_block, evidence = await grounding.resolve_strategy_evidence(session, tenant=tenant)
+    # Phase 7.20 Stage 3b.2 — read-only, brand-scoped Business Economics context
+    # (resolved on the request path; reuses the canonical facet accessor + renderer).
+    economics_block = await grounding.resolve_strategy_economics(session, tenant=tenant)
     record = await service.create_pending(session, tenant=tenant)
     # Generate off the request path (big LLM call); the client polls /latest.
     background.add_task(
@@ -71,6 +74,7 @@ async def generate(
         goals_block,
         belief_block,
         evidence.model_dump(mode="json"),
+        economics_block=economics_block,
     )
     return MarketingStrategyResponse.model_validate(record)
 

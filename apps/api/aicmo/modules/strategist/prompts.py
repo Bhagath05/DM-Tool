@@ -33,6 +33,11 @@ explicitly flagging the conflict and your reason in the relevant `why`. When tha
 section says INSUFFICIENT_EVIDENCE, present the plan as an initial hypothesis grounded \
 in the business facts and calibrate the lead move's confidence down — never claim \
 proven results you do not have.
+- Respect the brand's BUSINESS ECONOMICS (the "Business economics" section): use every \
+financial figure EXACTLY as given — never invent, estimate, or 'upgrade' one. A \
+USER_STATED or VERIFIED value is authoritative; a SYSTEM_INFERRED figure is derived; an \
+INSUFFICIENT_EVIDENCE metric stays unknown (do NOT compute it yourself). Keep every \
+pillar affordable within the stated budget.
 
 Output only what the response schema asks for."""
 
@@ -42,6 +47,7 @@ def build_strategy_prompt(
     learning_block: str = "",
     goals_block: str = "",
     belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     products = ", ".join(profile.products) or "(not specified — infer from industry)"
     services = ", ".join(profile.services) or "(not specified — infer from industry)"
@@ -98,6 +104,9 @@ Competitors: {competitors}
 
 # What this brand has LEARNED from real results (evidence-graded beliefs — prefer these over guesses; do not contradict a high-confidence ACTIVE belief without flagging it)
 {belief_block or "(no validated beliefs yet — INSUFFICIENT_EVIDENCE; plan from the business facts above as an initial hypothesis)"}
+
+# Business economics (read-only — server-derived or owner-stated WITH provenance; never invent or change a figure, and keep every pillar affordable within the stated budget)
+{economics_block or "(no business economics captured — do not assume budget, price, margin, CAC or LTV)"}
 
 # Lessons learned so far (from this brand's real results — prefer these over guesses)
 {learning_block or "(no lessons learned yet — plan from the business facts above)"}

@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -220,6 +221,8 @@ export function WeeklyActionsCard() {
             </div>
           </details>
         )}
+
+        <EvidenceProvenance grounding={plan.evidence_grounding} />
       </CardContent>
     </Card>
   );

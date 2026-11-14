@@ -27,6 +27,7 @@ from aicmo.modules.brands.router import brand_router
 from aicmo.modules.brands.router import org_router as brands_org_router
 from aicmo.modules.bundles.router import router as bundles_router
 from aicmo.modules.business_brain.router import router as business_brain_router
+from aicmo.modules.business_dna.router import router as business_dna_router
 from aicmo.modules.campaigns.router import router as campaigns_router
 from aicmo.modules.coach.router import router as coach_router
 from aicmo.modules.competitors.router import router as competitors_router
@@ -147,6 +148,21 @@ async def lifespan(app: FastAPI):
             log.info("jobs.pool.ready")
         except Exception as e:
             log.warning("jobs.pool.unavailable", error=str(e))
+    # Phase 7.19 — validate the Ollama local-inference config at startup WITHOUT
+    # making it a hard dependency. Never raises: a misconfigured or disabled local
+    # provider must not block the API from booting (external providers still work).
+    try:
+        from aicmo.llm.ollama_config import get_ollama_config
+
+        _ollama_cfg = get_ollama_config()
+        if _ollama_cfg.enabled:
+            log.info(
+                "ollama.enabled", base_url=_ollama_cfg.base_url, model=_ollama_cfg.model
+            )
+        else:
+            log.info("ollama.disabled")
+    except Exception as e:
+        log.warning("ollama.config_invalid", error=str(e)[:200])
     yield
     pool = getattr(app.state, "arq_pool", None)
     if pool is not None:
@@ -255,6 +271,9 @@ async def readyz() -> JSONResponse:
 app.include_router(onboarding_router, prefix="/api/v1")
 app.include_router(discovery_router, prefix="/api/v1")
 app.include_router(business_brain_router, prefix="/api/v1")
+# Phase 7.20 Stage 1 — canonical, read-only Business DNA projection over the
+# existing intelligence stores (no new store/table/migration).
+app.include_router(business_dna_router, prefix="/api/v1")
 app.include_router(trends_router, prefix="/api/v1")
 # Phase 6.2B — ops routes (literal paths) BEFORE the base router so
 # /content/folders + /content/search aren't captured as /content/{content_id}.
@@ -327,6 +346,10 @@ app.include_router(creative_public_router, prefix="/api/v1")
 from aicmo.modules.creative.brief_router import router as creative_brief_router  # noqa: E402
 
 app.include_router(creative_brief_router, prefix="/api/v1")
+
+from aicmo.modules.creative.gateway.router import router as creative_gateway_router  # noqa: E402
+
+app.include_router(creative_gateway_router, prefix="/api/v1")
 
 # Phase 6.5 — CRM core (pipelines, stages, deals + grounded AI next-action).
 from aicmo.modules.crm.router import router as crm_router  # noqa: E402

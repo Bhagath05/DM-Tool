@@ -38,6 +38,7 @@ from aicmo.modules.onboarding.schemas import (
     BusinessProfileResponse,
 )
 from aicmo.modules.trends import service as trends_service
+from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
 
@@ -48,10 +49,24 @@ async def build_weekly_plan(
     session: AsyncSession,
     *,
     profile: BusinessProfileResponse,
+    tenant: TenantContext | None = None,
 ) -> WeeklyPlan:
-    """Single public entry point. Read-only, no DB writes."""
+    """Single public entry point. Read-only, no DB writes. Grounded in the
+    brand's evidence-graded beliefs (Phase 7.17) when a tenant is supplied."""
+    from aicmo.modules.coach.grounding import coach_economics_block, resolve_coach_evidence
+
     composed = await _compose_signals(session, profile=profile)
-    narrative = await _generate_narrative(profile=profile, composed=composed)
+    belief_block, evidence = (
+        await resolve_coach_evidence(session, tenant=tenant)
+        if tenant is not None
+        else ("", None)
+    )
+    economics_block = (
+        await coach_economics_block(session, tenant=tenant) if tenant is not None else ""
+    )
+    narrative = await _generate_narrative(
+        profile=profile, composed=composed, belief_block=belief_block, economics_block=economics_block
+    )
 
     return WeeklyPlan(
         headline=narrative.headline,
@@ -60,6 +75,7 @@ async def build_weekly_plan(
         skip_this_week=narrative.skip_this_week,
         signals_used=composed["signals"],
         generated_at=datetime.now(UTC).isoformat(),
+        evidence_grounding=evidence,
     )
 
 
@@ -223,6 +239,8 @@ async def _generate_narrative(
     *,
     profile: BusinessProfileResponse,
     composed: dict,
+    belief_block: str = "",
+    economics_block: str = "",
 ) -> _WeeklyPlanNarrative:
     router = get_llm_router()
     user_prompt = build_weekly_user_prompt(
@@ -234,6 +252,8 @@ async def _generate_narrative(
         trends_summary=composed["trends_summary"],
         analysis_phase_summary=composed["analysis_phase_summary"],
         analysis_channels=composed["analysis_channels"],
+        belief_block=belief_block,
+        economics_block=economics_block,
     )
     try:
         result = await router.generate(

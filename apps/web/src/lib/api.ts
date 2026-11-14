@@ -1556,6 +1556,33 @@ export type RiskKind =
 
 export type RiskSeverity = "info" | "watch" | "blocker";
 
+// ---------- Evidence provenance (Phase 7.18) ----------
+// Server-derived provenance shared by every evidence-grounded surface (Coach,
+// Strategist, …). Never written by the LLM. Mirrors
+// aicmo.modules.belief.grounding.{GroundedBelief,EvidenceGrounding}.
+
+export interface GroundedBelief {
+  category: string;
+  subject_key: string;
+  statement: string;
+  /** 0-100, server-derived and already freshness-adjusted. */
+  confidence: number;
+  evidence_count: number;
+  /** "active" (validated finding) | "contradicted" (newer outcomes undermine it). */
+  status: string;
+  /** Plain-language freshness band, e.g. "fresh (≤30d old)" / "stale (≥180d old)". */
+  freshness_reason?: string | null;
+}
+
+export interface EvidenceGrounding {
+  status: "grounded" | "insufficient_evidence";
+  belief_count: number;
+  beliefs: GroundedBelief[];
+  /** Beliefs newer outcomes have called into question — shown as "do not rely on". */
+  contradictions: GroundedBelief[];
+  note: string;
+}
+
 export interface RealityMilestone {
   timeframe: string;
   target: string;
@@ -1583,6 +1610,8 @@ export interface RealityCheck {
   risk_flags: RiskFlag[];
   strategic_notes: string[];
   score_signals: string[];
+  /** Phase 7.18 — server-derived evidence provenance; null when no validated beliefs yet. */
+  evidence_grounding?: EvidenceGrounding | null;
 }
 
 export interface RealityCheckPayload {
@@ -1634,6 +1663,8 @@ export interface WeeklyPlan {
   signals_used: string[];
   /** ISO timestamp; used for the 12h client-side cache decision. */
   generated_at: string;
+  /** Phase 7.18 — server-derived evidence provenance; null when no validated beliefs yet. */
+  evidence_grounding?: EvidenceGrounding | null;
 }
 
 // ---------- Rendered visuals (Phase 4-A) ----------
@@ -2606,6 +2637,8 @@ export interface AnalyticsSummary {
   top_assets_blurb: string;
   signals_used: string[];
   generated_at: string;
+  /** Phase 7.18 — server-derived evidence provenance; null when no validated beliefs yet. */
+  evidence_grounding?: EvidenceGrounding | null;
 }
 
 // ---------- Analytics types ----------

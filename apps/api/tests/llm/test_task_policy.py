@@ -218,7 +218,11 @@ async def test_explicit_override_wins_over_task_and_default():
 
 @pytest.mark.asyncio
 async def test_partial_explicit_override_merges_with_task_policy():
-    """Explicit provider only → model still from task policy."""
+    """Phase 7.19B: a provider-only override takes its model from the task policy
+    ONLY when the override matches the policy provider; a cross-provider override
+    never silently inherits the other provider's model — it raises a typed error."""
+    from aicmo.llm.policy import ProviderModelResolutionError
+
     router = LLMRouter()
     captured: dict[str, Any] = {}
 
@@ -237,6 +241,7 @@ async def test_partial_explicit_override_merges_with_task_policy():
         llm_default_model="gpt-5.6",
         llm_task_models="creative_generation:openai/gpt-4o-mini",
     )
+    # Same-provider override → model still resolved from the task policy.
     with (
         patch("aicmo.llm.router.get_settings", return_value=settings),
         patch.object(router, "_provider", return_value=fake_provider) as prov,
@@ -246,10 +251,23 @@ async def test_partial_explicit_override_merges_with_task_policy():
             system=None,
             messages=[LLMMessage(role="user", content="hi")],
             task="creative_generation",
+            provider="openai",
+        )
+    prov.assert_called_once_with("openai")
+    assert captured["model"] == "gpt-4o-mini"
+
+    # Cross-provider override (anthropic) must NOT inherit openai's policy model.
+    with (
+        patch("aicmo.llm.router.get_settings", return_value=settings),
+        pytest.raises(ProviderModelResolutionError),
+    ):
+        await router.generate(
+            response_schema=_TinyOut,
+            system=None,
+            messages=[LLMMessage(role="user", content="hi")],
+            task="creative_generation",
             provider="anthropic",
         )
-    prov.assert_called_once_with("anthropic")
-    assert captured["model"] == "gpt-4o-mini"
 
 
 @pytest.mark.asyncio

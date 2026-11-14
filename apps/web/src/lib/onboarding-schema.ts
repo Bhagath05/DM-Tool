@@ -62,7 +62,7 @@ export const stepGoalsSchema = z.object({
 
 export const stepBrandToneSchema = z.object({
   brand_tone: z.enum(BRAND_TONES, {
-    errorMap: () => ({ message: "Pick a brand tone" }),
+    error: "Pick a brand tone",
   }),
 });
 

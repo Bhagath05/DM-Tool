@@ -62,6 +62,8 @@ def test_make_id_stable_and_title_insensitive_to_punct():
     a = ranking.make_id("learning", "channel", "Instagram beats email!")
     b = ranking.make_id("learning", "channel", "instagram beats email")
     assert a == b  # normalised
+    # Pinned SHA-1 content id. This is a stable identifier, not a security hash.
+    assert a == "803be01ca039dbf3"
 
 
 def test_dedupe_collapses_cross_source_duplicates_keeping_highest():

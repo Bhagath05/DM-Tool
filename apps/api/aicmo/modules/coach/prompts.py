@@ -10,6 +10,51 @@ from aicmo.copy.banned_phrases import TONE_GUARDRAILS
 from aicmo.modules.coach.schemas import FeasibilityLabel
 from aicmo.modules.onboarding.schemas import BusinessProfileResponse
 
+# Phase 7.17 — one place the Coach renders the brand's evidence-graded beliefs
+# (from the shared belief-grounding foundation). Honest by default: an empty
+# memory is INSUFFICIENT_EVIDENCE, so the plan is a hypothesis, not a finding.
+_LEARNED_DISCIPLINE = (
+    "- Respect the brand's LEARNED BELIEFS: treat a high-confidence ACTIVE belief as "
+    "established and prefer it over a guess; never contradict one (or rely on a "
+    "CONTRADICTED belief) without saying so and why. When that section is "
+    "INSUFFICIENT_EVIDENCE, frame picks as hypotheses to validate, keep confidence "
+    "low, and never claim a learned result you do not have."
+)
+
+
+def _belief_section(belief_block: str) -> str:
+    body = belief_block or (
+        "(no validated beliefs yet — INSUFFICIENT_EVIDENCE; treat anything here as a "
+        "hypothesis to test, not a proven result)"
+    )
+    return (
+        "# What this brand has LEARNED (evidence-graded beliefs — prefer these over "
+        "guesses; never contradict a high-confidence ACTIVE belief without saying why)\n"
+        + body
+    )
+
+
+# Phase 7.20 Stage 3b.1 — the Coach reads the canonical Business DNA economics
+# facet (owner-stated + measured + deterministically-computed financials). The LLM
+# must never calculate or upgrade an authoritative figure.
+_ECONOMICS_DISCIPLINE = (
+    "- Respect the brand's BUSINESS ECONOMICS: use every financial figure EXACTLY as "
+    "given — never invent, estimate, or 'upgrade' one. A USER_STATED or VERIFIED value "
+    "is authoritative; a SYSTEM_INFERRED figure is derived; an INSUFFICIENT_EVIDENCE "
+    "metric stays unknown (do NOT compute it yourself). Keep every recommendation "
+    "affordable within the stated budget."
+)
+
+
+def _economics_section(economics_block: str) -> str:
+    body = economics_block or (
+        "(no business economics captured — do not assume budget, price, margin, CAC or LTV)"
+    )
+    return (
+        "# Business economics (read-only — server-derived or owner-stated with "
+        "provenance; never invent or change a figure)\n" + body
+    )
+
 SYSTEM_PROMPT = (
     """You are a senior growth strategist + honest mentor — \
 NOT a yes-man, NOT a naysayer. Your job is to translate AMBITION into \
@@ -42,6 +87,8 @@ clear "why this comes first" reasoning. Risk flags are specific. Strategic \
 notes are observations a real operator would mention.
 
 """
+    + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -54,6 +101,8 @@ def build_user_prompt(
     feasibility_score: int,
     feasibility_label: FeasibilityLabel,
     signals: list[str],
+    belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     platforms = ", ".join(profile.preferred_platforms) or "(none chosen)"
     location = profile.business_location or "(not specified)"
@@ -65,6 +114,10 @@ def build_user_prompt(
     )
 
     return f"""Produce a Reality Check for this founder's goal.
+
+{_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # The founder's goal
 "{goal_text}"
@@ -155,6 +208,8 @@ specific situation.
 'stretch'.
 
 """
+    + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -169,6 +224,8 @@ def build_weekly_user_prompt(
     trends_summary: str | None,
     analysis_phase_summary: str | None,
     analysis_channels: list[str],
+    belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     """Compose the user prompt for the weekly plan.
 
@@ -191,6 +248,10 @@ def build_weekly_user_prompt(
     channels_block = ", ".join(analysis_channels) or "(none yet)"
 
     return f"""Plan this founder's week.
+
+{_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # Business
 Name: {profile.business_name}
@@ -332,6 +393,8 @@ Output discipline:
 short honest blurb that says so — don't fabricate.
 
 """
+    + "\n" + _LEARNED_DISCIPLINE + "\n"
+    + _ECONOMICS_DISCIPLINE + "\n"
     + TONE_GUARDRAILS
 )
 
@@ -345,13 +408,22 @@ def build_analytics_summary_user_prompt(
     sources_summary: str,
     landing_pages_summary: str,
     top_assets_summary: str,
+    belief_block: str = "",
+    economics_block: str = "",
 ) -> str:
     """Compose the user prompt for the analytics summary.
 
     Each `*_summary` parameter is a pre-flattened string of facts produced
-    by the composer — the LLM only narrates, never queries.
+    by the composer — the LLM only narrates, never queries. ``economics_block``
+    (Phase 7.20 Stage 3b.4) is the canonical, provenance-tagged Business Economics
+    facet rendered by the shared renderer; the narrator uses it to explain
+    performance in financial terms, never to invent or recompute a figure.
     """
     return f"""Narrate this marketing dashboard for the founder.
+
+{_belief_section(belief_block)}
+
+{_economics_section(economics_block)}
 
 # Business
 {profile_name}{" — " + profile_stage if profile_stage else ""}

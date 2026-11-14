@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from aicmo.modules.business_dna.schemas import DnaFacet
 
 from aicmo.modules.advisor.brain import (
     BusinessBrain,
@@ -58,6 +62,11 @@ class IntelligenceSignals:
     # failure must never abort recommendation generation.
     belief_block: str = ""
     belief_grounding: EvidenceGrounding | None = None
+    # Phase 7.20 Stage 3 — the canonical Business Economics facet from the unified
+    # Business DNA read model (provenance-tagged owner-stated/measured/computed
+    # financials). Read-only; the LLM must never invent or upgrade a figure.
+    # Optional + defensive: a facet read failure must never abort recommendations.
+    economics_facet: DnaFacet | None = None
 
 
 async def gather_intelligence_signals(
@@ -97,6 +106,18 @@ async def gather_intelligence_signals(
             )
         except Exception as e:
             log.warning("advisor.belief_grounding_failed", error=str(e)[:200])
+
+    # Phase 7.20 Stage 3 — the canonical Business Economics facet (unified Business
+    # DNA). Read-only, facet-scoped (no full-DNA / no duplicate MB build). Defensive:
+    # a facet read failure must never abort recommendation generation.
+    economics_facet: DnaFacet | None = None
+    if tenant is not None and tenant.brand_id is not None:
+        try:
+            from aicmo.modules.business_dna.service import get_economics_facet
+
+            economics_facet = await get_economics_facet(session, tenant=tenant)
+        except Exception as e:
+            log.warning("advisor.economics_facet_failed", error=str(e)[:200])
 
     outcome_ctx = await load_outcome_context(session, brand_id=resolved_brand)
     connector_ctx = await load_connector_context(session, brand_id=resolved_brand)
@@ -166,6 +187,7 @@ async def gather_intelligence_signals(
         marketing_brain=marketing_brain,
         belief_block=belief_block,
         belief_grounding=belief_grounding,
+        economics_facet=economics_facet,
     )
 
 
@@ -266,6 +288,27 @@ def signals_to_prompt_block(signals: IntelligenceSignals, *, confidence_cap: int
     parts.extend(["", "=== 6. INTERNAL ANALYTICS ==="])
     for s in signals.analytics_signals:
         parts.append(f"- {s}")
+
+    # Phase 7.20 Stage 3 — Business Economics (read-only, provenance-tagged). The
+    # figures are server-derived or owner-stated; the model must use them as-is.
+    # Stage 3d: render via the canonical shared renderer (one source of truth — no
+    # inline duplicate), which also surfaces the reporting period when present.
+    parts.extend(["", "=== 7. BUSINESS ECONOMICS (read-only) ==="])
+    from aicmo.modules.business_dna.service import render_economics_block
+
+    econ = signals.economics_facet
+    rendered = render_economics_block(econ) if econ is not None else ""
+    if rendered:
+        parts.append(
+            "Use these figures EXACTLY as given. NEVER invent, estimate, or 'upgrade' "
+            "a financial number. An INSUFFICIENT_EVIDENCE metric stays unknown — do not "
+            "compute it yourself. A USER_STATED or VERIFIED value is authoritative."
+        )
+        parts.append(rendered)
+    else:
+        parts.append(
+            "No business economics captured — do not assume budget, margin, CAC or LTV."
+        )
 
     parts.append(
         "\nEvery recommendation MUST cite data_sources_used from the signals above. "

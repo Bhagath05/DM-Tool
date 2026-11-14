@@ -41,6 +41,12 @@ class GroundedBelief(BaseModel):
     confidence: int = Field(ge=0, le=100)
     evidence_count: int = Field(ge=0)
     status: str = "active"
+    # Phase 7.18 — plain-language freshness (server-derived at read time). The
+    # ``confidence`` above is ALREADY freshness-adjusted; this string explains the
+    # decay band ("fresh …" / "stale …") so a provenance surface can read a stale
+    # finding as stale. Optional for back-compat with already-persisted rows and
+    # with views built directly in tests.
+    freshness_reason: str | None = None
 
 
 class EvidenceGrounding(BaseModel):
@@ -64,6 +70,7 @@ def _to_grounded(view, *, status: str) -> GroundedBelief:
         confidence=conf,
         evidence_count=view.evidence_count,
         status=status,
+        freshness_reason=getattr(view, "freshness_reason", None),
     )
 
 

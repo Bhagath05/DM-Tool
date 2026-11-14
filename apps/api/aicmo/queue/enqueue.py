@@ -31,7 +31,12 @@ from typing import Any
 
 import structlog
 
-from aicmo.config import get_settings
+# Import the config MODULE (not the function) so get_settings is resolved at
+# call time. A module-level `from aicmo.config import get_settings` captures
+# whatever get_settings is bound to at first import — which, if this module is
+# first imported while a test has monkeypatched aicmo.config.get_settings, is a
+# stub that then leaks (monkeypatch restores aicmo.config, not this binding).
+from aicmo import config as _config
 from aicmo.tenancy.context import TenantContext
 
 log = structlog.get_logger()
@@ -57,7 +62,7 @@ class TenantEnvelope:
     role_slugs: list[str]
 
     @classmethod
-    def from_context(cls, tenant: TenantContext) -> "TenantEnvelope":
+    def from_context(cls, tenant: TenantContext) -> TenantEnvelope:
         return cls(
             user_uuid=str(tenant.user_uuid),
             organization_id=str(tenant.organization_id),
@@ -74,7 +79,7 @@ class TenantEnvelope:
         }
 
     @classmethod
-    def from_payload(cls, data: dict[str, Any]) -> "TenantEnvelope":
+    def from_payload(cls, data: dict[str, Any]) -> TenantEnvelope:
         return cls(
             user_uuid=data["user_uuid"],
             organization_id=data["organization_id"],
@@ -106,7 +111,7 @@ async def enqueue_tenant_job(
     no pool is available — callers must treat enqueue as best-effort and
     never depend on a return value for correctness.
     """
-    settings = get_settings()
+    settings = _config.get_settings()
     if not settings.jobs_enabled:
         log.info("jobs.disabled.skip_enqueue", function=function_name)
         return None

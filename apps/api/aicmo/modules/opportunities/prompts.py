@@ -57,6 +57,20 @@ in Professional Mode. Use it to cite specific channels, asset names, \
 lead messages. Empty array is valid when the evidence is already in \
 `reason`.
 
+Business economics (read-only):
+- The "Business economics" block gives server-derived or owner-stated \
+figures WITH provenance. Use them to EXPLAIN and PRIORITISE opportunities \
+— never to invent one. A clearly-affordable, high-margin move can rank \
+higher; a move the stated budget can't cover ranks lower or belongs in \
+`skip_for_now`.
+- Use every figure EXACTLY as given. NEVER invent, estimate, or 'upgrade' \
+a number — revenue, CAC, ROAS, margin, budget or LTV. A USER_STATED or \
+VERIFIED value is authoritative; a SYSTEM_INFERRED figure is derived; an \
+INSUFFICIENT_EVIDENCE metric stays unknown (do NOT compute it yourself).
+- Financial context ALONE never justifies an opportunity: every pick must \
+still be grounded in a specific non-financial signal (a lead, channel, \
+asset or trend). Economics only sharpens the `why` and the ranking.
+
 Hero recommendation:
 - ONE action. The single most leveraged move across content + ads. \
 If the founder can only do one thing this week, what is it?
@@ -84,8 +98,14 @@ def build_opportunity_user_prompt(
     signals: list[str],
     memory_block: str | None = None,
     belief_block: str | None = None,
+    economics_block: str | None = None,
 ) -> str:
-    """Compose the user prompt — all signals pre-flattened by the composer."""
+    """Compose the user prompt — all signals pre-flattened by the composer.
+
+    ``economics_block`` (Phase 7.20 Stage 3b.3) is the canonical, provenance-tagged
+    Business Economics facet rendered by the shared renderer. Read-only context: it
+    helps the model explain + prioritise opportunities grounded in the other signals,
+    never invent one and never recompute a figure."""
     platforms = ", ".join(profile.preferred_platforms) or "(none chosen)"
     location = profile.business_location or "(not specified)"
     leads_band = profile.current_monthly_leads_band or "(not specified)"
@@ -102,6 +122,15 @@ def build_opportunity_user_prompt(
         if belief_block
         else "# Learned beliefs\n(no validated beliefs yet — INSUFFICIENT_EVIDENCE; "
         "treat picks as hypotheses to validate)"
+    )
+    economics_section = (
+        "# Business economics (read-only — server-derived or owner-stated WITH "
+        "provenance; never invent or change a figure; use it to prioritise + explain, "
+        "not to invent an opportunity, and keep picks affordable within the stated "
+        "budget)\n" + economics_block
+        if economics_block
+        else "# Business economics\n(no business economics captured — do not assume "
+        "budget, price, margin, CAC or LTV)"
     )
 
     return f"""Pick this founder's content + ad opportunities for this week.
@@ -143,6 +172,8 @@ Audience: {profile.target_audience}
 {memory_section}
 
 {belief_section}
+
+{economics_section}
 
 # Your job
 

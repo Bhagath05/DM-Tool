@@ -61,6 +61,29 @@ def _assert_safe_text(*values: str | None) -> None:
             raise BeliefValidationError("Refusing to store a belief that contains a secret-like value.")
 
 
+# One static statement per allowlisted table. The identifier is a literal,
+# never interpolated from the request. Keys must match DB_BACKED_REFS.
+_OWNERSHIP_SQL: dict[str, str] = {
+    EvidenceRefKind.BRAIN_EVIDENCE.value: (
+        "SELECT 1 FROM brain_evidence WHERE id = :id AND brand_id = :brand"
+    ),
+    EvidenceRefKind.ADVISOR_RECOMMENDATION.value: (
+        "SELECT 1 FROM advisor_recommendations WHERE id = :id AND brand_id = :brand"
+    ),
+    EvidenceRefKind.ADVISOR_OUTCOME.value: (
+        "SELECT 1 FROM advisor_outcomes WHERE id = :id AND brand_id = :brand"
+    ),
+    EvidenceRefKind.LEARNING_INSIGHT.value: (
+        "SELECT 1 FROM learning_insights WHERE id = :id AND brand_id = :brand"
+    ),
+}
+if set(_OWNERSHIP_SQL) != set(DB_BACKED_REFS) or any(
+    f"FROM {table_name} " not in _OWNERSHIP_SQL[kind]
+    for kind, table_name in DB_BACKED_REFS.items()
+):
+    raise RuntimeError("belief ownership SQL must cover exactly DB_BACKED_REFS")
+
+
 def _bounded_scope(scope: dict) -> dict:
     if not isinstance(scope, dict):
         raise BeliefValidationError("scope must be an object.")
@@ -83,10 +106,9 @@ async def _validate_ref_ownership(
     if ref.ref_id is None:
         raise BeliefValidationError(f"{ref.ref_kind.value} evidence requires a ref_id.")
     _assert_safe_text(ref.note)
-    table = DB_BACKED_REFS[ref.ref_kind.value]  # hardcoded allowlist — safe
     row = (
         await session.execute(
-            text(f"SELECT 1 FROM {table} WHERE id = :id AND brand_id = :brand"),
+            text(_OWNERSHIP_SQL[ref.ref_kind.value]),
             {"id": ref.ref_id, "brand": tenant.brand_id},
         )
     ).first()

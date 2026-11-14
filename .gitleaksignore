@@ -1,0 +1,23 @@
+# gitleaks ignore file — fingerprint allowlist (narrowest possible scope).
+#
+# Each line below is ONE exact gitleaks fingerprint of the form
+#   <commit>:<file>:<ruleID>:<startLine>
+# so it exempts only that single historical finding — not the file, not the
+# rule, not a path or regex. Full-history secret scanning stays enabled; any
+# NEW secret (including any new occurrence of this rule) is still reported.
+#
+# Why these two are exempt:
+#   The value matched by rule `postgres-url-with-password` in
+#   .github/workflows/security.yml at commit aa1ae5f is the project's
+#   development-only PLACEHOLDER Postgres credential (password == username ==
+#   db name). It authenticates ONLY against the ephemeral CI Postgres service
+#   container (created and destroyed each workflow run) and a developer's
+#   localhost database. It is NOT a production credential: production injects
+#   DATABASE_URL from the environment and is guarded by
+#   validate_production_secrets(), which refuses to boot on the default. The
+#   same placeholder is intentionally present in .env.example and the config
+#   default. The current workflow no longer embeds it (the DSN password was
+#   moved to PGPASSWORD in commit a7c7606); these two entries cover only the
+#   historical occurrence that remains in this branch's commit history.
+aa1ae5fc520c2c995bfe15903ef1431170ece5c6:.github/workflows/security.yml:postgres-url-with-password:143
+aa1ae5fc520c2c995bfe15903ef1431170ece5c6:.github/workflows/security.yml:postgres-url-with-password:144

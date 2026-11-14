@@ -25,7 +25,8 @@ from typing import Iterable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import column, delete, func, quoted_name, select, table
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aicmo.modules.audit import service as audit_service
@@ -554,6 +555,10 @@ async def archive_org(
 # `purge_organization` is the irreversible hard delete: drop the org row
 # and let ON DELETE CASCADE (167 FKs) remove the rest.
 
+# Catalog names are not request input. Only a plain identifier is deleted;
+# anything else fails closed instead of being spliced into SQL.
+_SAFE_SQL_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 RESET_PRESERVE_TABLES: frozenset[str] = frozenset(
     {
         # identity / RBAC / structure — the workspace itself survives
@@ -650,16 +655,21 @@ async def reset_organization_data(
         still: list[str] = []
         progressed = False
         for tbl in remaining:
+            if not _SAFE_SQL_IDENT.fullmatch(tbl):
+                log.warning("org.reset.rejected_table_name", table=str(tbl)[:80])
+                still.append(tbl)
+                continue
             try:
                 async with session.begin_nested():
-                    res = await session.execute(
-                        text(
-                            f'DELETE FROM "{tbl}" '
-                            "WHERE organization_id = :oid"
-                        ),
-                        {"oid": str(org_id)},
+                    target = table(
+                        quoted_name(tbl, quote=True),
+                        column("organization_id", PG_UUID(as_uuid=True)),
+                        schema="public",
                     )
-                    deleted = int(res.rowcount or 0)
+                    res = await session.execute(
+                        delete(target).where(target.c.organization_id == org_id)
+                    )
+                    deleted = int(getattr(res, "rowcount", 0) or 0)
             except IntegrityError:
                 # Blocked by a child row in a table we haven't drained
                 # yet — retry on the next pass.

@@ -23,7 +23,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 import { AiCoachPanel } from "./ai-coach-panel";
-import type { WeeklyPlan } from "@/lib/api";
+import type { EvidenceGrounding, WeeklyPlan } from "@/lib/api";
 
 function plan(confidence = 70): WeeklyPlan {
   return {
@@ -51,7 +51,70 @@ function plan(confidence = 70): WeeklyPlan {
   };
 }
 
+const grounded: EvidenceGrounding = {
+  status: "grounded",
+  belief_count: 2,
+  beliefs: [
+    {
+      category: "channel", subject_key: "channel:ig",
+      statement: "Reels beat static for leads",
+      confidence: 84, evidence_count: 4, status: "active",
+      freshness_reason: "Current — evidence is fresh (≤30d old); confidence held at 84%.",
+    },
+    {
+      category: "channel", subject_key: "channel:email",
+      statement: "Email drove signups last year",
+      confidence: 51, evidence_count: 3, status: "active",
+      freshness_reason: "Aged down from 80% to 51% — evidence is stale (≥180d old).",
+    },
+  ],
+  contradictions: [
+    {
+      category: "offer", subject_key: "offer:discount",
+      statement: "Discounts hurt margin",
+      confidence: 28, evidence_count: 2, status: "contradicted", freshness_reason: null,
+    },
+  ],
+  note: "Grounded in measured outcomes; confidence is server-derived.",
+};
+
+function planWith(grounding: EvidenceGrounding | null): WeeklyPlan {
+  return { ...plan(70), evidence_grounding: grounding };
+}
+
 afterEach(() => vi.clearAllMocks());
+
+describe("AiCoachPanel evidence provenance (Phase 7.18a)", () => {
+  it("surfaces supporting beliefs with server-derived confidence + freshness, and contradictions", async () => {
+    weekly.mockResolvedValue(planWith(grounded));
+    render(<AiCoachPanel />);
+    expect(await screen.findByText("Why this recommendation?")).toBeInTheDocument();
+    expect(screen.getByText("Reels beat static for leads")).toBeInTheDocument();
+    expect(screen.getByText("84% sure")).toBeInTheDocument();
+    expect(screen.getByText(/stale \(≥180d old\)/)).toBeInTheDocument();
+    expect(screen.getByTestId("contradictions")).toBeInTheDocument();
+    expect(screen.getByText("Discounts hurt margin")).toBeInTheDocument();
+  });
+
+  it("is honest when evidence is insufficient (hypothesis, not proven)", async () => {
+    weekly.mockResolvedValue(
+      planWith({
+        status: "insufficient_evidence", belief_count: 0, beliefs: [], contradictions: [],
+        note: "No validated beliefs from past results yet — a hypothesis.",
+      }),
+    );
+    render(<AiCoachPanel />);
+    expect(await screen.findByTestId("insufficient-evidence")).toBeInTheDocument();
+    expect(screen.queryByTestId("supporting-belief")).not.toBeInTheDocument();
+  });
+
+  it("renders the card without a provenance panel when none is attached (missing provenance)", async () => {
+    weekly.mockResolvedValue(planWith(null));
+    render(<AiCoachPanel />);
+    expect(await screen.findByTestId("ai-coach-card")).toBeInTheDocument();
+    expect(screen.queryByText("Why this recommendation?")).not.toBeInTheDocument();
+  });
+});
 
 describe("AiCoachPanel evidence honesty", () => {
   it("frames confidence as the AI's own estimate, not 'calibrated to the data'", async () => {

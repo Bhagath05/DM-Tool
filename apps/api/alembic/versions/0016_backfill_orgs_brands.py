@@ -77,7 +77,7 @@ def upgrade() -> None:
     user_ids: set[str] = set()
     for table in BUSINESS_TABLES:
         result = bind.execute(
-            sa.text(f"SELECT DISTINCT user_id FROM {table} WHERE user_id IS NOT NULL")
+            sa.text(f"SELECT DISTINCT user_id FROM {table} WHERE user_id IS NOT NULL")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- {table} is the hardcoded BUSINESS_TABLES constant (static DDL/DML migration), not request input; read-only
         )
         user_ids.update(row[0] for row in result)
 
@@ -219,7 +219,7 @@ def upgrade() -> None:
         # 3. UPDATE every business table for this user.
         for table in BUSINESS_TABLES:
             bind.execute(
-                sa.text(
+                sa.text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- {table} is the hardcoded BUSINESS_TABLES constant (static migration), not request input; data values bound (:oid, :bid, :uid)
                     f"""
                     UPDATE {table}
                     SET organization_id = :oid, brand_id = :bid
@@ -241,7 +241,7 @@ def _assert_invariant(bind: sa.engine.Connection) -> None:
     Triggers transaction rollback so we never end up in a half-state."""
     for table in BUSINESS_TABLES:
         unscoped = bind.execute(
-            sa.text(
+            sa.text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- {table} is the hardcoded BUSINESS_TABLES constant (static migration), not request input; read-only invariant count
                 f"SELECT count(*) FROM {table} "
                 "WHERE organization_id IS NULL OR brand_id IS NULL"
             )
@@ -265,7 +265,7 @@ def downgrade() -> None:
     bind = op.get_bind()
     for table in BUSINESS_TABLES:
         bind.execute(
-            sa.text(
+            sa.text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- {table} is the hardcoded BUSINESS_TABLES constant (static downgrade migration), not request input; no bound values
                 f"UPDATE {table} SET organization_id = NULL, brand_id = NULL"
             )
         )

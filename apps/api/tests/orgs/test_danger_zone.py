@@ -35,6 +35,15 @@ def _org_row(**overrides):
 # ---------------------------------------------------------------------
 
 
+def test_reset_identifier_guard_rejects_quotes() -> None:
+    """A catalog name with quotes or spaces is not a safe SQL identifier."""
+    assert service._SAFE_SQL_IDENT.fullmatch("business_profiles")
+    assert service._SAFE_SQL_IDENT.fullmatch("learning_insights")
+    assert not service._SAFE_SQL_IDENT.fullmatch('bad"name')
+    assert not service._SAFE_SQL_IDENT.fullmatch("bad name")
+    assert not service._SAFE_SQL_IDENT.fullmatch("bad;drop")
+
+
 def test_preserve_set_keeps_workspace_shell() -> None:
     """The reset must NOT wipe the structural / billing / connection
     tables — otherwise it'd be a delete, not a reset."""

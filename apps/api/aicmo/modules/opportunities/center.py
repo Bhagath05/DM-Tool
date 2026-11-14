@@ -117,12 +117,21 @@ async def build_opportunity_center(
         except Exception as e:
             log.warning("opportunities.belief_grounding_failed", error=str(e)[:200])
 
+    # Phase 7.20 Stage 3b.3 — read-only, brand-scoped Business Economics context for
+    # the legacy narrative path (the unified-intelligence path already carries it via
+    # advisor signals). Reuses the canonical accessor + shared renderer; degrades to
+    # "" so a facet miss never aborts the report.
+    economics_block: str = ""
+    if tenant is not None and tenant.brand_id is not None:
+        economics_block = await resolve_opportunity_economics(session, tenant=tenant)
+
     narrative = await _generate_narrative(
         profile=profile,
         composed=composed,
         memory_block=memory_block,
         memory_rows=memory_rows if settings.advisor_engine_enabled else None,
         belief_block=belief_block,
+        economics_block=economics_block,
     )
     report = _assemble_report(narrative=narrative, composed=composed)
 
@@ -134,6 +143,34 @@ async def build_opportunity_center(
             signals=composed["signals"],
         )
     return report
+
+
+# ---------------------------------------------------------------------
+#  Business Economics grounding (Phase 7.20 Stage 3b.3)
+# ---------------------------------------------------------------------
+
+
+async def resolve_opportunity_economics(
+    session: AsyncSession, *, tenant: TenantContext
+) -> str:
+    """The brand's Business Economics as a deterministic, provenance-tagged prompt
+    block, or "" when nothing is captured / on any failure (never raises — the
+    Opportunity Center must always return a usable report).
+
+    Reuses the canonical, facet-scoped accessor + shared renderer (no duplicate
+    economics calculation, no second source of truth). Brand-scoped via TenantContext;
+    read-only; the LLM never calculates or upgrades a figure."""
+    try:
+        from aicmo.modules.business_dna.service import (
+            get_economics_facet,
+            render_economics_block,
+        )
+
+        facet = await get_economics_facet(session, tenant=tenant)
+    except Exception as e:
+        log.warning("opportunities.economics_facet_failed", error=str(e)[:200])
+        return ""
+    return render_economics_block(facet)
 
 
 # ---------------------------------------------------------------------
@@ -360,6 +397,7 @@ async def _generate_narrative(
     memory_block: str | None = None,
     memory_rows: list[AdvisorRecommendation] | None = None,
     belief_block: str | None = None,
+    economics_block: str | None = None,
 ) -> _OpportunityCenterNarrative:
     from aicmo.config import get_settings
 
@@ -375,6 +413,7 @@ async def _generate_narrative(
         signals=composed["signals"],
         memory_block=memory_block,
         belief_block=belief_block,
+        economics_block=economics_block,
     )
     try:
         result = await router.generate(

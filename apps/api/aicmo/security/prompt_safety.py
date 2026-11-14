@@ -76,20 +76,31 @@ _OVERRIDE_PHRASES: tuple[re.Pattern[str], ...] = (
     re.compile(r"reveal\s+(your|the)\s+(system\s+)?prompt", re.IGNORECASE),
 )
 
-# Null + most C0 control chars. Tabs (\t) and newlines (\n, \r) kept —
-# users legitimately use them in multi-line descriptions.
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-
-# Zero-width / bidi-override chars that hide injection text inside
-# innocent-looking strings.
-_ZERO_WIDTH_RE = re.compile(
-    r"[​-‏‪-‮⁠-⁤﻿]"
-)
+# Tabs and newlines are the only control characters kept. Everything else
+# in these Unicode categories is removed:
+#   Cc  C0/C1 controls (null, DEL, next-line, …)
+#   Cf  format chars: zero-width, bidi embeddings/overrides/isolates
+#       (U+202A-U+202E, U+2066-U+2069), word joiners, BOM, unicode tags
+#   Zl/Zp  line and paragraph separators, which bypass newline collapsing
+# Ranges are expressed by category so the source file contains no raw
+# bidirectional controls (Trojan Source, CVE-2021-42574) and so isolates
+# that a literal U+200B-U+2064 class misses are still stripped.
+_KEPT_CONTROLS = frozenset("\t\n\r")
+_STRIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 
 # 4+ consecutive newlines → 2. Long blank gaps are a common pivot.
 _EXCESSIVE_NEWLINES_RE = re.compile(r"\n{4,}")
 
 _OVERRIDE_PLACEHOLDER = "[redacted by prompt-safety]"
+
+
+def _strip_unsafe_unicode(value: str) -> str:
+    """Remove control and format characters that hide or reorder prompt text."""
+    return "".join(
+        ch
+        for ch in value
+        if ch in _KEPT_CONTROLS or unicodedata.category(ch) not in _STRIPPED_CATEGORIES
+    )
 
 
 def sanitize_prompt_input(
@@ -117,9 +128,8 @@ def sanitize_prompt_input(
     #    homoglyphs or compatibility forms.
     cleaned = unicodedata.normalize("NFKC", value)
 
-    # 2. Drop zero-width + control chars.
-    cleaned = _ZERO_WIDTH_RE.sub("", cleaned)
-    cleaned = _CONTROL_CHAR_RE.sub("", cleaned)
+    # 2. Drop bidi/zero-width format chars and control chars.
+    cleaned = _strip_unsafe_unicode(cleaned)
 
     # 3. Strip chat role markers.
     for pat in _ROLE_MARKER_PATTERNS:

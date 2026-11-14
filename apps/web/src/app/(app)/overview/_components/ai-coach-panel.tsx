@@ -21,6 +21,7 @@
 import { Compass, Sparkles, Wand2, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { EvidenceProvenance } from "@/components/evidence-provenance";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfidenceBar } from "@/components/ui/confidence-bar";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -30,6 +31,7 @@ import {
   api,
   ApiError,
   type ActionPriority,
+  type EvidenceGrounding,
   type ImpactCategory,
   type WeeklyAction,
   type WeeklyPlan,
@@ -127,7 +129,9 @@ export function AiCoachPanel() {
         />
       )}
 
-      {state.kind === "ready" && <CoachCard action={state.top} />}
+      {state.kind === "ready" && (
+        <CoachCard action={state.top} grounding={state.plan.evidence_grounding} />
+      )}
     </section>
   );
 }
@@ -136,7 +140,13 @@ export function AiCoachPanel() {
 //  Coach hero card — premium AI container
 // ---------------------------------------------------------------------
 
-function CoachCard({ action }: { action: WeeklyAction }) {
+function CoachCard({
+  action,
+  grounding,
+}: {
+  action: WeeklyAction;
+  grounding?: EvidenceGrounding | null;
+}) {
   const priority = PRIORITY_LABEL[action.priority];
   const impactLabel = IMPACT_LABEL[action.impact_category];
 
@@ -216,6 +226,11 @@ function CoachCard({ action }: { action: WeeklyAction }) {
             </p>
           </div>
         </div>
+
+        {/* Phase 7.18a — evidence trace: which validated beliefs support this
+            action, their server-derived confidence + freshness, and any
+            contradictions. Renders nothing when no provenance was attached. */}
+        <EvidenceProvenance grounding={grounding} />
       </div>
     </article>
   );

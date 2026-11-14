@@ -98,3 +98,10 @@ class BusinessProfile(Base, TimestampMixin, TenantMixin):
     analysis_status: Mapped[str] = mapped_column(String(16), default="pending")
     analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ---- Phase 7.20 Stage 2b — Business Economics (structured inputs) ----
+    # Brand-scoped, provenance-tagged financial inputs (price, costs, LTV inputs,
+    # budget, targets, currency, period). DISTINCT from `analysis`: it is never
+    # written by the onboarding AI analyzer, so re-analysis cannot erase it.
+    # Validated on write by business_dna.economics_schema.BusinessEconomics.
+    economics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
