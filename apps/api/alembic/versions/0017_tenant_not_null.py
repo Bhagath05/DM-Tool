@@ -56,7 +56,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     for table in BUSINESS_TABLES:
         null_count = bind.execute(
-            sa.text(
+            sa.text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- {table} is the hardcoded BUSINESS_TABLES constant (static migration), not request input; read-only pre-NOT-NULL guard
                 f"SELECT count(*) FROM {table} "
                 "WHERE organization_id IS NULL OR brand_id IS NULL"
             )
